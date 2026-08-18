@@ -11,32 +11,37 @@ import (
 )
 
 type clientDefinition struct {
-	ID       string
-	Name     string
-	Commands []string
-	Kind     configKind
-	Paths    func(home string) []string
+	ID              string
+	Name            string
+	Commands        []string
+	ExecutablePaths func(home string) []string
+	Kind            configKind
+	Paths           func(home string) []string
+	Supported       func() bool
+	NPMPackage      string
+	DownloadURL     string
 }
 
 func clientDefinitions() []clientDefinition {
 	return []clientDefinition{
-		{ID: "claude", Name: "Claude Code", Commands: []string{"claude"}, Kind: configJSON, Paths: func(home string) []string {
+		{ID: "claude", Name: "Claude Code终端", Commands: []string{"claude"}, Kind: configJSON, NPMPackage: "@anthropic-ai/claude-code", DownloadURL: "https://docs.anthropic.com/en/docs/claude-code/setup", Paths: func(home string) []string {
 			return []string{filepath.Join(home, ".claude", "settings.json"), filepath.Join(home, ".claude", "claude.json")}
 		}},
-		{ID: "codex", Name: "ChatGPT/Codex Cli/Codex插件", Commands: []string{"codex"}, Kind: configTOML, Paths: func(home string) []string {
+		{ID: "claude-desktop", Name: "Claude Code客户端", ExecutablePaths: claudeDesktopExecutablePaths, Kind: configJSON, Paths: claudeDesktopConfigPaths, Supported: claudeDesktopSupported, DownloadURL: "https://claude.com/download"},
+		{ID: "codex", Name: "ChatGPT/Codex Cli/Codex插件", Commands: []string{"codex"}, Kind: configTOML, NPMPackage: "@openai/codex", DownloadURL: "https://developers.openai.com/codex/cli/", Paths: func(home string) []string {
 			return []string{filepath.Join(home, ".codex", "config.toml")}
 		}},
-		{ID: "gemini", Name: "Gemini CLI", Commands: []string{"gemini"}, Kind: configEnv, Paths: func(home string) []string {
+		{ID: "gemini", Name: "Gemini CLI", Commands: []string{"gemini"}, Kind: configEnv, NPMPackage: "@google/gemini-cli", DownloadURL: "https://github.com/google-gemini/gemini-cli", Paths: func(home string) []string {
 			return []string{filepath.Join(home, ".gemini", ".env")}
 		}},
-		{ID: "grok", Name: "Grok Build", Commands: []string{"grok", "grok-build"}, Kind: configTOML, Paths: func(home string) []string {
+		{ID: "grok", Name: "Grok Build", Commands: []string{"grok", "grok-build"}, Kind: configTOML, NPMPackage: "@xai-official/grok", DownloadURL: "https://x.ai/grok", Paths: func(home string) []string {
 			return []string{filepath.Join(home, ".grok", "config.toml")}
 		}},
-		{ID: "opencode", Name: "OpenCode", Commands: []string{"opencode"}, Kind: configJSON5, Paths: opencodePaths},
-		{ID: "openclaw", Name: "OpenClaw", Commands: []string{"openclaw"}, Kind: configJSON5, Paths: func(home string) []string {
+		{ID: "opencode", Name: "OpenCode", Commands: []string{"opencode"}, Kind: configJSON5, NPMPackage: "opencode-ai", DownloadURL: "https://opencode.ai/docs", Paths: opencodePaths},
+		{ID: "openclaw", Name: "OpenClaw", Commands: []string{"openclaw"}, Kind: configJSON5, NPMPackage: "openclaw", DownloadURL: "https://docs.openclaw.ai/", Paths: func(home string) []string {
 			return []string{filepath.Join(home, ".openclaw", "openclaw.json")}
 		}},
-		{ID: "hermes", Name: "Hermes Agent", Commands: []string{"hermes"}, Kind: configYAML, Paths: hermesPaths},
+		{ID: "hermes", Name: "Hermes Agent", Commands: []string{"hermes"}, Kind: configYAML, DownloadURL: "https://github.com/NousResearch/hermes-agent", Paths: hermesPaths},
 	}
 }
 
@@ -76,8 +81,14 @@ func scanEnvironment() EnvironmentReport {
 		Clients:   make([]ClientStatus, 0, len(clientDefinitions())),
 	}
 	for _, definition := range clientDefinitions() {
-		status := ClientStatus{ID: definition.ID, Name: definition.Name, ConfigState: "missing"}
-		if executable := findExecutable(definition.Commands); executable != "" {
+		status := ClientStatus{ID: definition.ID, Name: definition.Name, Supported: clientSupported(definition), ConfigState: "missing"}
+		if !status.Supported {
+			status.ConfigState = "unsupported"
+			status.Detail = "当前系统暂不支持此客户端的自动配置"
+			report.Clients = append(report.Clients, status)
+			continue
+		}
+		if executable := findClientExecutable(definition, home); executable != "" {
 			status.Installed = true
 			status.ExecutablePath = executable
 			status.Version = executableVersion(executable)
@@ -102,6 +113,33 @@ func scanEnvironment() EnvironmentReport {
 		report.Clients = append(report.Clients, status)
 	}
 	return report
+}
+
+func clientDefinitionForID(id string) (clientDefinition, bool) {
+	id = strings.ToLower(strings.TrimSpace(id))
+	for _, definition := range clientDefinitions() {
+		if definition.ID == id {
+			return definition, true
+		}
+	}
+	return clientDefinition{}, false
+}
+
+func clientSupported(definition clientDefinition) bool {
+	return definition.Supported == nil || definition.Supported()
+}
+
+func findClientExecutable(definition clientDefinition, home string) string {
+	if executable := findExecutable(definition.Commands); executable != "" {
+		return executable
+	}
+	for _, candidate := range definition.ExecutablePaths(home) {
+		info, err := os.Stat(candidate)
+		if err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	return ""
 }
 
 func findExecutable(commands []string) string {

@@ -14,12 +14,36 @@ export function Configure(arg1) {
   return window['go']['main']['App']['Configure'](arg1);
 }
 
+export function ConfigureExistingTool(arg1) {
+  return window['go']['main']['App']['ConfigureExistingTool'](arg1);
+}
+
+export function ConfigureProvisionedTool(arg1) {
+  return window['go']['main']['App']['ConfigureProvisionedTool'](arg1);
+}
+
+export function ConfigureTool(arg1) {
+  return window['go']['main']['App']['ConfigureTool'](arg1);
+}
+
+export function CreateToolKey(arg1) {
+  return window['go']['main']['App']['CreateToolKey'](arg1);
+}
+
 export function DeleteBackup(arg1) {
   return window['go']['main']['App']['DeleteBackup'](arg1);
 }
 
 export function FetchModels(arg1) {
   return window['go']['main']['App']['FetchModels'](arg1);
+}
+
+export function GetAccountState() {
+  return window['go']['main']['App']['GetAccountState']();
+}
+
+export function GetAccountToolOptions(arg1) {
+  return window['go']['main']['App']['GetAccountToolOptions'](arg1);
 }
 
 export function GetAppInfo() {
@@ -30,12 +54,32 @@ export function GetBackupRoot() {
   return window['go']['main']['App']['GetBackupRoot']();
 }
 
+export function GetClientConfiguration(arg1, arg2) {
+  return window['go']['main']['App']['GetClientConfiguration'](arg1, arg2);
+}
+
+export function GetConfiguredToolModels(arg1) {
+  return window['go']['main']['App']['GetConfiguredToolModels'](arg1);
+}
+
 export function GetPublicGroupRatios() {
   return window['go']['main']['App']['GetPublicGroupRatios']();
 }
 
+export function GetToolLifecycleInfo(arg1) {
+  return window['go']['main']['App']['GetToolLifecycleInfo'](arg1);
+}
+
 export function ListBackups() {
   return window['go']['main']['App']['ListBackups']();
+}
+
+export function LoginAccount(arg1) {
+  return window['go']['main']['App']['LoginAccount'](arg1);
+}
+
+export function LogoutAccount() {
+  return window['go']['main']['App']['LogoutAccount']();
 }
 
 export function OpenExternalURL(arg1) {
@@ -46,10 +90,26 @@ export function PreviewConfiguration(arg1) {
   return window['go']['main']['App']['PreviewConfiguration'](arg1);
 }
 
+export function RefreshAccountState() {
+  return window['go']['main']['App']['RefreshAccountState']();
+}
+
 export function RestoreBackup(arg1) {
   return window['go']['main']['App']['RestoreBackup'](arg1);
 }
 
+export function RunToolLifecycleAction(arg1) {
+  return window['go']['main']['App']['RunToolLifecycleAction'](arg1);
+}
+
 export function ScanEnvironment() {
   return window['go']['main']['App']['ScanEnvironment']();
+}
+
+export function ValidateToolKey(arg1) {
+  return window['go']['main']['App']['ValidateToolKey'](arg1);
+}
+
+export function VerifyAccountTwoFactor(arg1) {
+  return window['go']['main']['App']['VerifyAccountTwoFactor'](arg1);
 }

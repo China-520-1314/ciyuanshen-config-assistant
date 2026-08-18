@@ -92,7 +92,7 @@ go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build
 ```bash
 go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build \
   -platform windows/amd64 -nsis \
-  -ldflags "-X main.appVersion=0.2.1"
+  -ldflags "-X main.appVersion=0.2.2"
 ```
 
 ## 设计边界

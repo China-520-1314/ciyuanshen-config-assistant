@@ -24,15 +24,20 @@ const (
 
 // appVersion is a variable so release builds can inject their tag with
 // -ldflags "-X main.appVersion=..." while local builds keep a useful default.
-var appVersion = "0.2.1"
+var appVersion = "0.2.2"
 
 // App is the bridge exposed to the Wails frontend. It never persists the API
 // key in the assistant's own data directory; the key only lives in memory for
 // the duration of a scan or configuration transaction.
 type App struct {
-	ctx       context.Context
-	client    *http.Client
-	operation sync.Mutex
+	ctx         context.Context
+	client      *http.Client
+	operation   sync.Mutex
+	lifecycleMu sync.Mutex
+	accountMu   sync.RWMutex
+	account     dashboardSession
+	provisionMu sync.Mutex
+	provisions  map[string]provisionedToolKey
 }
 
 type AppInfo struct {
@@ -45,6 +50,7 @@ type AppInfo struct {
 type ClientStatus struct {
 	ID             string `json:"id"`
 	Name           string `json:"name"`
+	Supported      bool   `json:"supported"`
 	Installed      bool   `json:"installed"`
 	ExecutablePath string `json:"executablePath"`
 	ConfigPath     string `json:"configPath"`
@@ -105,7 +111,8 @@ type ConfigureResult struct {
 // NewApp creates the application service.
 func NewApp() *App {
 	return &App{
-		client: &http.Client{Timeout: 15 * time.Second},
+		client:     &http.Client{Timeout: 15 * time.Second},
+		provisions: map[string]provisionedToolKey{},
 	}
 }
 
@@ -127,41 +134,7 @@ func (a *App) ScanEnvironment() EnvironmentReport {
 }
 
 func (a *App) FetchModels(apiKey string) (ModelResponse, error) {
-	key := strings.TrimSpace(apiKey)
-	if key == "" {
-		return ModelResponse{}, errors.New("请先输入 API Key")
-	}
-
-	request, err := http.NewRequest(http.MethodGet, defaultGatewayURL+"/models", nil)
-	if err != nil {
-		return ModelResponse{}, errors.New("无法创建模型请求")
-	}
-	request.Header.Set("Authorization", "Bearer "+key)
-	request.Header.Set("Accept", "application/json")
-	response, err := a.client.Do(request)
-	if err != nil {
-		return ModelResponse{}, fmt.Errorf("无法连接词元神网关：%w", err)
-	}
-	defer response.Body.Close()
-
-	payload, err := decodeModelPayload(response.Body)
-	if err != nil {
-		return ModelResponse{}, errors.New("网关返回的数据格式无法识别")
-	}
-	payload.Status = response.StatusCode
-	payload.Endpoint = defaultGatewayURL + "/models"
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		if response.StatusCode == http.StatusUnauthorized {
-			payload.Message = "API Key 无效或已过期"
-		} else if payload.Message == "" {
-			payload.Message = fmt.Sprintf("网关返回 HTTP %d", response.StatusCode)
-		}
-		return payload, errors.New(payload.Message)
-	}
-	if len(payload.Models) == 0 {
-		return payload, errors.New("Key 可用，但网关没有返回可用模型")
-	}
-	return payload, nil
+	return a.fetchGatewayModels(apiKey)
 }
 
 func (a *App) PreviewConfiguration(request ConfigurationRequest) ConfigurationPreview {

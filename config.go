@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -71,6 +72,8 @@ func buildConfiguration(request ConfigurationRequest) ([]fileOperation, []string
 		switch target {
 		case "claude":
 			targetOperations, err = configureClaude(home, key, model)
+		case "claude-desktop":
+			targetOperations, err = configureClaudeDesktop(home, key, model)
 		case "codex":
 			targetOperations, err = configureCodex(home, key, model)
 		case "gemini":
@@ -130,9 +133,13 @@ func configureClaude(home, key, model string) ([]fileOperation, error) {
 	return []fileOperation{newOperation("claude", path, configJSON, content)}, nil
 }
 
-func configureCodex(home, key, _ string) ([]fileOperation, error) {
+func configureCodex(home, key, model string) ([]fileOperation, error) {
 	configPath := firstClientPath("codex", home)
-	configContent := []byte(`model_provider = "ciyuanshen"
+	modelLine := ""
+	if model = strings.TrimSpace(model); model != "" {
+		modelLine = "model = " + strconv.Quote(model) + "\n"
+	}
+	configContent := []byte(modelLine + `model_provider = "ciyuanshen"
 review_model = "gpt-5.6-sol"
 model_reasoning_effort = "medium"
 disable_response_storage = true

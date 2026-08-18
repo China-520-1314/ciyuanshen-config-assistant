@@ -158,7 +158,8 @@ func TestConfigureCodexReplacesConfigAndAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 	configOperation := operationFor(t, operations, configPath)
-	expectedConfig := `model_provider = "ciyuanshen"
+	expectedConfig := `model = "ignored-model"
+model_provider = "ciyuanshen"
 review_model = "gpt-5.6-sol"
 model_reasoning_effort = "medium"
 disable_response_storage = true

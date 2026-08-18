@@ -8,22 +8,52 @@ export function CheckForUpdates():Promise<main.UpdateInfo>;
 
 export function Configure(arg1:main.ConfigurationRequest):Promise<main.ConfigureResult>;
 
+export function ConfigureExistingTool(arg1:main.ExistingToolConfigurationRequest):Promise<main.ConfigureResult>;
+
+export function ConfigureProvisionedTool(arg1:main.ProvisionedToolConfigurationRequest):Promise<main.ConfigureResult>;
+
+export function ConfigureTool(arg1:main.ToolConfigurationRequest):Promise<main.ConfigureResult>;
+
+export function CreateToolKey(arg1:main.ToolKeyRequest):Promise<main.ToolKeyResult>;
+
 export function DeleteBackup(arg1:string):Promise<void>;
 
 export function FetchModels(arg1:string):Promise<main.ModelResponse>;
+
+export function GetAccountState():Promise<main.AccountState>;
+
+export function GetAccountToolOptions(arg1:string):Promise<main.ToolOptionsResponse>;
 
 export function GetAppInfo():Promise<main.AppInfo>;
 
 export function GetBackupRoot():Promise<string>;
 
+export function GetClientConfiguration(arg1:string,arg2:boolean):Promise<main.ClientConfigurationView>;
+
+export function GetConfiguredToolModels(arg1:string):Promise<main.ToolKeyValidationResult>;
+
 export function GetPublicGroupRatios():Promise<main.GroupRatioReport>;
 
+export function GetToolLifecycleInfo(arg1:string):Promise<main.ToolLifecycleInfo>;
+
 export function ListBackups():Promise<Array<main.BackupInfo>>;
+
+export function LoginAccount(arg1:main.AccountLoginRequest):Promise<main.AccountLoginResult>;
+
+export function LogoutAccount():Promise<void>;
 
 export function OpenExternalURL(arg1:string):Promise<void>;
 
 export function PreviewConfiguration(arg1:main.ConfigurationRequest):Promise<main.ConfigurationPreview>;
 
+export function RefreshAccountState():Promise<main.AccountState>;
+
 export function RestoreBackup(arg1:string):Promise<void>;
 
+export function RunToolLifecycleAction(arg1:main.ToolLifecycleRequest):Promise<main.ToolLifecycleResult>;
+
 export function ScanEnvironment():Promise<main.EnvironmentReport>;
+
+export function ValidateToolKey(arg1:main.ToolKeyValidationRequest):Promise<main.ToolKeyValidationResult>;
+
+export function VerifyAccountTwoFactor(arg1:main.AccountTwoFactorRequest):Promise<main.AccountLoginResult>;

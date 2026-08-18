@@ -107,6 +107,19 @@ func readConfiguredClientAPIKey(home, target string) (string, error) {
 			return "", err
 		}
 		return requiredNonEmptyString(env, "ANTHROPIC_AUTH_TOKEN")
+	case "claude-desktop":
+		paths, ok := claudeDesktopPaths(home)
+		if !ok {
+			return "", errors.New("Claude Code客户端仅支持 Windows 和 macOS")
+		}
+		if err := requireConfigFile(paths.Profile); err != nil {
+			return "", err
+		}
+		root, err := readJSONMap(paths.Profile)
+		if err != nil {
+			return "", errors.New("Claude Code客户端配置文件格式无效")
+		}
+		return requiredNonEmptyString(root, "inferenceGatewayApiKey")
 	case "codex":
 		path := filepath.Join(home, ".codex", "auth.json")
 		if err := requireConfigFile(path); err != nil {
@@ -219,6 +232,117 @@ func readConfiguredClientAPIKey(home, target string) (string, error) {
 	}
 }
 
+func readConfiguredClientDefaultModel(home, target string) (string, error) {
+	switch target {
+	case "claude":
+		root, err := readJSONMap(firstClientPath("claude", home))
+		if err != nil {
+			return "", err
+		}
+		env, err := requiredMap(root, "env")
+		if err != nil {
+			return "", err
+		}
+		return requiredNonEmptyString(env, "ANTHROPIC_MODEL")
+	case "claude-desktop":
+		paths, ok := claudeDesktopPaths(home)
+		if !ok {
+			return "", errors.New("Claude Code客户端仅支持 Windows 和 macOS")
+		}
+		root, err := readJSONMap(paths.Profile)
+		if err != nil {
+			return "", err
+		}
+		models, ok := root["inferenceModels"].([]any)
+		if !ok || len(models) == 0 {
+			return "", errors.New("inferenceModels 未正确配置")
+		}
+		switch model := models[0].(type) {
+		case string:
+			if strings.TrimSpace(model) != "" {
+				return strings.TrimSpace(model), nil
+			}
+		case map[string]any:
+			return requiredNonEmptyString(model, "name")
+		}
+		return "", errors.New("inferenceModels 未正确配置")
+	case "codex":
+		root, err := readTOMLMap(filepath.Join(home, ".codex", "config.toml"))
+		if err != nil {
+			return "", err
+		}
+		return requiredNonEmptyString(root, "model")
+	case "gemini":
+		content, err := os.ReadFile(filepath.Join(home, ".gemini", ".env"))
+		if err != nil {
+			return "", err
+		}
+		model, ok := envFileValue(string(content), "GEMINI_MODEL")
+		if !ok || strings.TrimSpace(model) == "" {
+			return "", errors.New("GEMINI_MODEL 未正确配置")
+		}
+		return strings.TrimSpace(model), nil
+	case "grok":
+		root, err := readTOMLMap(firstClientPath("grok", home))
+		if err != nil {
+			return "", err
+		}
+		models, err := requiredMap(root, "model")
+		if err != nil {
+			return "", err
+		}
+		provider, err := requiredMap(models, managedProviderName)
+		if err != nil {
+			return "", err
+		}
+		return requiredNonEmptyString(provider, "model")
+	case "opencode":
+		root, err := readJSON5Map(firstClientPath("opencode", home))
+		if err != nil {
+			return "", err
+		}
+		value, err := requiredNonEmptyString(root, "model")
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimPrefix(value, managedProviderName+"/"), nil
+	case "openclaw":
+		root, err := readJSON5Map(firstClientPath("openclaw", home))
+		if err != nil {
+			return "", err
+		}
+		agents, err := requiredMap(root, "agents")
+		if err != nil {
+			return "", err
+		}
+		defaults, err := requiredMap(agents, "defaults")
+		if err != nil {
+			return "", err
+		}
+		model, err := requiredMap(defaults, "model")
+		if err != nil {
+			return "", err
+		}
+		value, err := requiredNonEmptyString(model, "primary")
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimPrefix(value, managedProviderName+"/"), nil
+	case "hermes":
+		root, err := readYAMLMap(firstClientPath("hermes", home))
+		if err != nil {
+			return "", err
+		}
+		model, err := requiredMap(root, "model")
+		if err != nil {
+			return "", err
+		}
+		return requiredNonEmptyString(model, "default")
+	default:
+		return "", fmt.Errorf("不支持的工具：%s", target)
+	}
+}
+
 func normaliseConnectionTargets(values []string) ([]string, error) {
 	known := map[string]bool{}
 	for _, definition := range clientDefinitions() {
@@ -305,6 +429,8 @@ func verifyManagedClientConfiguration(home, target, key string) error {
 	switch target {
 	case "claude":
 		return verifyClaudeConfiguration(home, key)
+	case "claude-desktop":
+		return verifyClaudeDesktopConfiguration(home, key)
 	case "codex":
 		return verifyCodexConfiguration(home, key)
 	case "gemini":
@@ -339,6 +465,57 @@ func verifyClaudeConfiguration(home, key string) error {
 		return err
 	}
 	return requiredString(env, "ANTHROPIC_AUTH_TOKEN", key)
+}
+
+func verifyClaudeDesktopConfiguration(home, key string) error {
+	paths, ok := claudeDesktopPaths(home)
+	if !ok {
+		return errors.New("Claude Code客户端仅支持 Windows 和 macOS")
+	}
+	for _, path := range []string{paths.NormalConfig, paths.ThreePConfig} {
+		if err := requireConfigFile(path); err != nil {
+			return err
+		}
+		root, err := readJSONMap(path)
+		if err != nil {
+			return errors.New("Claude Code客户端配置文件格式无效")
+		}
+		if err := requiredString(root, "deploymentMode", "3p"); err != nil {
+			return err
+		}
+	}
+	if err := requireConfigFile(paths.Profile); err != nil {
+		return err
+	}
+	profile, err := readJSONMap(paths.Profile)
+	if err != nil {
+		return errors.New("Claude Code客户端配置文件格式无效")
+	}
+	for field, expected := range map[string]string{
+		"inferenceGatewayApiKey":     key,
+		"inferenceGatewayAuthScheme": "bearer",
+		"inferenceGatewayBaseUrl":    claudeGatewayURL,
+		"inferenceProvider":          "gateway",
+	} {
+		if err := requiredString(profile, field, expected); err != nil {
+			return err
+		}
+	}
+	model, err := readConfiguredClientDefaultModel(home, "claude-desktop")
+	if err != nil {
+		return err
+	}
+	if !isClaudeDesktopCompatibleModel(model) {
+		return errors.New("inferenceModels 未正确配置")
+	}
+	if err := requireConfigFile(paths.Meta); err != nil {
+		return err
+	}
+	meta, err := readJSONMap(paths.Meta)
+	if err != nil {
+		return errors.New("Claude Code客户端配置索引格式无效")
+	}
+	return requiredString(meta, "appliedId", claudeDesktopProfileID)
 }
 
 func verifyCodexConfiguration(home, key string) error {

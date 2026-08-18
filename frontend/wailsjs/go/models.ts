@@ -1,5 +1,114 @@
 export namespace main {
 
+	export class AccountLoginRequest {
+	    username: string;
+	    password: string;
+
+	    static createFrom(source: any = {}) {
+	        return new AccountLoginRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.username = source["username"];
+	        this.password = source["password"];
+	    }
+	}
+	export class AccountLoginResult {
+	    signedIn: boolean;
+	    requiresTwoFactor: boolean;
+	    flowToken: string;
+	    username: string;
+	    // Go type: time
+	    expiresAt: any;
+
+	    static createFrom(source: any = {}) {
+	        return new AccountLoginResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.signedIn = source["signedIn"];
+	        this.requiresTwoFactor = source["requiresTwoFactor"];
+	        this.flowToken = source["flowToken"];
+	        this.username = source["username"];
+	        this.expiresAt = this.convertValues(source["expiresAt"], null);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class AccountState {
+	    signedIn: boolean;
+	    username: string;
+	    balance: string;
+	    quota: number;
+	    // Go type: time
+	    balanceUpdatedAt: any;
+	    // Go type: time
+	    expiresAt: any;
+
+	    static createFrom(source: any = {}) {
+	        return new AccountState(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.signedIn = source["signedIn"];
+	        this.username = source["username"];
+	        this.balance = source["balance"];
+	        this.quota = source["quota"];
+	        this.balanceUpdatedAt = this.convertValues(source["balanceUpdatedAt"], null);
+	        this.expiresAt = this.convertValues(source["expiresAt"], null);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class AccountTwoFactorRequest {
+	    flowToken: string;
+	    code: string;
+
+	    static createFrom(source: any = {}) {
+	        return new AccountTwoFactorRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.flowToken = source["flowToken"];
+	        this.code = source["code"];
+	    }
+	}
 	export class AppInfo {
 	    name: string;
 	    version: string;
@@ -73,6 +182,58 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class ClientConfigurationFile {
+	    path: string;
+	    exists: boolean;
+	    content: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ClientConfigurationFile(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.exists = source["exists"];
+	        this.content = source["content"];
+	    }
+	}
+	export class ClientConfigurationView {
+	    clientId: string;
+	    clientName: string;
+	    files: ClientConfigurationFile[];
+	    secretsRedacted: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new ClientConfigurationView(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.clientId = source["clientId"];
+	        this.clientName = source["clientName"];
+	        this.files = this.convertValues(source["files"], ClientConfigurationFile);
+	        this.secretsRedacted = source["secretsRedacted"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ClientConnectionResult {
 	    id: string;
 	    name: string;
@@ -121,6 +282,7 @@ export namespace main {
 	export class ClientStatus {
 	    id: string;
 	    name: string;
+	    supported: boolean;
 	    installed: boolean;
 	    executablePath: string;
 	    configPath: string;
@@ -137,6 +299,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.name = source["name"];
+	        this.supported = source["supported"];
 	        this.installed = source["installed"];
 	        this.executablePath = source["executablePath"];
 	        this.configPath = source["configPath"];
@@ -337,6 +500,20 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class ExistingToolConfigurationRequest {
+	    clientId: string;
+	    model: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ExistingToolConfigurationRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.clientId = source["clientId"];
+	        this.model = source["model"];
+	    }
+	}
 
 	export class GroupRatio {
 	    name: string;
@@ -421,6 +598,321 @@ export namespace main {
 	        this.status = source["status"];
 	        this.message = source["message"];
 	        this.endpoint = source["endpoint"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ProvisionedToolConfigurationRequest {
+	    provisionId: string;
+	    clientId: string;
+	    model: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ProvisionedToolConfigurationRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.provisionId = source["provisionId"];
+	        this.clientId = source["clientId"];
+	        this.model = source["model"];
+	    }
+	}
+	export class ToolConfigurationRequest {
+	    clientId: string;
+	    apiKey: string;
+	    model: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ToolConfigurationRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.clientId = source["clientId"];
+	        this.apiKey = source["apiKey"];
+	        this.model = source["model"];
+	    }
+	}
+	export class ToolGroupOption {
+	    name: string;
+	    description: string;
+	    ratio: string;
+	    models: Model[];
+
+	    static createFrom(source: any = {}) {
+	        return new ToolGroupOption(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.ratio = source["ratio"];
+	        this.models = this.convertValues(source["models"], Model);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ToolKeyRequest {
+	    clientId: string;
+	    group: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ToolKeyRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.clientId = source["clientId"];
+	        this.group = source["group"];
+	    }
+	}
+	export class ToolKeyResult {
+	    provisionId: string;
+	    clientId: string;
+	    group: string;
+	    models: Model[];
+	    status: number;
+	    endpoint: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ToolKeyResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.provisionId = source["provisionId"];
+	        this.clientId = source["clientId"];
+	        this.group = source["group"];
+	        this.models = this.convertValues(source["models"], Model);
+	        this.status = source["status"];
+	        this.endpoint = source["endpoint"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ToolKeyValidationRequest {
+	    clientId: string;
+	    apiKey: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ToolKeyValidationRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.clientId = source["clientId"];
+	        this.apiKey = source["apiKey"];
+	    }
+	}
+	export class ToolKeyValidationResult {
+	    clientId: string;
+	    models: Model[];
+	    selectedModel?: string;
+	    status: number;
+	    endpoint: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ToolKeyValidationResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.clientId = source["clientId"];
+	        this.models = this.convertValues(source["models"], Model);
+	        this.selectedModel = source["selectedModel"];
+	        this.status = source["status"];
+	        this.endpoint = source["endpoint"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ToolLifecycleInfo {
+	    clientId: string;
+	    name: string;
+	    installed: boolean;
+	    currentVersion?: string;
+	    latestVersion?: string;
+	    updateAvailable: boolean;
+	    canInstall: boolean;
+	    canUpdate: boolean;
+	    downloadUrl?: string;
+	    installMethod?: string;
+	    // Go type: time
+	    checkedAt: any;
+	    message?: string;
+	    error?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ToolLifecycleInfo(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.clientId = source["clientId"];
+	        this.name = source["name"];
+	        this.installed = source["installed"];
+	        this.currentVersion = source["currentVersion"];
+	        this.latestVersion = source["latestVersion"];
+	        this.updateAvailable = source["updateAvailable"];
+	        this.canInstall = source["canInstall"];
+	        this.canUpdate = source["canUpdate"];
+	        this.downloadUrl = source["downloadUrl"];
+	        this.installMethod = source["installMethod"];
+	        this.checkedAt = this.convertValues(source["checkedAt"], null);
+	        this.message = source["message"];
+	        this.error = source["error"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ToolLifecycleRequest {
+	    clientId: string;
+	    action: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ToolLifecycleRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.clientId = source["clientId"];
+	        this.action = source["action"];
+	    }
+	}
+	export class ToolLifecycleResult {
+	    success: boolean;
+	    manual: boolean;
+	    downloadUrl?: string;
+	    message?: string;
+	    error?: string;
+	    info: ToolLifecycleInfo;
+
+	    static createFrom(source: any = {}) {
+	        return new ToolLifecycleResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.manual = source["manual"];
+	        this.downloadUrl = source["downloadUrl"];
+	        this.message = source["message"];
+	        this.error = source["error"];
+	        this.info = this.convertValues(source["info"], ToolLifecycleInfo);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ToolOptionsResponse {
+	    clientId: string;
+	    groups: ToolGroupOption[];
+
+	    static createFrom(source: any = {}) {
+	        return new ToolOptionsResponse(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.clientId = source["clientId"];
+	        this.groups = this.convertValues(source["groups"], ToolGroupOption);
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
