@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -127,12 +127,21 @@ type ConnectionCheckReport = { results: ClientConnectionResult[]; checkedAt: str
 const clientOrder: ClientId[] = ['claude', 'codex', 'gemini', 'grok', 'opencode', 'openclaw', 'hermes'];
 const clientCopy: Record<ClientId, { short: string; badge: string }> = {
   claude: { short: 'Claude Code', badge: 'Anthropic' },
-  codex: { short: 'Codex', badge: 'Responses' },
+  codex: { short: 'ChatGPT/Codex Cli/Codex插件', badge: 'Responses' },
   gemini: { short: 'Gemini CLI', badge: 'Gemini API' },
   grok: { short: 'Grok Build', badge: 'Responses' },
   opencode: { short: 'OpenCode', badge: 'OpenAI compatible' },
   openclaw: { short: 'OpenClaw', badge: 'OpenAI compatible' },
   hermes: { short: 'Hermes Agent', badge: 'Chat Completions' },
+};
+const recommendedModels: Record<ClientId, string> = {
+  claude: 'claude-sonnet-4-5',
+  codex: 'gpt-5.6-sol',
+  gemini: 'gemini-2.5-pro',
+  grok: 'grok-4',
+  opencode: 'gpt-5.6-sol',
+  openclaw: 'gpt-5.6-sol',
+  hermes: 'gpt-5.6-sol',
 };
 const clientLogos: Record<ClientId, string> = {
   claude: claudeLogo,
@@ -169,18 +178,13 @@ const mockEnvironment: EnvironmentReport = {
 
 const mockModels: Model[] = [
   { id: 'gpt-5.6-sol', owned_by: 'ciyuanshen' },
-  { id: 'claude-sonnet-5', owned_by: 'ciyuanshen' },
-  { id: 'gemini-3.6-flash', owned_by: 'ciyuanshen' },
-  { id: 'grok-4.5', owned_by: 'ciyuanshen' },
+  { id: 'claude-sonnet-4-5', owned_by: 'ciyuanshen' },
+  { id: 'gemini-2.5-pro', owned_by: 'ciyuanshen' },
+  { id: 'grok-4', owned_by: 'ciyuanshen' },
 ];
 
 function inWails() {
   return Boolean((window as unknown as { go?: unknown }).go);
-}
-
-function initialSelection(report: EnvironmentReport) {
-  const detected = report.clients.filter((client) => client.installed || client.configExists).map((client) => client.id);
-  return detected.length > 0 ? detected : clientOrder.slice(0, 4);
 }
 
 function formatTime(value?: string) {
@@ -197,7 +201,7 @@ function App() {
   const [environment, setEnvironment] = useState<EnvironmentReport>(mockEnvironment);
   const [appInfo, setAppInfo] = useState<AppInfo>({
     name: '词元神配置助手',
-    version: '0.2.0',
+    version: '0.2.1',
     updateManifestUrl: '',
     gatewayUrl: 'https://ciyuanshen.top/v1',
   });
@@ -206,11 +210,13 @@ function App() {
   const [models, setModels] = useState<Model[]>([]);
   const [modelStatus, setModelStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [modelMessage, setModelMessage] = useState('输入 Key 后检查连接');
-  const [selected, setSelected] = useState<ClientId[]>(initialSelection(mockEnvironment));
-  const [modelByClient, setModelByClient] = useState<Record<string, string>>({ default: mockModels[0].id });
+  const [selected, setSelected] = useState<ClientId[]>([]);
+  const [modelByClient, setModelByClient] = useState<Record<ClientId, string>>(recommendedModels);
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [pendingTargets, setPendingTargets] = useState<ClientId[] | null>(null);
   const [busy, setBusy] = useState<BusyState>('');
   const [feedback, setFeedback] = useState<{ tone: 'success' | 'error' | 'neutral'; text: string } | null>(null);
+  const feedbackTimer = useRef<number | undefined>(undefined);
   const [backups, setBackups] = useState<Backup[]>([]);
   const [backupRoot, setBackupRoot] = useState('');
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
@@ -229,6 +235,30 @@ function App() {
     void loadInitialState();
   }, []);
 
+  useEffect(() => () => {
+    if (feedbackTimer.current !== undefined) window.clearTimeout(feedbackTimer.current);
+  }, []);
+
+  function clearFeedback() {
+    if (feedbackTimer.current !== undefined) {
+      window.clearTimeout(feedbackTimer.current);
+      feedbackTimer.current = undefined;
+    }
+    setFeedback(null);
+  }
+
+  function showFeedback(next: { tone: 'success' | 'error' | 'neutral'; text: string }, dismissAfter = 0) {
+    if (feedbackTimer.current !== undefined) window.clearTimeout(feedbackTimer.current);
+    feedbackTimer.current = undefined;
+    setFeedback(next);
+    if (dismissAfter > 0) {
+      feedbackTimer.current = window.setTimeout(() => {
+        feedbackTimer.current = undefined;
+        setFeedback(null);
+      }, dismissAfter);
+    }
+  }
+
   async function loadInitialState() {
     try {
       const [info, report, root] = inWails()
@@ -236,26 +266,26 @@ function App() {
         : [appInfo, mockEnvironment, '~/.config/CiyuanShen/Config Assistant/backups'];
       setAppInfo(info as AppInfo);
       setEnvironment(report as EnvironmentReport);
-      setSelected(initialSelection(report as EnvironmentReport));
+      setSelected([]);
       setBackupRoot(root as string);
     } catch {
-      setFeedback({ tone: 'error', text: '环境检测失败，请重试' });
+      showFeedback({ tone: 'error', text: '环境检测失败，请重试' });
     }
     await refreshBackups();
   }
 
-  async function refreshEnvironment() {
-    setBusy('scan');
-    setFeedback(null);
+  async function refreshEnvironment(options: { announce?: boolean; trackBusy?: boolean } = {}) {
+    const { announce = true, trackBusy = true } = options;
+    if (trackBusy) setBusy('scan');
+    clearFeedback();
     try {
       const report = inWails() ? await ScanEnvironment() : mockEnvironment;
       setEnvironment(report as EnvironmentReport);
-      setSelected(initialSelection(report as EnvironmentReport));
-      setFeedback({ tone: 'success', text: '环境检测已完成' });
+      if (announce) showFeedback({ tone: 'success', text: '环境检测已完成' });
     } catch {
-      setFeedback({ tone: 'error', text: '环境检测失败，请检查权限后重试' });
+      if (announce) showFeedback({ tone: 'error', text: '环境检测失败，请检查权限后重试' });
     } finally {
-      setBusy('');
+      if (trackBusy) setBusy('');
     }
   }
 
@@ -274,7 +304,6 @@ function App() {
       setModels(response.models);
       setModelStatus('ready');
       setModelMessage(`连接正常，可用模型 ${response.models.length} 个`);
-      setModelByClient((current) => ({ default: current.default || response.models[0].id, ...current }));
     } catch (error) {
       setModelStatus('error');
       setModelMessage(error instanceof Error ? error.message : '连接失败，请检查 Key');
@@ -286,62 +315,79 @@ function App() {
   }
 
   function setClientModel(id: ClientId, value: string) {
-    setModelByClient((current) => ({ ...current, [id]: value, default: current.default || value }));
+    setModelByClient((current) => ({ ...current, [id]: value }));
   }
 
-  function requestPayload() {
+  function requestPayload(targets: ClientId[] = selected) {
     const modelsForRequest: Record<string, string> = { ...modelByClient };
-    selected.forEach((id) => {
-      if (id !== 'codex') modelsForRequest[id] = modelsForRequest[id] || modelsForRequest.default || modelOptions[0]?.id || '';
+    targets.forEach((id) => {
+      if (id !== 'codex') modelsForRequest[id] = modelsForRequest[id]?.trim() || recommendedModels[id];
     });
-    return { apiKey: apiKey.trim(), targets: selected, models: modelsForRequest };
+    return { apiKey: apiKey.trim(), targets, models: modelsForRequest };
   }
 
-  async function previewConfiguration() {
+  async function previewConfiguration(targets: ClientId[] = selected) {
     if (!apiKey.trim()) {
-      setFeedback({ tone: 'error', text: '请先输入 API Key' });
+      showFeedback({ tone: 'error', text: '请先输入 API Key' });
       return;
     }
-    if (selected.length === 0) {
-      setFeedback({ tone: 'error', text: '至少选择一个工具' });
+    if (targets.length === 0) {
+      showFeedback({ tone: 'error', text: '至少选择一个工具' });
       return;
     }
     setBusy('preview');
     try {
-      const result = inWails() ? await PreviewConfiguration(requestPayload()) : mockPreview();
+      const result = inWails() ? await PreviewConfiguration(requestPayload(targets)) : mockPreview();
       const nextPreview = result as Preview;
       setPreview(nextPreview);
-      if (nextPreview.error) setFeedback({ tone: 'error', text: nextPreview.error });
+      if (nextPreview.error) {
+        setPendingTargets(null);
+        showFeedback({ tone: 'error', text: nextPreview.error });
+      } else {
+        setPendingTargets([...targets]);
+      }
     } catch {
-      setFeedback({ tone: 'error', text: '无法生成配置预览' });
+      setPendingTargets(null);
+      showFeedback({ tone: 'error', text: '无法生成配置预览' });
     } finally {
       setBusy('');
     }
   }
 
   async function applyConfiguration() {
-    if (!apiKey.trim() || selected.length === 0) {
-      setFeedback({ tone: 'error', text: '请先输入 Key 并选择工具' });
+    const targets = pendingTargets ?? selected;
+    if (!apiKey.trim() || targets.length === 0) {
+      showFeedback({ tone: 'error', text: '请先输入 Key 并选择工具' });
       return;
     }
+    let configuredTargets: ClientId[] = [];
     setBusy('configure');
     try {
-      const result = inWails() ? await Configure(requestPayload()) : mockConfigure();
+      const result = inWails() ? await Configure(requestPayload(targets)) : mockConfigure();
       const configuration = result as ConfigureResult;
       if (!configuration.success) throw new Error(configuration.error || '配置失败');
       setPreview(null);
+      setPendingTargets(null);
       setConnectionResults((current) => {
         const next = { ...current };
         configuration.configured.forEach((id) => delete next[id]);
         return next;
       });
-      setFeedback({ tone: 'success', text: `已备份并配置 ${configuration.configured.length} 个工具` });
-      await Promise.all([refreshBackups(), refreshEnvironment()]);
+      configuredTargets = configuration.configured.filter((id): id is ClientId => clientOrder.includes(id as ClientId));
+      await Promise.all([refreshBackups(), refreshEnvironment({ announce: false, trackBusy: false })]);
+      if (configuredTargets.length !== 1) {
+        showFeedback({ tone: 'success', text: `已备份并配置 ${configuration.configured.length} 个工具` });
+      }
     } catch (error) {
-      setFeedback({ tone: 'error', text: error instanceof Error ? error.message : '配置失败，原文件未被覆盖' });
+      showFeedback({ tone: 'error', text: error instanceof Error ? error.message : '配置失败，原文件未被覆盖' });
     } finally {
       setBusy('');
     }
+    if (configuredTargets.length === 1) await checkConnections(configuredTargets, true);
+  }
+
+  function configureOneClient(id: ClientId) {
+    void previewConfiguration([id]);
   }
 
   async function refreshBackups() {
@@ -357,10 +403,10 @@ function App() {
     setBusy('restore');
     try {
       if (inWails()) await RestoreBackup(id);
-      setFeedback({ tone: 'success', text: '备份已恢复，请重启对应工具' });
-      await refreshEnvironment();
+      await refreshEnvironment({ announce: false, trackBusy: false });
+      showFeedback({ tone: 'success', text: '备份已恢复，请重启对应工具' });
     } catch (error) {
-      setFeedback({ tone: 'error', text: error instanceof Error ? error.message : '恢复失败' });
+      showFeedback({ tone: 'error', text: error instanceof Error ? error.message : '恢复失败' });
     } finally {
       setBusy('');
     }
@@ -371,10 +417,10 @@ function App() {
     setBusy('delete');
     try {
       if (inWails()) await DeleteBackup(id);
-      setFeedback({ tone: 'success', text: '备份已删除' });
+      showFeedback({ tone: 'success', text: '备份已删除' });
       await refreshBackups();
     } catch (error) {
-      setFeedback({ tone: 'error', text: error instanceof Error ? error.message : '删除备份失败' });
+      showFeedback({ tone: 'error', text: error instanceof Error ? error.message : '删除备份失败' });
     } finally {
       setBusy('');
     }
@@ -386,35 +432,34 @@ function App() {
       const result = inWails() ? await GetPublicGroupRatios() : mockGroupRatios();
       setGroupReport(result as GroupRatioReport);
     } catch (error) {
-      setFeedback({ tone: 'error', text: error instanceof Error ? error.message : '读取分组倍率失败' });
+      showFeedback({ tone: 'error', text: error instanceof Error ? error.message : '读取分组倍率失败' });
     } finally {
       setBusy('');
     }
   }
 
-  async function checkConnections(targets: ClientId[]) {
-    if (!apiKey.trim()) {
-      setFeedback({ tone: 'error', text: '请先输入 API Key 后再检测工具' });
-      return;
-    }
+  async function checkConnections(targets: ClientId[], autoDismiss = false) {
     if (targets.length === 0) {
-      setFeedback({ tone: 'error', text: '至少选择一个要检测的工具' });
+      showFeedback({ tone: 'error', text: '至少选择一个要检测的工具' }, autoDismiss ? 3000 : 0);
       return;
     }
     setBusy('check');
     try {
       const result = inWails()
-        ? await CheckClientConnections({ apiKey: apiKey.trim(), targets })
+        ? await CheckClientConnections({ targets })
         : mockConnectionCheck(targets);
       const report = result as ConnectionCheckReport;
       const nextResults = Object.fromEntries(report.results.map((item) => [item.id, item]));
       setConnectionResults((current) => ({ ...current, ...nextResults }));
       const failed = report.results.filter((item) => !item.success);
-      setFeedback(failed.length === 0
+      const notification: { tone: 'success' | 'error' | 'neutral'; text: string } = failed.length === 0
         ? { tone: 'success', text: `已通过 ${report.results.length} 个工具的配置与网关检测` }
-        : { tone: 'error', text: `${failed.length} 个工具未通过检测，请查看工具卡片提示` });
+        : report.results.length === 1
+          ? { tone: 'error', text: `${failed[0].name} 未通过检测：${failed[0].message}` }
+          : { tone: 'error', text: `${failed.length} 个工具未通过检测，请查看工具卡片提示` };
+      showFeedback(notification, autoDismiss ? 3000 : 0);
     } catch (error) {
-      setFeedback({ tone: 'error', text: error instanceof Error ? error.message : '检测失败' });
+      showFeedback({ tone: 'error', text: error instanceof Error ? error.message : '检测失败' }, autoDismiss ? 3000 : 0);
     } finally {
       setBusy('');
     }
@@ -481,7 +526,7 @@ function App() {
             </div>
           </header>
 
-          {feedback && <Feedback tone={feedback.tone} text={feedback.text} onClose={() => setFeedback(null)} />}
+          {feedback && <Feedback tone={feedback.tone} text={feedback.text} onClose={clearFeedback} />}
 
           {tab === 'overview' && (
             <Overview
@@ -500,6 +545,7 @@ function App() {
               modelMessage={modelMessage}
               fetchModels={() => void fetchModels()}
               previewConfiguration={() => void previewConfiguration()}
+              configureOneClient={configureOneClient}
               checkConnections={(targets) => void checkConnections(targets)}
               connectionResults={connectionResults}
               busy={busy}
@@ -511,7 +557,7 @@ function App() {
         </main>
       </div>
 
-      {preview && <PreviewModal preview={preview} busy={busy} close={() => setPreview(null)} apply={() => void applyConfiguration()} />}
+      {preview && <PreviewModal preview={preview} busy={busy} close={() => { setPreview(null); setPendingTargets(null); }} apply={() => void applyConfiguration()} />}
     </div>
   );
 }
@@ -548,11 +594,12 @@ function Overview(props: {
   modelMessage: string;
   fetchModels: () => void;
   previewConfiguration: () => void;
+  configureOneClient: (id: ClientId) => void;
   checkConnections: (targets: ClientId[]) => void;
   connectionResults: Record<string, ClientConnectionResult>;
   busy: BusyState;
 }) {
-  const { environment, clientMap, selected, toggleClient, models, modelByClient, setClientModel, apiKey, setApiKey, showKey, setShowKey, modelStatus, modelMessage, fetchModels, previewConfiguration, checkConnections, connectionResults, busy } = props;
+  const { environment, clientMap, selected, toggleClient, models, modelByClient, setClientModel, apiKey, setApiKey, showKey, setShowKey, modelStatus, modelMessage, fetchModels, previewConfiguration, configureOneClient, checkConnections, connectionResults, busy } = props;
   return (
     <div className="content-stack">
       <section className="summary-band">
@@ -572,7 +619,7 @@ function Overview(props: {
       <section className="clients-section">
         <div className="section-heading"><div><p className="eyebrow">TARGETS</p><h2>选择要配置的工具</h2></div><span className="selected-count">{selected.length} 个已选择</span></div>
         <div className="client-grid">
-          {clientOrder.map((id) => <ClientCard key={id} id={id} status={clientMap.get(id)} checked={selected.includes(id)} onToggle={() => toggleClient(id)} models={models} model={modelByClient[id] || modelByClient.default || ''} onModelChange={(value) => setClientModel(id, value)} result={connectionResults[id]} onCheck={() => checkConnections([id])} busy={busy} />)}
+          {clientOrder.map((id) => <ClientCard key={id} id={id} status={clientMap.get(id)} checked={selected.includes(id)} onToggle={() => toggleClient(id)} models={models} model={modelByClient[id] || recommendedModels[id]} onModelChange={(value) => setClientModel(id, value)} result={connectionResults[id]} onCheck={() => checkConnections([id])} onConfigure={() => configureOneClient(id)} busy={busy} />)}
         </div>
       </section>
 
@@ -581,7 +628,7 @@ function Overview(props: {
   );
 }
 
-function ClientCard({ id, status, checked, onToggle, models, model, onModelChange, result, onCheck, busy }: { id: ClientId; status?: ClientStatus; checked: boolean; onToggle: () => void; models: Model[]; model: string; onModelChange: (value: string) => void; result?: ClientConnectionResult; onCheck: () => void; busy: BusyState }) {
+function ClientCard({ id, status, checked, onToggle, models, model, onModelChange, result, onCheck, onConfigure, busy }: { id: ClientId; status?: ClientStatus; checked: boolean; onToggle: () => void; models: Model[]; model: string; onModelChange: (value: string) => void; result?: ClientConnectionResult; onCheck: () => void; onConfigure: () => void; busy: BusyState }) {
   const available = Boolean(status?.installed || status?.configExists);
   const state = status?.configState === 'invalid' || status?.configState === 'error' ? 'invalid' : available ? 'available' : 'not-found';
   return <article className={`client-card ${checked ? 'checked' : ''}`}>
@@ -589,8 +636,8 @@ function ClientCard({ id, status, checked, onToggle, models, model, onModelChang
     <div className="client-card-path">{status?.configPath || '配置文件将自动创建'}</div>
     {id === 'codex'
       ? <div className="client-card-bottom fixed-model"><label>固定模板</label><span>review_model · gpt-5.6-sol</span></div>
-      : <div className="client-card-bottom"><label>默认模型</label><input list={`models-${id}`} value={model} placeholder="输入或选择模型" onChange={(event) => onModelChange(event.target.value)} disabled={!checked} /><datalist id={`models-${id}`}>{models.map((option) => <option key={option.id} value={option.id} />)}</datalist></div>}
-    <div className="client-card-actions"><span className={`check-result ${result ? (result.success ? 'success' : 'error') : ''}`}>{result ? (result.success ? <><CheckCircle2 size={14} />已通过</> : <><AlertTriangle size={14} />未通过</>) : <><CircleDashed size={14} />未检测</>}</span><button className="secondary-button compact" onClick={onCheck} disabled={busy !== ''}><Activity size={15} />检测</button></div>
+      : <div className="client-card-bottom"><label>默认模型</label><input list={`models-${id}`} value={model} placeholder="输入或选择模型" onChange={(event) => onModelChange(event.target.value)} /><datalist id={`models-${id}`}>{models.map((option) => <option key={option.id} value={option.id} />)}</datalist></div>}
+    <div className="client-card-actions"><span className={`check-result ${result ? (result.success ? 'success' : 'error') : ''}`}>{result ? (result.success ? <><CheckCircle2 size={14} />已通过</> : <><AlertTriangle size={14} />未通过</>) : <><CircleDashed size={14} />未检测</>}</span><button className="secondary-button compact" onClick={onCheck} disabled={busy !== ''}><Activity size={15} />检测</button><button className="primary-button compact" onClick={onConfigure} disabled={busy !== ''}><Settings2 size={15} />一键配置</button></div>
     {result && <p className={`client-check-message ${result.success ? 'success' : 'error'}`}>{result.message}</p>}
   </article>;
 }

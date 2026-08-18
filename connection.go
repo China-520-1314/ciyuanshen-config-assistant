@@ -17,7 +17,6 @@ import (
 // ConnectionCheckRequest describes the installed clients that should be
 // validated against the CiyuanShen gateway.
 type ConnectionCheckRequest struct {
-	APIKey  string   `json:"apiKey"`
 	Targets []string `json:"targets"`
 }
 
@@ -42,10 +41,6 @@ func (a *App) CheckClientConnections(request ConnectionCheckRequest) (Connection
 }
 
 func checkClientConnections(client *http.Client, request ConnectionCheckRequest) (ConnectionCheckReport, error) {
-	key := strings.TrimSpace(request.APIKey)
-	if key == "" {
-		return ConnectionCheckReport{}, errors.New("请先输入 API Key")
-	}
 	targets, err := normaliseConnectionTargets(request.Targets)
 	if err != nil {
 		return ConnectionCheckReport{}, err
@@ -56,7 +51,6 @@ func checkClientConnections(client *http.Client, request ConnectionCheckRequest)
 	}
 
 	checkedAt := time.Now()
-	status, gatewayErr := probeCiyuanShenGateway(client, key)
 	report := ConnectionCheckReport{
 		Results:   make([]ClientConnectionResult, 0, len(targets)),
 		CheckedAt: checkedAt,
@@ -65,9 +59,14 @@ func checkClientConnections(client *http.Client, request ConnectionCheckRequest)
 		result := ClientConnectionResult{
 			ID:        target,
 			Name:      clientDisplayName(target),
-			Status:    status,
 			Endpoint:  defaultGatewayURL + "/models",
 			CheckedAt: checkedAt,
+		}
+		key, keyErr := readConfiguredClientAPIKey(home, target)
+		if keyErr != nil {
+			result.Message = "配置文件检查失败：" + keyErr.Error()
+			report.Results = append(report.Results, result)
+			continue
 		}
 		if configErr := verifyManagedClientConfiguration(home, target, key); configErr != nil {
 			result.Message = "配置文件检查失败：" + configErr.Error()
@@ -75,6 +74,8 @@ func checkClientConnections(client *http.Client, request ConnectionCheckRequest)
 			continue
 		}
 		result.Configured = true
+		status, gatewayErr := probeCiyuanShenGateway(client, key)
+		result.Status = status
 		if gatewayErr != nil {
 			result.Message = "网关连接失败：" + gatewayErr.Error()
 			report.Results = append(report.Results, result)
@@ -85,6 +86,137 @@ func checkClientConnections(client *http.Client, request ConnectionCheckRequest)
 		report.Results = append(report.Results, result)
 	}
 	return report, nil
+}
+
+// readConfiguredClientAPIKey reads the credential already stored by each
+// client. Connection checks intentionally use this value instead of requiring
+// the user to paste a duplicate key into the assistant.
+func readConfiguredClientAPIKey(home, target string) (string, error) {
+	switch target {
+	case "claude":
+		path := firstClientPath("claude", home)
+		if err := requireConfigFile(path); err != nil {
+			return "", err
+		}
+		root, err := readJSONMap(path)
+		if err != nil {
+			return "", errors.New("配置文件格式无效")
+		}
+		env, err := requiredMap(root, "env")
+		if err != nil {
+			return "", err
+		}
+		return requiredNonEmptyString(env, "ANTHROPIC_AUTH_TOKEN")
+	case "codex":
+		path := filepath.Join(home, ".codex", "auth.json")
+		if err := requireConfigFile(path); err != nil {
+			return "", err
+		}
+		root, err := readJSONMap(path)
+		if err != nil {
+			return "", errors.New("auth.json 格式无效")
+		}
+		return requiredNonEmptyString(root, "OPENAI_API_KEY")
+	case "gemini":
+		path := filepath.Join(home, ".gemini", ".env")
+		if err := requireConfigFile(path); err != nil {
+			return "", err
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return "", err
+		}
+		key, ok := envFileValue(string(content), "GEMINI_API_KEY")
+		if !ok || strings.TrimSpace(key) == "" {
+			return "", errors.New("GEMINI_API_KEY 未正确配置")
+		}
+		return strings.TrimSpace(key), nil
+	case "grok":
+		path := firstClientPath("grok", home)
+		if err := requireConfigFile(path); err != nil {
+			return "", err
+		}
+		root, err := readTOMLMap(path)
+		if err != nil {
+			return "", errors.New("配置文件格式无效")
+		}
+		model, err := requiredMap(root, "model")
+		if err != nil {
+			return "", err
+		}
+		provider, err := requiredMap(model, managedProviderName)
+		if err != nil {
+			return "", err
+		}
+		return requiredNonEmptyString(provider, "api_key")
+	case "opencode":
+		path := firstClientPath("opencode", home)
+		if err := requireConfigFile(path); err != nil {
+			return "", err
+		}
+		root, err := readJSON5Map(path)
+		if err != nil {
+			return "", errors.New("配置文件格式无效")
+		}
+		providers, err := requiredMap(root, "provider")
+		if err != nil {
+			return "", err
+		}
+		provider, err := requiredMap(providers, managedProviderName)
+		if err != nil {
+			return "", err
+		}
+		options, err := requiredMap(provider, "options")
+		if err != nil {
+			return "", err
+		}
+		return requiredNonEmptyString(options, "apiKey")
+	case "openclaw":
+		path := firstClientPath("openclaw", home)
+		if err := requireConfigFile(path); err != nil {
+			return "", err
+		}
+		root, err := readJSON5Map(path)
+		if err != nil {
+			return "", errors.New("配置文件格式无效")
+		}
+		models, err := requiredMap(root, "models")
+		if err != nil {
+			return "", err
+		}
+		providers, err := requiredMap(models, "providers")
+		if err != nil {
+			return "", err
+		}
+		provider, err := requiredMap(providers, managedProviderName)
+		if err != nil {
+			return "", err
+		}
+		return requiredNonEmptyString(provider, "apiKey")
+	case "hermes":
+		path := firstClientPath("hermes", home)
+		if err := requireConfigFile(path); err != nil {
+			return "", err
+		}
+		root, err := readYAMLMap(path)
+		if err != nil {
+			return "", errors.New("配置文件格式无效")
+		}
+		providers, ok := root["custom_providers"].([]any)
+		if !ok {
+			return "", errors.New("缺少 custom_providers")
+		}
+		for _, item := range providers {
+			provider, ok := item.(map[string]any)
+			if !ok || fmt.Sprint(provider["name"]) != managedProviderName {
+				continue
+			}
+			return requiredNonEmptyString(provider, "api_key")
+		}
+		return "", errors.New("缺少 ciyuanshen 服务商配置")
+	default:
+		return "", fmt.Errorf("不支持的工具：%s", target)
+	}
 }
 
 func normaliseConnectionTargets(values []string) ([]string, error) {
@@ -219,12 +351,11 @@ func verifyCodexConfiguration(home, key string) error {
 		return errors.New("config.toml 格式无效")
 	}
 	for field, expected := range map[string]string{
-		"model_provider":         managedProviderName,
-		"review_model":           "gpt-5.6-sol",
-		"model_reasoning_effort": "medium",
-		"preferred_auth_method":  "apikey",
-		"service_tier":           "fast",
-		"web_search":             "live",
+		"model_provider":        managedProviderName,
+		"review_model":          "gpt-5.6-sol",
+		"preferred_auth_method": "apikey",
+		"service_tier":          "fast",
+		"web_search":            "live",
 	} {
 		if err := requiredString(config, field, expected); err != nil {
 			return err
@@ -439,6 +570,15 @@ func requiredString(root map[string]any, key, expected string) error {
 		return fmt.Errorf("%s 未正确配置", key)
 	}
 	return nil
+}
+
+func requiredNonEmptyString(root map[string]any, key string) (string, error) {
+	value, ok := root[key].(string)
+	value = strings.TrimSpace(value)
+	if !ok || value == "" {
+		return "", fmt.Errorf("%s 未正确配置", key)
+	}
+	return value, nil
 }
 
 func requiredBool(root map[string]any, key string, expected bool) error {

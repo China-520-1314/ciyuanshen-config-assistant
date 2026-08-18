@@ -105,6 +105,7 @@ h2 { margin-bottom: 4px; font-size: 17px; font-weight: 700; letter-spacing: 0; }
 .secondary-button { border: 1px solid var(--line-strong); color: var(--muted-strong); background: var(--surface); }
 .secondary-button:hover { border-color: #9ab4b5; color: var(--teal-dark); background: #fbfefd; }
 .secondary-button.compact { min-height: 32px; padding: 0 10px; }
+.primary-button.compact { min-height: 32px; padding: 0 10px; }
 .connection-line { display: flex; align-items: center; gap: 7px; min-height: 25px; margin-top: 8px; color: var(--muted); font-size: 11px; }
 .connection-line.ready { color: var(--teal); }
 .connection-line.error { color: var(--danger); }
@@ -117,14 +118,14 @@ h2 { margin-bottom: 4px; font-size: 17px; font-weight: 700; letter-spacing: 0; }
 .client-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
 .client-card { min-width: 0; padding: 13px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); transition: border-color .16s, box-shadow .16s; }
 .client-card.checked { border-color: #9acbc4; box-shadow: 0 0 0 2px #e4f4f1; }
-.client-card-top { min-width: 0; gap: 8px; }
+.client-card-top { align-items: flex-start; min-width: 0; gap: 8px; }
 .check-control { display: grid; place-items: center; flex: 0 0 auto; width: 18px; height: 18px; padding: 0; border: 1px solid #b8c8c9; border-radius: 5px; color: white; background: white; }
 .check-control.checked { border-color: var(--teal); background: var(--teal); }
 .client-symbol { display: grid; place-items: center; flex: 0 0 auto; width: 31px; height: 31px; padding: 5px; overflow: hidden; border-radius: 6px; background: #f0f5f5; }
 .client-symbol img { width: 100%; height: 100%; object-fit: contain; }
-.client-name { min-width: 0; }
+.client-name { min-width: 0; flex: 1; }
 .client-name strong, .client-name span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.client-name strong { font-size: 13px; }
+.client-name strong { overflow: visible; font-size: 13px; line-height: 1.25; text-overflow: clip; white-space: normal; }
 .client-name span { margin-top: 2px; color: var(--muted); font-size: 10px; }
 .state-tag { flex: 0 0 auto; margin-left: auto; padding: 4px 6px; border-radius: 4px; font-size: 10px; font-weight: 650; }
 .state-tag.available { color: var(--teal); background: var(--teal-soft); }
@@ -137,8 +138,9 @@ h2 { margin-bottom: 4px; font-size: 17px; font-weight: 700; letter-spacing: 0; }
 .client-card-bottom input:focus { border-color: var(--teal); }
 .client-card-bottom input:disabled { color: #9eabad; background: #f4f6f6; }
 .fixed-model span { overflow: hidden; color: var(--muted-strong); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.client-card-actions { justify-content: space-between; gap: 8px; margin: 11px 0 0 26px; }
+.client-card-actions { flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin: 11px 0 0 26px; }
 .check-result { display: inline-flex; align-items: center; min-width: 0; gap: 5px; color: var(--muted); font-size: 10px; }
+.client-card-actions .check-result { margin-right: auto; }
 .check-result.success { color: var(--teal); }
 .check-result.error { color: var(--danger); }
 .client-check-message { min-height: 15px; margin: 7px 0 0 26px; overflow: hidden; color: var(--muted); font-size: 10px; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }

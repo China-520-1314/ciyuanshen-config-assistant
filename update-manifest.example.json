@@ -1,7 +1,7 @@
 {
-  "version": "0.2.0",
-  "downloadUrl": "https://github.com/China-520-1314/ciyuanshen-config-assistant/releases/download/v0.2.0/ciyuanshen-config-assistant-amd64-installer.exe",
-  "releaseNotes": "新增分组倍率、配置备份管理与工具连接检测",
+  "version": "0.2.1",
+  "downloadUrl": "https://github.com/China-520-1314/ciyuanshen-config-assistant/releases/download/v0.2.1/ciyuanshen-config-assistant-amd64-installer.exe",
+  "releaseNotes": "修复现有配置检测，新增单工具一键配置与自动复检",
   "publishedAt": "2026-08-18",
   "sha256": ""
 }

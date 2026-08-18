@@ -23,7 +23,7 @@ func clientDefinitions() []clientDefinition {
 		{ID: "claude", Name: "Claude Code", Commands: []string{"claude"}, Kind: configJSON, Paths: func(home string) []string {
 			return []string{filepath.Join(home, ".claude", "settings.json"), filepath.Join(home, ".claude", "claude.json")}
 		}},
-		{ID: "codex", Name: "Codex", Commands: []string{"codex"}, Kind: configTOML, Paths: func(home string) []string {
+		{ID: "codex", Name: "ChatGPT/Codex Cli/Codex插件", Commands: []string{"codex"}, Kind: configTOML, Paths: func(home string) []string {
 			return []string{filepath.Join(home, ".codex", "config.toml")}
 		}},
 		{ID: "gemini", Name: "Gemini CLI", Commands: []string{"gemini"}, Kind: configEnv, Paths: func(home string) []string {
