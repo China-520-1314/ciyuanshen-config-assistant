@@ -148,7 +148,7 @@ function App() {
   const [environment, setEnvironment] = useState<EnvironmentReport>(mockEnvironment);
   const [appInfo, setAppInfo] = useState<AppInfo>({
     name: '词元神配置助手',
-    version: '0.1.1',
+    version: '0.1.2',
     updateManifestUrl: '',
     gatewayUrl: 'https://ciyuanshen.top/v1',
   });

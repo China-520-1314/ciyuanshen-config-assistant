@@ -34,12 +34,33 @@ jobs:
       - name: Install NSIS
         shell: pwsh
         run: |
-          if (-not (Get-Command makensis.exe -ErrorAction SilentlyContinue)) {
-            choco install nsis --yes --no-progress
+          function Find-NsisExecutable {
+            foreach ($baseDir in @(
+              [Environment]::GetFolderPath('ProgramFilesX86'),
+              [Environment]::GetFolderPath('ProgramFiles')
+            )) {
+              $candidate = Join-Path $baseDir 'NSIS\makensis.exe'
+              if (Test-Path $candidate) {
+                return $candidate
+              }
+            }
+            return $null
           }
-          if (-not (Get-Command makensis.exe -ErrorAction SilentlyContinue)) {
+
+          $nsisExe = Find-NsisExecutable
+          if (-not $nsisExe -and (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
+            winget install --id NSIS.NSIS --exact --silent --disable-interactivity --accept-package-agreements --accept-source-agreements
+            $nsisExe = Find-NsisExecutable
+          }
+          if (-not $nsisExe -and (Get-Command choco.exe -ErrorAction SilentlyContinue)) {
+            choco install nsis --yes --no-progress
+            $nsisExe = Find-NsisExecutable
+          }
+          if (-not $nsisExe) {
             throw "NSIS installation failed: makensis.exe is unavailable"
           }
+          & $nsisExe /VERSION
+          Split-Path -Parent $nsisExe | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Build Windows installer
         shell: pwsh
@@ -49,7 +70,7 @@ jobs:
           $version = $env:RELEASE_TAG
           $isRelease = $version -match "^v\d+\.\d+\.\d+$"
           if (-not $isRelease) {
-            $version = "0.1.1-dev"
+            $version = "0.1.2-dev"
           } else {
             $version = $version.Substring(1)
             $project = Get-Content wails.json -Raw | ConvertFrom-Json
@@ -67,7 +88,7 @@ jobs:
           if ($version -match "^v\d+\.\d+\.\d+$") {
             $version = $version.Substring(1)
           } else {
-            $version = "0.1.0-dev"
+            $version = "0.1.2-dev"
           }
           $installer = Get-ChildItem -Path build/bin -Filter "*installer.exe" | Select-Object -First 1
           if ($null -eq $installer) {
