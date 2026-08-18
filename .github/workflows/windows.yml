@@ -1,0 +1,83 @@
+name: Windows package
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Build Windows installer
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $version = $env:RELEASE_TAG
+          $isRelease = $version -match "^v\d+\.\d+\.\d+$"
+          if (-not $isRelease) {
+            $version = "0.1.0-dev"
+          } else {
+            $version = $version.Substring(1)
+            $project = Get-Content wails.json -Raw | ConvertFrom-Json
+            $project.info.productVersion = $version
+            $project | ConvertTo-Json -Depth 10 | Set-Content wails.json -Encoding utf8
+          }
+          go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build --platform windows/amd64 --nsis --clean --ldflags "-X main.appVersion=$version"
+
+      - name: Create update manifest
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $version = $env:RELEASE_TAG
+          if ($version -match "^v\d+\.\d+\.\d+$") {
+            $version = $version.Substring(1)
+          } else {
+            $version = "0.1.0-dev"
+          }
+          $installer = Get-ChildItem -Path build/bin -Filter "*installer.exe" | Select-Object -First 1
+          if ($null -eq $installer) {
+            throw "NSIS installer was not produced"
+          }
+          $hash = (Get-FileHash -Algorithm SHA256 $installer.FullName).Hash.ToLowerInvariant()
+          $manifest = [ordered]@{
+            version = $version
+            downloadUrl = "https://ciyuanshen.top/downloads/ciyuanshen-config-assistant/$($installer.Name)"
+            releaseNotes = "请查看本次 GitHub Release 说明"
+            publishedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
+            sha256 = $hash
+          }
+          $manifest | ConvertTo-Json | Set-Content -Path build/bin/update.json -Encoding utf8
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          generate_release_notes: true
+          files: |
+            build/bin/*.exe
+            build/bin/update.json

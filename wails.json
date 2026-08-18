@@ -1,0 +1,20 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "ciyuanshen-config-assistant",
+  "outputfilename": "ciyuanshen-config-assistant",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "慈元神",
+    "email": "support@ciyuanshen.top"
+  },
+  "info": {
+    "companyName": "慈元神",
+    "productName": "慈元神配置助手",
+    "productVersion": "0.1.0",
+    "copyright": "Copyright © 2026 慈元神",
+    "comments": "慈元神 AI 客户端一键配置助手"
+  }
+}
