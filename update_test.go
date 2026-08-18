@@ -63,3 +63,41 @@ func TestCheckForUpdates(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckGitHubReleasePrefersTheInstaller(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Accept") != "application/vnd.github+json" {
+			t.Fatalf("unexpected Accept header: %q", request.Header.Get("Accept"))
+		}
+		_, _ = writer.Write([]byte(`{
+  "tag_name":"v0.2.0",
+  "body":"修复更新检测",
+  "published_at":"2026-08-18T12:00:00Z",
+  "assets":[
+    {"name":"ciyuanshen-config-assistant.exe","browser_download_url":"https://github.com/example/app.exe"},
+    {"name":"ciyuanshen-config-assistant-amd64-installer.exe","browser_download_url":"https://github.com/example/installer.exe"}
+  ]
+}`))
+	}))
+	defer server.Close()
+
+	result := checkGitHubRelease(server.Client(), "0.1.0", server.URL)
+	if result.Error != "" || !result.UpdateAvailable {
+		t.Fatalf("unexpected GitHub update result: %#v", result)
+	}
+	if result.LatestVersion != "0.2.0" || result.DownloadURL != "https://github.com/example/installer.exe" {
+		t.Fatalf("installer was not selected: %#v", result)
+	}
+}
+
+func TestCheckGitHubReleaseRejectsMissingInstallerForNewVersion(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = writer.Write([]byte(`{"tag_name":"v0.2.0","assets":[]}`))
+	}))
+	defer server.Close()
+
+	result := checkGitHubRelease(server.Client(), "0.1.0", server.URL)
+	if !strings.Contains(result.Error, "Windows 安装包") {
+		t.Fatalf("missing installer should be reported: %#v", result)
+	}
+}

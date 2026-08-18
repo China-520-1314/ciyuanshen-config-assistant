@@ -66,7 +66,7 @@ jobs:
           $hash = (Get-FileHash -Algorithm SHA256 $installer.FullName).Hash.ToLowerInvariant()
           $manifest = [ordered]@{
             version = $version
-            downloadUrl = "https://ciyuanshen.top/downloads/ciyuanshen-config-assistant/$($installer.Name)"
+            downloadUrl = "https://github.com/China-520-1314/ciyuanshen-config-assistant/releases/download/v$version/$($installer.Name)"
             releaseNotes = "请查看本次 GitHub Release 说明"
             publishedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
             sha256 = $hash

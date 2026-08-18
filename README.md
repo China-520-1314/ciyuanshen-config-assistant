@@ -1,6 +1,6 @@
-# 慈元神一键配置助手
+# 词元神一键配置助手
 
-这是一个 Wails v2 + Go + React/TypeScript 桌面工具，面向 Windows 用户自动检测本机 AI 客户端，并把慈元神网关写入对应配置文件。用户只需输入自己的 API Key、选择工具和模型，即可预览、备份并一键配置。
+这是一个 Wails v2 + Go + React/TypeScript 桌面工具，面向 Windows 用户自动检测本机 AI 客户端，并把词元神网关写入对应配置文件。用户只需输入自己的 API Key、选择工具和模型，即可预览、备份并一键配置。
 
 ## 支持的客户端
 
@@ -30,7 +30,9 @@ Gemini 的 Base URL 不能直接写成 `https://ciyuanshen.top/v1`，因为 Gemi
 
 ## 更新检查
 
-应用启动后可以在“版本更新”页面通过 HTTPS 请求更新清单：
+应用会优先通过 GitHub Releases API 检查最新版本，并打开对应 Windows 安装包；无需额外部署下载站。
+
+如果 GitHub 更新服务暂时不可用，应用会回退读取以下 HTTPS 更新清单：
 
 `https://ciyuanshen.top/downloads/ciyuanshen-config-assistant/update.json`
 
@@ -65,7 +67,7 @@ go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build
 
 ## Windows `.exe` 打包
 
-仓库中的 [`.github/workflows/windows.yml`](.github/workflows/windows.yml) 会在推送 `v*` 标签时使用 Windows runner 构建 amd64 NSIS 安装包，并上传到 GitHub Release。发布时应把安装包放到更新清单的 `downloadUrl` 对应地址，再将清单部署到上面的固定 URL。构建支持通过标签注入版本号，例如：
+仓库中的 [`.github/workflows/windows.yml`](.github/workflows/windows.yml) 会在推送 `v*` 标签时使用 Windows runner 构建 amd64 NSIS 安装包，并上传到 GitHub Release。GitHub Release 是默认下载和更新来源；若需要自建下载站，可将同一安装包和更新清单部署到上述固定 URL。构建支持通过标签注入版本号，例如：
 
 ```bash
 go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build \
@@ -76,4 +78,3 @@ go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build \
 ## 设计边界
 
 助手只修改用户明确选择的客户端配置，不安装或升级客户端本身，也不修改 NewAPI 服务端。若未来在服务器端部署本项目或更新静态资源，应按项目要求使用 4 个 CPU、低资源方式重建并重启。
-

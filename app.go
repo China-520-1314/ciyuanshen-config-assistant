@@ -14,6 +14,7 @@ import (
 
 const (
 	updateManifestURL   = "https://ciyuanshen.top/downloads/ciyuanshen-config-assistant/update.json"
+	githubReleaseAPIURL = "https://api.github.com/repos/China-520-1314/ciyuanshen-config-assistant/releases/latest"
 	defaultGatewayURL   = "https://ciyuanshen.top/v1"
 	claudeGatewayURL    = "https://ciyuanshen.top"
 	geminiGatewayURL    = "https://ciyuanshen.top"
@@ -114,7 +115,7 @@ func (a *App) startup(ctx context.Context) {
 
 func (a *App) GetAppInfo() AppInfo {
 	return AppInfo{
-		Name:              "慈元神配置助手",
+		Name:              "词元神配置助手",
 		Version:           appVersion,
 		UpdateManifestURL: updateManifestURL,
 		GatewayURL:        defaultGatewayURL,
@@ -139,7 +140,7 @@ func (a *App) FetchModels(apiKey string) (ModelResponse, error) {
 	request.Header.Set("Accept", "application/json")
 	response, err := a.client.Do(request)
 	if err != nil {
-		return ModelResponse{}, fmt.Errorf("无法连接慈元神网关：%w", err)
+		return ModelResponse{}, fmt.Errorf("无法连接词元神网关：%w", err)
 	}
 	defer response.Body.Close()
 
@@ -249,7 +250,16 @@ func (a *App) RestoreBackup(id string) error {
 }
 
 func (a *App) CheckForUpdates() UpdateInfo {
-	return checkForUpdates(a.client, appVersion, updateManifestURL)
+	githubUpdate := checkGitHubRelease(a.client, appVersion, githubReleaseAPIURL)
+	if githubUpdate.Error == "" {
+		return githubUpdate
+	}
+	manifestUpdate := checkForUpdates(a.client, appVersion, updateManifestURL)
+	if manifestUpdate.Error == "" {
+		return manifestUpdate
+	}
+	githubUpdate.Error = githubUpdate.Error + "；" + manifestUpdate.Error
+	return githubUpdate
 }
 
 func (a *App) OpenExternalURL(url string) error {

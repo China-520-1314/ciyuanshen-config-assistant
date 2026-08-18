@@ -7,14 +7,14 @@
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "author": {
-    "name": "慈元神",
+    "name": "词元神",
     "email": "support@ciyuanshen.top"
   },
   "info": {
-    "companyName": "慈元神",
-    "productName": "慈元神配置助手",
+    "companyName": "词元神",
+    "productName": "词元神配置助手",
     "productVersion": "0.1.0",
-    "copyright": "Copyright © 2026 慈元神",
-    "comments": "慈元神 AI 客户端一键配置助手"
+    "copyright": "Copyright © 2026 词元神",
+    "comments": "词元神 AI 客户端一键配置助手"
   }
 }

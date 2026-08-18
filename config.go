@@ -142,7 +142,7 @@ func configureCodex(home, key, model string) ([]fileOperation, error) {
 	config["disable_response_storage"] = true
 	providers := ensureMap(config, "model_providers")
 	providers[managedProviderName] = map[string]any{
-		"name":                 "慈元神",
+		"name":                 "词元神",
 		"base_url":             defaultGatewayURL,
 		"wire_api":             "responses",
 		"requires_openai_auth": true,
@@ -211,7 +211,7 @@ func configureGrok(home, key, model string) ([]fileOperation, error) {
 	modelTable[managedProviderName] = map[string]any{
 		"model":          model,
 		"base_url":       defaultGatewayURL,
-		"name":           "慈元神",
+		"name":           "词元神",
 		"api_key":        key,
 		"api_backend":    "responses",
 		"context_window": int64(500000),
@@ -232,7 +232,7 @@ func configureOpenCode(home, key, model string) ([]fileOperation, error) {
 	providers := ensureMap(root, "provider")
 	providers[managedProviderName] = map[string]any{
 		"npm":  "@ai-sdk/openai-compatible",
-		"name": "慈元神",
+		"name": "词元神",
 		"options": map[string]any{
 			"baseURL": defaultGatewayURL,
 			"apiKey":  key,

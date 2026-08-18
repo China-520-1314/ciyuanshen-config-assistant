@@ -147,7 +147,7 @@ function App() {
   const [tab, setTab] = useState<TabId>('overview');
   const [environment, setEnvironment] = useState<EnvironmentReport>(mockEnvironment);
   const [appInfo, setAppInfo] = useState<AppInfo>({
-    name: '慈元神配置助手',
+    name: '词元神配置助手',
     version: '0.1.0',
     updateManifestUrl: '',
     gatewayUrl: 'https://ciyuanshen.top/v1',
@@ -335,7 +335,7 @@ function App() {
       <aside className="sidebar">
         <div className="brand-lockup">
           <div className="brand-mark"><img src={logo} alt="" /></div>
-          <div><strong>慈元神</strong><span>配置助手</span></div>
+          <div><strong>词元神</strong><span>配置助手</span></div>
         </div>
         <div className="sidebar-rule" />
         <nav className="side-nav" aria-label="主导航">
@@ -356,7 +356,7 @@ function App() {
             <h1>{tab === 'overview' ? '环境概览' : tab === 'backups' ? '配置备份' : '版本更新'}</h1>
           </div>
           <div className="topbar-actions">
-            <div className="gateway-pill"><span className="status-dot" />慈元神网关 <code>/v1</code></div>
+            <div className="gateway-pill"><span className="status-dot" />词元神网关 <code>/v1</code></div>
             <button className="icon-button" title="重新检测环境" onClick={() => void refreshEnvironment()} disabled={busy === 'scan'}>
               <RefreshCw size={17} className={busy === 'scan' ? 'spin' : ''} />
             </button>
@@ -429,7 +429,7 @@ function Overview(props: {
       </section>
 
       <section className="key-panel">
-        <div className="panel-heading"><div><p className="eyebrow">CREDENTIAL</p><h2>连接慈元神网关</h2></div><div className="key-security"><LockKeyhole size={15} /> 不会上传到配置助手</div></div>
+        <div className="panel-heading"><div><p className="eyebrow">CREDENTIAL</p><h2>连接词元神网关</h2></div><div className="key-security"><LockKeyhole size={15} /> 不会上传到配置助手</div></div>
         <div className="key-row">
           <div className="key-input-wrap"><KeyRound size={17} /><input type={showKey ? 'text' : 'password'} placeholder="粘贴用户 API Key" value={apiKey} onChange={(event) => setApiKey(event.target.value)} autoComplete="off" /><button className="input-action" title={showKey ? '隐藏 Key' : '显示 Key'} onClick={() => setShowKey(!showKey)}>{showKey ? <EyeOff size={17} /> : <Eye size={17} />}</button></div>
           <button className="primary-button" onClick={fetchModels} disabled={modelStatus === 'loading'}><Cloud size={17} />{modelStatus === 'loading' ? '检查中' : '检查连接'}</button>
