@@ -64,3 +64,30 @@ func TestBackupIDValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestDeleteBackupByID(t *testing.T) {
+	home := isolateHome(t)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	path := filepath.Join(home, "settings.json")
+	writeFixture(t, path, "before")
+	backup, err := createBackup([]fileOperation{{ClientID: "test", Path: path, Content: []byte("after")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := deleteBackupByID(backup.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(backup.Path); !os.IsNotExist(err) {
+		t.Fatalf("backup directory should be deleted, stat error: %v", err)
+	}
+	backups, err := listBackups()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backups) != 0 {
+		t.Fatalf("deleted backup was still listed: %#v", backups)
+	}
+	if err := deleteBackupByID("../outside"); err == nil {
+		t.Fatal("unsafe backup ID should be rejected")
+	}
+}

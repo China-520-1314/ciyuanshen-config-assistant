@@ -92,7 +92,12 @@ func TestCheckGitHubReleasePrefersTheInstaller(t *testing.T) {
 
 func TestCheckGitHubReleaseRejectsMissingInstallerForNewVersion(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		_, _ = writer.Write([]byte(`{"tag_name":"v0.2.0","assets":[]}`))
+		_, _ = writer.Write([]byte(`{
+  "tag_name":"v0.2.0",
+  "assets":[
+    {"name":"ciyuanshen-config-assistant.exe","browser_download_url":"https://github.com/example/app.exe"}
+  ]
+}`))
 	}))
 	defer server.Close()
 

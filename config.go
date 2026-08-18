@@ -63,7 +63,7 @@ func buildConfiguration(request ConfigurationRequest) ([]fileOperation, []string
 		if model == "" {
 			model = strings.TrimSpace(models["default"])
 		}
-		if model == "" {
+		if target != "codex" && model == "" {
 			return nil, nil, fmt.Errorf("请为 %s 选择模型", clientDisplayName(target))
 		}
 
@@ -130,35 +130,24 @@ func configureClaude(home, key, model string) ([]fileOperation, error) {
 	return []fileOperation{newOperation("claude", path, configJSON, content)}, nil
 }
 
-func configureCodex(home, key, model string) ([]fileOperation, error) {
+func configureCodex(home, key, _ string) ([]fileOperation, error) {
 	configPath := firstClientPath("codex", home)
-	config, err := readTOMLMap(configPath)
-	if err != nil {
-		return nil, fmt.Errorf("读取 Codex 配置失败：%w", err)
-	}
-	config["model_provider"] = managedProviderName
-	config["model"] = model
-	config["model_reasoning_effort"] = "high"
-	config["disable_response_storage"] = true
-	providers := ensureMap(config, "model_providers")
-	providers[managedProviderName] = map[string]any{
-		"name":                 "词元神",
-		"base_url":             defaultGatewayURL,
-		"wire_api":             "responses",
-		"requires_openai_auth": true,
-	}
-	configContent, err := marshalTOML(config)
-	if err != nil {
-		return nil, fmt.Errorf("生成 Codex 配置失败：%w", err)
-	}
+	configContent := []byte(`model_provider = "ciyuanshen"
+review_model = "gpt-5.6-sol"
+model_reasoning_effort = "medium"
+disable_response_storage = true
+preferred_auth_method = "apikey"
+service_tier = "fast"
+web_search = "live"
+
+[model_providers.ciyuanshen]
+name = "ciyuanshen"
+base_url = "https://ciyuanshen.top/v1"
+wire_api = "responses"
+`)
 
 	authPath := filepath.Join(home, ".codex", "auth.json")
-	auth, err := readJSONMap(authPath)
-	if err != nil {
-		return nil, fmt.Errorf("读取 Codex 认证文件失败：%w", err)
-	}
-	auth["OPENAI_API_KEY"] = key
-	authContent, err := marshalJSON(auth)
+	authContent, err := marshalJSON(map[string]string{"OPENAI_API_KEY": key})
 	if err != nil {
 		return nil, fmt.Errorf("生成 Codex 认证文件失败：%w", err)
 	}

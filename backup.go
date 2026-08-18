@@ -108,10 +108,30 @@ func listBackups() ([]BackupInfo, error) {
 	sort.Slice(backups, func(left, right int) bool {
 		return backups[left].CreatedAt.After(backups[right].CreatedAt)
 	})
-	if len(backups) > 20 {
-		backups = backups[:20]
-	}
 	return backups, nil
+}
+
+func deleteBackupByID(id string) error {
+	if !isSafeBackupID(id) {
+		return errors.New("无效的备份编号")
+	}
+
+	root := filepath.Clean(backupRoot())
+	path := filepath.Join(root, id)
+	if filepath.Dir(path) != root {
+		return errors.New("无效的备份目录")
+	}
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return errors.New("找不到该备份")
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("备份目录无效")
+	}
+	return os.RemoveAll(path)
 }
 
 func restoreBackup(backup BackupInfo) error {

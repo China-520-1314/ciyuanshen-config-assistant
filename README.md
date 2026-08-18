@@ -1,6 +1,6 @@
 # 词元神一键配置助手
 
-这是一个 Wails v2 + Go + React/TypeScript 桌面工具，面向 Windows 用户自动检测本机 AI 客户端，并把词元神网关写入对应配置文件。用户只需输入自己的 API Key、选择工具和模型，即可预览、备份并一键配置。
+这是一个 Wails v2 + Go + React/TypeScript 桌面工具，面向 Windows 用户自动检测本机 AI 客户端，并把词元神网关写入对应配置文件。用户只需输入自己的 API Key、选择工具和模型，即可确认备份后替换为最新配置。
 
 ## 支持的客户端
 
@@ -23,10 +23,19 @@ Gemini 的 Base URL 不能直接写成 `https://ciyuanshen.top/v1`，因为 Gemi
 ## 安全和恢复
 
 - API Key 只在当前进程内存中使用，不会保存到助手自己的数据库或浏览器存储。
-- 写入目标客户端配置前，会在用户配置目录创建备份。
+- 写入目标客户端配置前会弹出确认，并在用户配置目录创建备份。
 - 配置文件使用临时文件 + 原子替换；写入后会再次解析校验，失败时自动回滚。
-- 备份页面可以恢复最近 20 次配置。
+- 备份页面显示备份目录，支持查看包含的文件、恢复和删除历史备份。
 - 预览页面只显示文件路径和变更类型，不显示 API Key。
+- 配置后可对单个或已选工具执行“检测”，同时检查词元神配置字段和 `/v1/models` 网关连接。
+
+## 分组倍率
+
+“分组倍率”页从 `https://ciyuanshen.top/api/user/groups` 读取当前公开可见分组及实时基础倍率，并显示月卡 85 折、周卡 9 折后的参考倍率。该页面不读取或修改 NewAPI 数据库。
+
+## Codex 固定模板
+
+选择 Codex 时会覆盖 `~/.codex/config.toml` 和 `~/.codex/auth.json`。配置文件固定使用 `ciyuanshen` Responses 服务商、`review_model = "gpt-5.6-sol"`、`model_reasoning_effort = "medium"`、`service_tier = "fast"` 和实时网络搜索；认证文件只写入用户输入的 `OPENAI_API_KEY`。原文件会先进入备份目录。
 
 ## 更新检查
 
@@ -67,12 +76,12 @@ go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build
 
 ## Windows `.exe` 打包
 
-仓库中的 [`.github/workflows/windows.yml`](.github/workflows/windows.yml) 会在推送 `v*` 标签时使用 Windows runner 构建 amd64 NSIS 安装包，并上传到 GitHub Release。GitHub Release 是默认下载和更新来源；若需要自建下载站，可将同一安装包和更新清单部署到上述固定 URL。构建支持通过标签注入版本号，例如：
+仓库中的 [`.github/workflows/windows.yml`](.github/workflows/windows.yml) 会在推送 `v*` 标签时使用 Windows runner 构建 amd64 NSIS 安装包，并上传到 GitHub Release。Release 只提供可安装的 `*-installer.exe` 和 `update.json`，避免用户误下载便携版。GitHub Release 是默认下载和更新来源；若需要自建下载站，可将同一安装包和更新清单部署到上述固定 URL。构建支持通过标签注入版本号，例如：
 
 ```bash
 go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build \
   -platform windows/amd64 -nsis \
-  -ldflags "-X main.appVersion=0.1.2"
+  -ldflags "-X main.appVersion=0.2.0"
 ```
 
 ## 设计边界

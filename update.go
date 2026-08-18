@@ -105,11 +105,6 @@ func selectWindowsInstaller(assets []githubReleaseAsset) githubReleaseAsset {
 			return asset
 		}
 	}
-	for _, asset := range assets {
-		if strings.HasSuffix(strings.ToLower(asset.Name), ".exe") {
-			return asset
-		}
-	}
 	return githubReleaseAsset{}
 }
 

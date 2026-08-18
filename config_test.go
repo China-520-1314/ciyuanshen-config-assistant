@@ -145,3 +145,71 @@ func TestValidateWrittenConfigReadsTheWrittenFile(t *testing.T) {
 		t.Fatal("expected validation to fail for the file on disk")
 	}
 }
+
+func TestConfigureCodexReplacesConfigAndAuth(t *testing.T) {
+	home := isolateHome(t)
+	configPath := filepath.Join(home, ".codex", "config.toml")
+	authPath := filepath.Join(home, ".codex", "auth.json")
+	writeFixture(t, configPath, "model = \"old-model\"\n[model_providers.old]\nbase_url = \"https://old.example\"\n")
+	writeFixture(t, authPath, `{"OPENAI_API_KEY":"old-key","tokens":{"access_token":"keep-out"}}`)
+
+	operations, err := configureCodex(home, "new-key", "ignored-model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	configOperation := operationFor(t, operations, configPath)
+	expectedConfig := `model_provider = "ciyuanshen"
+review_model = "gpt-5.6-sol"
+model_reasoning_effort = "medium"
+disable_response_storage = true
+preferred_auth_method = "apikey"
+service_tier = "fast"
+web_search = "live"
+
+[model_providers.ciyuanshen]
+name = "ciyuanshen"
+base_url = "https://ciyuanshen.top/v1"
+wire_api = "responses"
+`
+	if string(configOperation.Content) != expectedConfig {
+		t.Fatalf("unexpected Codex config:\n%s", configOperation.Content)
+	}
+
+	authOperation := operationFor(t, operations, authPath)
+	var auth map[string]string
+	if err := json.Unmarshal(authOperation.Content, &auth); err != nil {
+		t.Fatal(err)
+	}
+	if len(auth) != 1 || auth["OPENAI_API_KEY"] != "new-key" {
+		t.Fatalf("auth.json was not replaced: %#v", auth)
+	}
+}
+
+func TestConfigureAllSupportedClientsFromEmptyFiles(t *testing.T) {
+	home := isolateHome(t)
+	targets := []string{"claude", "codex", "gemini", "grok", "opencode", "openclaw", "hermes"}
+	operations, _, err := buildConfiguration(ConfigurationRequest{
+		APIKey:  "test-key",
+		Targets: targets,
+		Models:  map[string]string{"default": "gpt-test"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, operation := range operations {
+		if err := atomicWrite(operation.Path, operation.Content); err != nil {
+			t.Fatal(err)
+		}
+		if err := validateWrittenConfig(operation); err != nil {
+			t.Fatalf("%s output did not validate: %v", operation.ClientID, err)
+		}
+	}
+	if len(operations) != 9 {
+		t.Fatalf("expected 9 file operations, got %d", len(operations))
+	}
+	for _, target := range targets {
+		if err := verifyManagedClientConfiguration(home, target, "test-key"); err != nil {
+			t.Fatalf("%s output did not pass connection configuration check: %v", target, err)
+		}
+	}
+}

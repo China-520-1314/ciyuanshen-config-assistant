@@ -24,7 +24,7 @@ const (
 
 // appVersion is a variable so release builds can inject their tag with
 // -ldflags "-X main.appVersion=..." while local builds keep a useful default.
-var appVersion = "0.1.2"
+var appVersion = "0.2.0"
 
 // App is the bridge exposed to the Wails frontend. It never persists the API
 // key in the assistant's own data directory; the key only lives in memory for
@@ -243,10 +243,20 @@ func (a *App) ListBackups() ([]BackupInfo, error) {
 	return listBackups()
 }
 
+func (a *App) GetBackupRoot() string {
+	return backupRoot()
+}
+
 func (a *App) RestoreBackup(id string) error {
 	a.operation.Lock()
 	defer a.operation.Unlock()
 	return restoreBackupByID(id)
+}
+
+func (a *App) DeleteBackup(id string) error {
+	a.operation.Lock()
+	defer a.operation.Unlock()
+	return deleteBackupByID(id)
 }
 
 func (a *App) CheckForUpdates() UpdateInfo {

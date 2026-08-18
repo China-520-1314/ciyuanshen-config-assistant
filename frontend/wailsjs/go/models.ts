@@ -1,15 +1,15 @@
 export namespace main {
-	
+
 	export class AppInfo {
 	    name: string;
 	    version: string;
 	    updateManifestUrl: string;
 	    gatewayUrl: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new AppInfo(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -23,11 +23,11 @@ export namespace main {
 	    originalPath: string;
 	    backupPath: string;
 	    exists: boolean;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new BackupFile(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.clientId = source["clientId"];
@@ -42,11 +42,11 @@ export namespace main {
 	    createdAt: any;
 	    path: string;
 	    files: BackupFile[];
-	
+
 	    static createFrom(source: any = {}) {
 	        return new BackupInfo(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -54,7 +54,52 @@ export namespace main {
 	        this.path = source["path"];
 	        this.files = this.convertValues(source["files"], BackupFile);
 	    }
-	
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ClientConnectionResult {
+	    id: string;
+	    name: string;
+	    success: boolean;
+	    configured: boolean;
+	    status: number;
+	    endpoint: string;
+	    message: string;
+	    // Go type: time
+	    checkedAt: any;
+
+	    static createFrom(source: any = {}) {
+	        return new ClientConnectionResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.success = source["success"];
+	        this.configured = source["configured"];
+	        this.status = source["status"];
+	        this.endpoint = source["endpoint"];
+	        this.message = source["message"];
+	        this.checkedAt = this.convertValues(source["checkedAt"], null);
+	    }
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -83,11 +128,11 @@ export namespace main {
 	    configState: string;
 	    version: string;
 	    detail: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ClientStatus(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -105,11 +150,11 @@ export namespace main {
 	    clientId: string;
 	    path: string;
 	    action: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new FilePreview(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.clientId = source["clientId"];
@@ -121,18 +166,18 @@ export namespace main {
 	    files: FilePreview[];
 	    warnings: string[];
 	    error?: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ConfigurationPreview(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.files = this.convertValues(source["files"], FilePreview);
 	        this.warnings = source["warnings"];
 	        this.error = source["error"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -155,11 +200,11 @@ export namespace main {
 	    apiKey: string;
 	    targets: string[];
 	    models: Record<string, string>;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ConfigurationRequest(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.apiKey = source["apiKey"];
@@ -176,11 +221,11 @@ export namespace main {
 	    configured: string[];
 	    // Go type: time
 	    finishedAt: any;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ConfigureResult(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.success = source["success"];
@@ -191,7 +236,7 @@ export namespace main {
 	        this.configured = source["configured"];
 	        this.finishedAt = this.convertValues(source["finishedAt"], null);
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -209,6 +254,53 @@ export namespace main {
 		    }
 		    return a;
 		}
+	}
+	export class ConnectionCheckReport {
+	    results: ClientConnectionResult[];
+	    // Go type: time
+	    checkedAt: any;
+
+	    static createFrom(source: any = {}) {
+	        return new ConnectionCheckReport(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.results = this.convertValues(source["results"], ClientConnectionResult);
+	        this.checkedAt = this.convertValues(source["checkedAt"], null);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ConnectionCheckRequest {
+	    apiKey: string;
+	    targets: string[];
+
+	    static createFrom(source: any = {}) {
+	        return new ConnectionCheckRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.apiKey = source["apiKey"];
+	        this.targets = source["targets"];
+	    }
 	}
 	export class EnvironmentReport {
 	    os: string;
@@ -216,11 +308,11 @@ export namespace main {
 	    // Go type: time
 	    scannedAt: any;
 	    clients: ClientStatus[];
-	
+
 	    static createFrom(source: any = {}) {
 	        return new EnvironmentReport(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.os = source["os"];
@@ -228,7 +320,7 @@ export namespace main {
 	        this.scannedAt = this.convertValues(source["scannedAt"], null);
 	        this.clients = this.convertValues(source["clients"], ClientStatus);
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -247,16 +339,67 @@ export namespace main {
 		    return a;
 		}
 	}
-	
+
+	export class GroupRatio {
+	    name: string;
+	    description: string;
+	    ratio: number;
+
+	    static createFrom(source: any = {}) {
+	        return new GroupRatio(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.ratio = source["ratio"];
+	    }
+	}
+	export class GroupRatioReport {
+	    groups: GroupRatio[];
+	    endpoint: string;
+	    // Go type: time
+	    fetchedAt: any;
+
+	    static createFrom(source: any = {}) {
+	        return new GroupRatioReport(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.groups = this.convertValues(source["groups"], GroupRatio);
+	        this.endpoint = source["endpoint"];
+	        this.fetchedAt = this.convertValues(source["fetchedAt"], null);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class Model {
 	    id: string;
 	    object?: string;
 	    owned_by?: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new Model(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -269,11 +412,11 @@ export namespace main {
 	    status: number;
 	    message?: string;
 	    endpoint: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ModelResponse(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.models = this.convertValues(source["models"], Model);
@@ -281,7 +424,7 @@ export namespace main {
 	        this.message = source["message"];
 	        this.endpoint = source["endpoint"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -311,11 +454,11 @@ export namespace main {
 	    // Go type: time
 	    checkedAt: any;
 	    error?: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new UpdateInfo(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.currentVersion = source["currentVersion"];
@@ -328,7 +471,7 @@ export namespace main {
 	        this.checkedAt = this.convertValues(source["checkedAt"], null);
 	        this.error = source["error"];
 	    }
-	
+
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
