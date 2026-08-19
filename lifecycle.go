@@ -14,6 +14,10 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unicode/utf8"
+
+	"golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/simplifiedchinese"
 )
 
 const toolLifecycleTimeout = 5 * time.Minute
@@ -200,15 +204,35 @@ func (a *App) RunToolLifecycleAction(request ToolLifecycleRequest) ToolLifecycle
 }
 
 func npmLifecycleCommand(ctx context.Context, npmPath, packageName string) *exec.Cmd {
+	return npmLifecycleCommandForOS(ctx, npmPath, packageName, runtime.GOOS)
+}
+
+// npmLifecycleCommandForOS is kept separate from runtime.GOOS so command
+// construction can be regression-tested on non-Windows build hosts. Windows
+// npm installations expose npm.cmd, which must be invoked through cmd.exe and
+// prefixed with call; otherwise cmd can replace the parent command session.
+func npmLifecycleCommandForOS(ctx context.Context, npmPath, packageName, goos string) *exec.Cmd {
 	args := []string{"install", "--global", packageName + "@latest"}
-	if runtime.GOOS != "windows" {
+	if goos != "windows" {
 		return exec.CommandContext(ctx, npmPath, args...)
 	}
 	// npm on Windows is normally a .cmd shim. All command fragments below are
 	// supplied by the compiled client definition, never by the web view.
-	quotedPath := strings.ReplaceAll(npmPath, `"`, `""`)
-	line := `call "` + quotedPath + `" install --global ` + packageName + `@latest`
-	return exec.CommandContext(ctx, "cmd.exe", "/D", "/S", "/C", line)
+	line := `call ` + quoteWindowsBatchPath(npmPath) + ` install --global ` + packageName + `@latest`
+	return newWindowsShellCommand(ctx, line)
+}
+
+// quoteWindowsBatchPath follows the quoting rules used by cmd batch files.
+// Besides spaces, cmd treats characters such as '&' and '|' as operators even
+// inside an otherwise unquoted command line. Percent signs are doubled for the
+// call re-parse so a user's directory name is not interpreted as an env var.
+func quoteWindowsBatchPath(path string) string {
+	escaped := strings.ReplaceAll(path, `%`, `%%%%`)
+	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+	if strings.ContainsAny(path, " \t&()^;<>,|") {
+		return `"` + escaped + `"`
+	}
+	return escaped
 }
 
 func fetchNPMLatestVersion(client *http.Client, packageName string) (string, error) {
@@ -280,7 +304,9 @@ func normaliseToolVersion(raw string) string {
 }
 
 func lifecycleOutputDetail(output []byte) string {
-	text := strings.TrimSpace(string(output))
+	text := strings.ReplaceAll(decodeLifecycleOutput(output), "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	text = strings.TrimSpace(text)
 	if text == "" {
 		return ""
 	}
@@ -290,7 +316,31 @@ func lifecycleOutputDetail(output []byte) string {
 	}
 	result := strings.TrimSpace(strings.Join(lines, "\n"))
 	if len(result) > 1800 {
-		return result[len(result)-1800:]
+		runes := []rune(result)
+		if len(runes) > 1800 {
+			return string(runes[len(runes)-1800:])
+		}
 	}
 	return result
+}
+
+// decodeLifecycleOutput normalises output from npm/cmd before it is displayed
+// in the Wails toast. Windows may emit the active OEM/ANSI Chinese code page
+// (usually CP936/GBK), while newer Node releases emit UTF-8. Preserve valid
+// UTF-8 and decode invalid byte sequences as GB18030/GBK instead of rendering
+// mojibake such as "����".
+func decodeLifecycleOutput(output []byte) string {
+	if len(output) == 0 {
+		return ""
+	}
+	if utf8.Valid(output) {
+		return string(output)
+	}
+	for _, charset := range []encoding.Encoding{simplifiedchinese.GB18030, simplifiedchinese.GBK} {
+		decoded, err := charset.NewDecoder().Bytes(output)
+		if err == nil && utf8.Valid(decoded) {
+			return string(decoded)
+		}
+	}
+	return string(output)
 }

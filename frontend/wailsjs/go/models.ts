@@ -53,6 +53,20 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class SavedAccountLogin {
+	    username: string;
+	    password: string;
+
+	    static createFrom(source: any = {}) {
+	        return new SavedAccountLogin(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.username = source["username"];
+	        this.password = source["password"];
+	    }
+	}
 	export class AccountState {
 	    signedIn: boolean;
 	    username: string;
@@ -982,4 +996,3 @@ export namespace main {
 	}
 
 }
-

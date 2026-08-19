@@ -57,6 +57,7 @@ import {
   ConfigureTool,
   CreateToolKey,
   DeleteBackup,
+  DeleteSavedAccountLogin,
   GetAccountState,
   GetAccountToolOptions,
   GetAppInfo,
@@ -64,6 +65,7 @@ import {
   GetClientConfiguration,
   GetConfiguredToolModels,
   GetPublicGroupRatios,
+  GetSavedAccountLogin,
   GetToolLifecycleInfo,
   ListBackups,
   LoginAccount,
@@ -72,6 +74,7 @@ import {
   RestoreBackup,
   RefreshAccountState,
   RunToolLifecycleAction,
+  SaveAccountLogin,
   ScanEnvironment,
   ValidateToolKey,
   VerifyAccountTwoFactor,
@@ -100,6 +103,7 @@ type Model = { id: string; object?: string; owned_by?: string };
 type AppInfo = { name: string; version: string; updateManifestUrl: string; gatewayUrl: string };
 type AccountState = { signedIn: boolean; username: string; balance?: string; quota?: number; balanceUpdatedAt?: string; expiresAt?: string };
 type AccountLoginResult = { signedIn: boolean; requiresTwoFactor: boolean; flowToken: string; username: string; expiresAt?: string };
+type SavedAccountLogin = { username: string; password: string };
 type ToolGroupOption = { name: string; description: string; ratio: string; models: Model[] };
 type ToolOptionsResponse = { clientId: ClientId; groups: ToolGroupOption[] };
 type ToolKeyResult = { provisionId: string; clientId: ClientId; group: string; models: Model[]; status: number; endpoint: string };
@@ -239,11 +243,13 @@ function defaultModel(clientId: ClientId, models: Model[], current?: string) {
 function App() {
   const [tab, setTab] = useState<TabId>('overview');
   const [environment, setEnvironment] = useState<EnvironmentReport>(mockEnvironment);
-  const [appInfo, setAppInfo] = useState<AppInfo>({ name: '词元神配置助手', version: '0.2.2', updateManifestUrl: '', gatewayUrl: 'https://ciyuanshen.top/v1' });
+  const [appInfo, setAppInfo] = useState<AppInfo>({ name: '词元神配置助手', version: '0.2.3', updateManifestUrl: '', gatewayUrl: 'https://ciyuanshen.top/v1' });
   const [account, setAccount] = useState<AccountState>({ signedIn: false, username: '' });
   const [accountRefreshing, setAccountRefreshing] = useState(false);
   const [toolModels, setToolModels] = useState<Partial<Record<ClientId, Model[]>>>({});
   const [modelByClient, setModelByClient] = useState<Record<ClientId, string>>(recommendedModels);
+  const [modelsLoading, setModelsLoading] = useState<Partial<Record<ClientId, boolean>>>({});
+  const [modelErrors, setModelErrors] = useState<Partial<Record<ClientId, string>>>({});
   const [connectionResults, setConnectionResults] = useState<Partial<Record<ClientId, ClientConnectionResult>>>({});
   const [busy, setBusy] = useState('');
   const [checkingClient, setCheckingClient] = useState<ClientId | null>(null);
@@ -273,6 +279,7 @@ function App() {
   const [loginTarget, setLoginTarget] = useState<ClientId | null>(null);
   const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [rememberLogin, setRememberLogin] = useState(false);
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [twoFactorFlow, setTwoFactorFlow] = useState('');
   const [twoFactorCode, setTwoFactorCode] = useState('');
@@ -330,7 +337,18 @@ function App() {
         const nextAccount = accountState as AccountState;
         setAccount(nextAccount);
         if (nextAccount.signedIn) void refreshAccountState(false);
-        void refreshConfiguredModels(report as EnvironmentReport);
+        try {
+          const saved = await GetSavedAccountLogin() as SavedAccountLogin;
+          if (saved.username && saved.password) {
+            setLoginUsername(saved.username);
+            setLoginPassword(saved.password);
+            setRememberLogin(true);
+          }
+        } catch {
+          // Some Linux installations have no Secret Service provider. Login
+          // remains available; remembering credentials is simply disabled.
+        }
+        await refreshConfiguredModels(report as EnvironmentReport);
       } else {
         setEnvironment(mockEnvironment);
         setBackupRoot('~/.config/CiyuanShen/Config Assistant/backups');
@@ -367,7 +385,7 @@ function App() {
     try {
       const report = inWails() ? await ScanEnvironment() : mockEnvironment;
       setEnvironment(report as EnvironmentReport);
-      void refreshConfiguredModels(report as EnvironmentReport);
+      await refreshConfiguredModels(report as EnvironmentReport);
       if (announce) showFeedback({ tone: 'success', text: '环境检测已完成' }, 2200);
     } catch {
       if (announce) showFeedback({ tone: 'error', text: '环境检测失败，请检查权限后重试' });
@@ -377,28 +395,93 @@ function App() {
   }
 
   async function refreshConfiguredModels(report: EnvironmentReport) {
-    const next: Partial<Record<ClientId, Model[]>> = {};
-    const configuredSelections: Partial<Record<ClientId, string>> = {};
-    await Promise.all(report.clients.filter((client) => client.supported && client.configExists).map(async (client) => {
-      try {
-        const response = inWails()
-          ? await GetConfiguredToolModels(client.id)
-          : mockToolValidation(client.id);
-        const models = response as ToolKeyValidationResult;
-        next[client.id] = models.models;
-        if (models.selectedModel) configuredSelections[client.id] = models.selectedModel;
-      } catch {
-        // Existing non-managed configurations remain visible as unavailable until configured.
+    const clients = report.clients.filter((client) => client.supported && client.configExists);
+    setModelsLoading(Object.fromEntries(clients.map((client) => [client.id, true])) as Partial<Record<ClientId, boolean>>);
+    setModelErrors({});
+    setToolModels({});
+    setConnectionResults({});
+    if (clients.length === 0) {
+      return;
+    }
+
+    let checks: ClientConnectionResult[] = [];
+    try {
+      const response = inWails()
+        ? await CheckClientConnections({ targets: clients.map((client) => client.id) })
+        : browserPreviewConnectionCheck(clients.map((client) => client.id));
+      checks = (response as ConnectionCheckReport).results || [];
+      setConnectionResults((current) => ({
+        ...current,
+        ...Object.fromEntries(checks.map((check) => [check.id, check])) as Partial<Record<ClientId, ClientConnectionResult>>,
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '检测已配置工具失败';
+      const checkedAt = new Date().toISOString();
+      setConnectionResults(Object.fromEntries(clients.map((client) => [client.id, {
+        id: client.id,
+        name: client.name,
+        success: false,
+        configured: false,
+        status: 0,
+        endpoint: 'https://ciyuanshen.top/v1/models',
+        message,
+        checkedAt,
+      }])) as Partial<Record<ClientId, ClientConnectionResult>>);
+      setModelErrors(Object.fromEntries(clients.map((client) => [client.id, message])) as Partial<Record<ClientId, string>>);
+      setModelsLoading({});
+      return;
+    }
+
+    const checkByClient = new Map(checks.map((check) => [check.id, check]));
+    await Promise.all(clients.map(async (client) => {
+      const check = checkByClient.get(client.id);
+      if (!check?.success) {
+        // A pre-existing client config can have harmless fields that differ
+        // from the assistant's managed template. Still probe its stored Key
+        // so users can see the models available to that Key while the config
+        // check continues to report the exact mismatch separately.
+        const models = await loadConfiguredClientModels(client.id);
+        if (!models) {
+          setModelErrors((current) => current[client.id]
+            ? current
+            : { ...current, [client.id]: check?.message || '配置检测未通过，暂不读取模型' });
+        }
+        return;
       }
+      await loadConfiguredClientModels(client.id);
     }));
-    setToolModels(next);
-    setModelByClient((current) => {
-      const updated = { ...current };
-      (Object.entries(next) as [ClientId, Model[]][]).forEach(([clientId, models]) => {
-        updated[clientId] = defaultModel(clientId, models, configuredSelections[clientId] || current[clientId]);
-      });
-      return updated;
+  }
+
+  async function loadConfiguredClientModels(clientId: ClientId) {
+    setModelsLoading((current) => ({ ...current, [clientId]: true }));
+    setModelErrors((current) => {
+      const next = { ...current };
+      delete next[clientId];
+      return next;
     });
+    try {
+      const response = inWails()
+        ? await GetConfiguredToolModels(clientId)
+        : mockToolValidation(clientId);
+      const result = response as ToolKeyValidationResult;
+      if (!result.models || result.models.length === 0) throw new Error('该 Key 没有返回可用模型');
+      setToolModels((current) => ({ ...current, [clientId]: result.models }));
+      setModelByClient((current) => ({
+        ...current,
+        [clientId]: defaultModel(clientId, result.models, result.selectedModel || current[clientId]),
+      }));
+      return result;
+    } catch (error) {
+      setToolModels((current) => {
+        const next = { ...current };
+        delete next[clientId];
+        return next;
+      });
+      setModelErrors((current) => ({ ...current, [clientId]: error instanceof Error ? error.message : '读取 Key 可用模型失败' }));
+      return null;
+    } finally {
+      setModelsLoading((current) => ({ ...current, [clientId]: false }));
+    }
   }
 
   async function refreshBackups() {
@@ -420,9 +503,22 @@ function App() {
       const check = report.results[0];
       if (!check) throw new Error('未获得检测结果');
       setConnectionResults((current) => ({ ...current, [clientId]: check }));
-      const notice = check.success
+      let notice = check.success
         ? { tone: 'success' as const, text: `${check.name} 配置与连接正常` }
         : { tone: 'error' as const, text: check.message };
+      if (check.success) {
+        const models = await loadConfiguredClientModels(clientId);
+        if (!models) {
+          notice = { tone: 'error' as const, text: `${check.name} 连接正常，但读取可用模型失败` };
+        }
+      } else {
+        const models = await loadConfiguredClientModels(clientId);
+        if (!models) {
+          setModelErrors((current) => current[clientId]
+            ? current
+            : { ...current, [clientId]: check.message || '检测未通过' });
+        }
+      }
       if (anchor) showActionNotice(anchor, notice);
       else showFeedback(notice, 3200);
     } catch (error) {
@@ -688,7 +784,18 @@ function App() {
       : { signedIn: true, username: result.username || loginUsername, expiresAt: result.expiresAt };
     setAccount(nextState as AccountState);
     if (inWails()) await refreshAccountState(false);
-    setLoginPassword('');
+    if (inWails()) {
+      try {
+        if (rememberLogin) {
+          await SaveAccountLogin({ username: loginUsername.trim(), password: loginPassword });
+        } else {
+          await DeleteSavedAccountLogin();
+        }
+      } catch (error) {
+        showFeedback({ tone: 'error', text: error instanceof Error ? error.message : '登录成功，但保存登录信息失败' }, 3600);
+      }
+    }
+    if (!rememberLogin) setLoginPassword('');
     setLoginOpen(false);
     const target = loginTarget;
     setLoginTarget(null);
@@ -828,7 +935,7 @@ function App() {
             <NavButton active={false} icon={<Users size={17} />} label="加入QQ群" onClick={() => void openExternal(qqGroupURL)} external />
           </nav>
           <div className="sidebar-bottom">
-            <div className="secure-note"><LockKeyhole size={16} /><span>账号会话与新 Key 仅保留在本次运行中</span></div>
+            <div className="secure-note"><LockKeyhole size={16} /><span>账号会话与新 Key 仅保留本次运行；保存密码使用系统凭据管理器</span></div>
             <span className="version-label">v{appInfo.version}</span>
           </div>
         </aside>
@@ -846,7 +953,7 @@ function App() {
           </header>
 
           {feedback && <Feedback tone={feedback.tone} text={feedback.text} onClose={() => setFeedback(null)} />}
-          {tab === 'overview' && <Overview environment={environment} clientMap={clientMap} toolModels={toolModels} modelByClient={modelByClient} setClientModel={(clientId, model) => setModelByClient((current) => ({ ...current, [clientId]: model }))} connectionResults={connectionResults} checkingClient={checkingClient} applyingModelClient={applyingModelClient} lifecycleByClient={lifecycleByClient} lifecycleBusyClient={lifecycleBusyClient} onCheck={checkClient} onConfigure={openToolSetup} onApplyModel={applyExistingModel} onViewConfiguration={openClientConfiguration} onLifecycleCheck={checkToolLifecycle} onLifecycleAction={runToolLifecycleAction} />}
+          {tab === 'overview' && <Overview environment={environment} clientMap={clientMap} toolModels={toolModels} modelByClient={modelByClient} modelsLoading={modelsLoading} modelErrors={modelErrors} setClientModel={(clientId, model) => setModelByClient((current) => ({ ...current, [clientId]: model }))} connectionResults={connectionResults} checkingClient={checkingClient} applyingModelClient={applyingModelClient} lifecycleByClient={lifecycleByClient} lifecycleBusyClient={lifecycleBusyClient} onCheck={checkClient} onConfigure={openToolSetup} onApplyModel={applyExistingModel} onViewConfiguration={openClientConfiguration} onLifecycleCheck={checkToolLifecycle} onLifecycleAction={runToolLifecycleAction} />}
           {tab === 'groups' && <GroupRatios report={groupReport} busy={busy} refresh={() => void fetchGroupRatios()} />}
           {tab === 'backups' && <Backups backups={backups} backupRoot={backupRoot} busy={busy} restore={restore} remove={deleteBackup} refresh={() => void refreshBackups()} />}
           {tab === 'updates' && <Updates update={update} busy={busy} check={checkUpdate} openDownload={() => update?.downloadUrl && void openExternal(update.downloadUrl)} />}
@@ -856,7 +963,7 @@ function App() {
       {actionNotice && <ActionNotice {...actionNotice} />}
       {setup && <ToolSetupModal setup={setup} account={account} options={toolOptions} group={setupGroup} keyValue={setupKey} showKey={showSetupKey} validation={setupValidation} provision={provision} model={setupModel} busy={setupBusy} message={setupMessage} onClose={() => { setSetup(null); resetSetup(); }} onModeChange={switchSetupMode} onGroupChange={(value) => { setSetupGroup(value); setSetupValidation(null); setProvision(null); setSetupModel(''); setSetupMessage(null); }} onKeyChange={(value) => { setSetupKey(value); setSetupValidation(null); setProvision(null); setSetupModel(''); setSetupMessage(null); }} onShowKey={() => setShowSetupKey((current) => !current)} onModelChange={setSetupModel} onCreateKey={() => void createAccountKey()} onValidateKey={() => void validateManualKey()} onConfigure={() => void configureSelectedTool()} onLogin={() => openLogin(setup.clientId)} onReloadGroups={() => void loadToolOptions(setup.clientId)} />}
       {configurationClient && <ConfigurationViewerModal clientId={configurationClient} view={configurationView} busy={configurationBusy} error={configurationError} revealSecrets={revealConfigurationSecrets} onClose={() => { setConfigurationClient(null); setConfigurationView(null); setConfigurationError(null); setRevealConfigurationSecrets(false); }} onReload={() => void loadClientConfiguration(configurationClient, revealConfigurationSecrets)} onToggleSecrets={toggleConfigurationSecrets} />}
-      {loginOpen && <AccountLoginModal username={loginUsername} password={loginPassword} code={twoFactorCode} requiresTwoFactor={Boolean(twoFactorFlow)} showPassword={showLoginPassword} busy={loginBusy} message={loginMessage} onUsername={setLoginUsername} onPassword={setLoginPassword} onCode={setTwoFactorCode} onTogglePassword={() => setShowLoginPassword((current) => !current)} onClose={() => { setLoginOpen(false); setLoginMessage(null); setTwoFactorFlow(''); }} onSubmit={() => void (twoFactorFlow ? submitTwoFactor() : submitLogin())} onRegister={() => void openExternal(signUpURL)} onForgotPassword={() => void openExternal(forgotPasswordURL)} />}
+      {loginOpen && <AccountLoginModal username={loginUsername} password={loginPassword} rememberLogin={rememberLogin} code={twoFactorCode} requiresTwoFactor={Boolean(twoFactorFlow)} showPassword={showLoginPassword} busy={loginBusy} message={loginMessage} onUsername={setLoginUsername} onPassword={setLoginPassword} onRememberLogin={setRememberLogin} onCode={setTwoFactorCode} onTogglePassword={() => setShowLoginPassword((current) => !current)} onClose={() => { setLoginOpen(false); setLoginMessage(null); setTwoFactorFlow(''); }} onSubmit={() => void (twoFactorFlow ? submitTwoFactor() : submitLogin())} onRegister={() => void openExternal(signUpURL)} onForgotPassword={() => void openExternal(forgotPasswordURL)} />}
     </div>
   );
 }
@@ -877,11 +984,13 @@ function NavButton({ active, icon, label, count, onClick, external = false }: { 
   return <button className={`nav-button ${active ? 'active' : ''}`} onClick={onClick}>{icon}<span>{label}</span>{count ? <b>{count}</b> : external ? <ArrowUpRight size={15} className="nav-arrow" /> : <ChevronRight size={15} className="nav-arrow" />}</button>;
 }
 
-function Overview({ environment, clientMap, toolModels, modelByClient, setClientModel, connectionResults, checkingClient, applyingModelClient, lifecycleByClient, lifecycleBusyClient, onCheck, onConfigure, onApplyModel, onViewConfiguration, onLifecycleCheck, onLifecycleAction }: {
+function Overview({ environment, clientMap, toolModels, modelByClient, modelsLoading, modelErrors, setClientModel, connectionResults, checkingClient, applyingModelClient, lifecycleByClient, lifecycleBusyClient, onCheck, onConfigure, onApplyModel, onViewConfiguration, onLifecycleCheck, onLifecycleAction }: {
   environment: EnvironmentReport;
   clientMap: Map<ClientId, ClientStatus>;
   toolModels: Partial<Record<ClientId, Model[]>>;
   modelByClient: Record<ClientId, string>;
+  modelsLoading: Partial<Record<ClientId, boolean>>;
+  modelErrors: Partial<Record<ClientId, string>>;
   setClientModel: (clientId: ClientId, model: string) => void;
   connectionResults: Partial<Record<ClientId, ClientConnectionResult>>;
   checkingClient: ClientId | null;
@@ -895,7 +1004,10 @@ function Overview({ environment, clientMap, toolModels, modelByClient, setClient
   onLifecycleCheck: (clientId: ClientId, anchor?: HTMLElement) => void;
   onLifecycleAction: (clientId: ClientId, action: 'install' | 'update' | 'download', anchor: HTMLElement) => void;
 }) {
-  const configuredCount = environment.clients.filter((client) => client.configState === 'valid').length;
+  const configuredCount = environment.clients.filter((client) => {
+    const result = connectionResults[client.id];
+    return result ? result.success : client.configState === 'valid';
+  }).length;
   return <div className="content-stack">
     <section className="summary-band">
       <div className="summary-copy"><div className="section-icon green"><ShieldCheck size={20} /></div><div><h2>配置状态</h2><p>已验证 {configuredCount} / {environment.clients.length} 个工具配置</p></div></div>
@@ -904,17 +1016,19 @@ function Overview({ environment, clientMap, toolModels, modelByClient, setClient
     <section className="clients-section">
       <div className="section-heading"><div><p className="eyebrow">TOOLS</p><h2>选择要配置的工具</h2></div></div>
       <div className="client-grid">
-        {clientOrder.map((clientId) => <ClientCard key={clientId} clientId={clientId} status={clientMap.get(clientId)} models={toolModels[clientId] || []} model={modelByClient[clientId]} onModelChange={(model) => setClientModel(clientId, model)} result={connectionResults[clientId]} checking={checkingClient === clientId} applying={applyingModelClient === clientId} lifecycle={lifecycleByClient[clientId]} lifecycleBusy={lifecycleBusyClient === clientId} onCheck={onCheck} onConfigure={onConfigure} onApplyModel={onApplyModel} onViewConfiguration={onViewConfiguration} onLifecycleCheck={onLifecycleCheck} onLifecycleAction={onLifecycleAction} />)}
+        {clientOrder.map((clientId) => <ClientCard key={clientId} clientId={clientId} status={clientMap.get(clientId)} models={toolModels[clientId] || []} model={modelByClient[clientId]} modelsLoading={Boolean(modelsLoading[clientId])} modelError={modelErrors[clientId]} onModelChange={(model) => setClientModel(clientId, model)} result={connectionResults[clientId]} checking={checkingClient === clientId} applying={applyingModelClient === clientId} lifecycle={lifecycleByClient[clientId]} lifecycleBusy={lifecycleBusyClient === clientId} onCheck={onCheck} onConfigure={onConfigure} onApplyModel={onApplyModel} onViewConfiguration={onViewConfiguration} onLifecycleCheck={onLifecycleCheck} onLifecycleAction={onLifecycleAction} />)}
       </div>
     </section>
   </div>;
 }
 
-function ClientCard({ clientId, status, models, model, onModelChange, result, checking, applying, lifecycle, lifecycleBusy, onCheck, onConfigure, onApplyModel, onViewConfiguration, onLifecycleCheck, onLifecycleAction }: {
+function ClientCard({ clientId, status, models, model, modelsLoading, modelError, onModelChange, result, checking, applying, lifecycle, lifecycleBusy, onCheck, onConfigure, onApplyModel, onViewConfiguration, onLifecycleCheck, onLifecycleAction }: {
   clientId: ClientId;
   status?: ClientStatus;
   models: Model[];
   model: string;
+  modelsLoading: boolean;
+  modelError?: string;
   onModelChange: (value: string) => void;
   result?: ClientConnectionResult;
   checking: boolean;
@@ -946,7 +1060,7 @@ function ClientCard({ clientId, status, models, model, onModelChange, result, ch
     <div className="client-card-path">{status?.configPath || '配置文件将自动创建'}{status?.version && <span className="client-version"> · {status.version}</span>}</div>
     <div className="client-card-bottom">
       <label>当前 Key 可用模型</label>
-      {models.length > 0 ? <><select value={models.some((item) => item.id === model) ? model : ''} onChange={(event) => onModelChange(event.target.value)}>{models.map((option) => <option key={option.id} value={option.id}>{option.id}</option>)}</select><button className="icon-button compact-icon" title="应用默认模型" aria-label="应用默认模型" onClick={(event) => onApplyModel(clientId, event.currentTarget)} disabled={applying || unsupported}><ClipboardCheck size={15} /></button></> : <span className="model-empty">检测通过后显示模型</span>}
+      {modelsLoading ? <span className="model-empty"><RefreshCw size={13} className="spin" />正在读取 Key 可用模型</span> : models.length > 0 ? <><select value={models.some((item) => item.id === model) ? model : ''} onChange={(event) => onModelChange(event.target.value)}>{models.map((option) => <option key={option.id} value={option.id}>{option.id}</option>)}</select><button className="icon-button compact-icon" title="应用默认模型" aria-label="应用默认模型" onClick={(event) => onApplyModel(clientId, event.currentTarget)} disabled={applying || unsupported}><ClipboardCheck size={15} /></button></> : <span className={`model-empty ${modelError ? 'error' : ''}`} title={modelError}>{modelError ? `读取失败：${modelError}` : result?.success ? 'Key 未返回可用模型' : '尚未检测到可用 Key'}</span>}
     </div>
     <div className="client-card-actions">
       <span className={`check-result ${result ? (result.success ? 'success' : 'error') : ''}`}>{result ? (result.success ? <><CheckCircle2 size={14} />已通过</> : <><AlertTriangle size={14} />未通过</>) : <><CircleDashed size={14} />未检测</>}</span>
@@ -1028,9 +1142,10 @@ function configurationFileName(path: string) {
   return segments[segments.length - 1] || path;
 }
 
-function AccountLoginModal({ username, password, code, requiresTwoFactor, showPassword, busy, message, onUsername, onPassword, onCode, onTogglePassword, onClose, onSubmit, onRegister, onForgotPassword }: {
+function AccountLoginModal({ username, password, rememberLogin, code, requiresTwoFactor, showPassword, busy, message, onUsername, onPassword, onRememberLogin, onCode, onTogglePassword, onClose, onSubmit, onRegister, onForgotPassword }: {
   username: string;
   password: string;
+  rememberLogin: boolean;
   code: string;
   requiresTwoFactor: boolean;
   showPassword: boolean;
@@ -1038,6 +1153,7 @@ function AccountLoginModal({ username, password, code, requiresTwoFactor, showPa
   message: string | null;
   onUsername: (value: string) => void;
   onPassword: (value: string) => void;
+  onRememberLogin: (value: boolean) => void;
   onCode: (value: string) => void;
   onTogglePassword: () => void;
   onClose: () => void;
@@ -1048,7 +1164,7 @@ function AccountLoginModal({ username, password, code, requiresTwoFactor, showPa
   return <div className="modal-backdrop" role="presentation"><section className="login-modal" role="dialog" aria-modal="true" aria-labelledby="login-title">
     <div className="modal-heading"><div><p className="eyebrow">CIYUANSHEN ACCOUNT</p><h2 id="login-title">登录词元神</h2></div><button className="icon-button" title="关闭" aria-label="关闭" onClick={onClose}><X size={18} /></button></div>
     {requiresTwoFactor ? <div className="login-fields"><div className="field-block"><label htmlFor="two-factor-code">两步验证代码</label><input id="two-factor-code" inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(event) => onCode(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onSubmit(); }} /></div></div> : <div className="login-fields"><div className="field-block"><label htmlFor="account-username">账号</label><input id="account-username" autoComplete="username" value={username} onChange={(event) => onUsername(event.target.value)} /></div><div className="field-block"><label htmlFor="account-password">密码</label><div className="key-input-wrap"><LockKeyhole size={17} /><input id="account-password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={(event) => onPassword(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onSubmit(); }} /><button className="input-action" title={showPassword ? '隐藏密码' : '显示密码'} aria-label={showPassword ? '隐藏密码' : '显示密码'} onClick={onTogglePassword}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></div></div></div>}
-    {!requiresTwoFactor && <div className="login-links"><div className="login-register"><span>还没有注册？</span><button type="button" onClick={onRegister}>去注册</button></div><button className="login-link" type="button" onClick={onForgotPassword}>忘记密码</button></div>}
+    {!requiresTwoFactor && <><label className="remember-login"><input type="checkbox" checked={rememberLogin} onChange={(event) => onRememberLogin(event.target.checked)} />保存密码（仅保存在系统凭据管理器）</label><div className="login-links"><div className="login-register"><span>还没有注册？</span><button type="button" onClick={onRegister}>去注册</button></div><button className="login-link" type="button" onClick={onForgotPassword}>忘记密码</button></div></>}
     {message && <div className="setup-status neutral"><CircleDashed size={16} />{message}</div>}
     <div className="modal-actions"><button className="secondary-button" onClick={onClose}>取消</button><button className="primary-button" onClick={onSubmit} disabled={busy}><LogIn size={17} />{busy ? '登录中' : requiresTwoFactor ? '验证并登录' : '登录'}</button></div>
   </section></div>;

@@ -34,6 +34,10 @@ export function DeleteBackup(arg1) {
   return window['go']['main']['App']['DeleteBackup'](arg1);
 }
 
+export function DeleteSavedAccountLogin() {
+  return window['go']['main']['App']['DeleteSavedAccountLogin']();
+}
+
 export function FetchModels(arg1) {
   return window['go']['main']['App']['FetchModels'](arg1);
 }
@@ -60,6 +64,10 @@ export function GetClientConfiguration(arg1, arg2) {
 
 export function GetConfiguredToolModels(arg1) {
   return window['go']['main']['App']['GetConfiguredToolModels'](arg1);
+}
+
+export function GetSavedAccountLogin() {
+  return window['go']['main']['App']['GetSavedAccountLogin']();
 }
 
 export function GetPublicGroupRatios() {
@@ -100,6 +108,10 @@ export function RestoreBackup(arg1) {
 
 export function RunToolLifecycleAction(arg1) {
   return window['go']['main']['App']['RunToolLifecycleAction'](arg1);
+}
+
+export function SaveAccountLogin(arg1) {
+  return window['go']['main']['App']['SaveAccountLogin'](arg1);
 }
 
 export function ScanEnvironment() {
