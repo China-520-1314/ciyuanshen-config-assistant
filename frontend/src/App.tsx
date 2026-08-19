@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -12,6 +12,7 @@ import {
   ChevronUp,
   CircleDashed,
   ClipboardCheck,
+  Crop,
   Download,
   Eye,
   EyeOff,
@@ -20,6 +21,7 @@ import {
   FolderArchive,
   Globe,
   HardDriveDownload,
+  ImagePlus,
   KeyRound,
   Laptop,
   Layers3,
@@ -29,6 +31,7 @@ import {
   Maximize2,
   Minus,
   PackageCheck,
+  Palette,
   RefreshCw,
   RotateCcw,
   ScanSearch,
@@ -48,6 +51,10 @@ import grokLogo from './assets/clients/grok.svg';
 import hermesLogo from './assets/clients/hermes.png';
 import openclawLogo from './assets/clients/openclaw.svg';
 import opencodeLogo from './assets/clients/opencode.svg';
+import animeWallpaper from './assets/themes/anime-coffee-girl.jpg';
+import cherryWallpaper from './assets/themes/cherry-blossoms-blue.jpg';
+import mountainWallpaper from './assets/themes/mountain-place.jpg';
+import cityWallpaper from './assets/themes/city-lights.jpg';
 import './App.css';
 import {
   CheckClientConnections,
@@ -82,7 +89,8 @@ import {
 import { Quit, WindowMinimise, WindowToggleMaximise } from '../wailsjs/runtime/runtime';
 
 type ClientId = 'claude' | 'claude-desktop' | 'codex' | 'gemini' | 'grok' | 'opencode' | 'openclaw' | 'hermes';
-type TabId = 'overview' | 'groups' | 'backups' | 'updates';
+type TabId = 'overview' | 'groups' | 'backups' | 'updates' | 'appearance';
+type ThemeId = 'ciyuan' | 'anime' | 'sakura' | 'mountain' | 'city' | 'custom';
 type NoticeTone = 'success' | 'error' | 'neutral';
 
 type ClientStatus = {
@@ -192,11 +200,57 @@ const clientLogos: Record<ClientId, string> = {
   openclaw: openclawLogo,
   hermes: hermesLogo,
 };
+type ThemeDefinition = {
+  id: ThemeId;
+  name: string;
+  subtitle: string;
+  source: string;
+  sourceURL?: string;
+  wallpaper?: string;
+  dark: boolean;
+  swatches: string[];
+};
+
+const themeStorageKey = 'ciyuanshen-config-assistant.theme';
+const customWallpaperStorageKey = 'ciyuanshen-config-assistant.custom-wallpaper';
+const themeDefinitions: ThemeDefinition[] = [
+  { id: 'ciyuan', name: '词元神青', subtitle: '清爽工作台', source: '词元神', dark: false, swatches: ['#173735', '#0c766d', '#f4f7f7', '#e4f3f0'] },
+  { id: 'anime', name: '冬日人物', subtitle: '动漫人物 · 柔和青', source: 'FrenzyExists/wallpapers', sourceURL: 'https://github.com/FrenzyExists/wallpapers', wallpaper: animeWallpaper, dark: false, swatches: ['#406b70', '#d97c9f', '#e9f2ef', '#b9e4de'] },
+  { id: 'sakura', name: '蓝樱花', subtitle: '花枝风景 · 清透蓝', source: 'FrenzyExists/wallpapers', sourceURL: 'https://github.com/FrenzyExists/wallpapers', wallpaper: cherryWallpaper, dark: false, swatches: ['#31566f', '#d8797c', '#edf5f5', '#bfe3e6'] },
+  { id: 'mountain', name: '雪山远景', subtitle: '自然风景 · 深色', source: 'FrenzyExists/wallpapers', sourceURL: 'https://github.com/FrenzyExists/wallpapers', wallpaper: mountainWallpaper, dark: true, swatches: ['#122c35', '#76b6c9', '#203d46', '#d2e4d6'] },
+  { id: 'city', name: '夜色城市', subtitle: '城市灯火 · 暗色', source: 'FrenzyExists/wallpapers', sourceURL: 'https://github.com/FrenzyExists/wallpapers', wallpaper: cityWallpaper, dark: true, swatches: ['#171c29', '#e8873c', '#28303c', '#f5c96a'] },
+];
+
+function readStoredTheme(): ThemeId {
+  try {
+    const stored = window.localStorage.getItem(themeStorageKey);
+    if (stored === 'custom' && readStoredWallpaper()) return 'custom';
+    if (stored && themeDefinitions.some((theme) => theme.id === stored)) return stored as ThemeId;
+  } catch {
+    // Private browsing or a restricted WebView may disable localStorage.
+  }
+  return 'ciyuan';
+}
+
+function readStoredWallpaper() {
+  try {
+    const stored = window.localStorage.getItem(customWallpaperStorageKey);
+    return stored && stored.startsWith('data:image/') ? stored : '';
+  } catch {
+    return '';
+  }
+}
+
+function customThemeDefinition(wallpaper: string): ThemeDefinition {
+  return { id: 'custom', name: '我的图片', subtitle: '自定义背景 · 本地保存', source: '本机图片', wallpaper, dark: true, swatches: ['#101923', '#82c7cf', '#1d2a35', '#d9b56d'] };
+}
+
 const tabTitles: Record<TabId, string> = {
   overview: '环境概览',
   groups: '分组倍率',
   backups: '配置备份',
   updates: '版本更新',
+  appearance: '外观皮肤',
 };
 
 const mockEnvironment: EnvironmentReport = {
@@ -242,8 +296,10 @@ function defaultModel(clientId: ClientId, models: Model[], current?: string) {
 
 function App() {
   const [tab, setTab] = useState<TabId>('overview');
+  const [theme, setTheme] = useState<ThemeId>(readStoredTheme);
+  const [customWallpaper, setCustomWallpaper] = useState(readStoredWallpaper);
   const [environment, setEnvironment] = useState<EnvironmentReport>(mockEnvironment);
-  const [appInfo, setAppInfo] = useState<AppInfo>({ name: '词元神配置助手', version: '0.2.3', updateManifestUrl: '', gatewayUrl: 'https://ciyuanshen.top/v1' });
+  const [appInfo, setAppInfo] = useState<AppInfo>({ name: '词元神配置助手', version: '0.2.4', updateManifestUrl: '', gatewayUrl: 'https://ciyuanshen.top/v1' });
   const [account, setAccount] = useState<AccountState>({ signedIn: false, username: '' });
   const [accountRefreshing, setAccountRefreshing] = useState(false);
   const [toolModels, setToolModels] = useState<Partial<Record<ClientId, Model[]>>>({});
@@ -290,6 +346,8 @@ function App() {
   const [configurationBusy, setConfigurationBusy] = useState(false);
   const [configurationError, setConfigurationError] = useState<string | null>(null);
   const [revealConfigurationSecrets, setRevealConfigurationSecrets] = useState(false);
+  const availableThemes = useMemo(() => customWallpaper ? [...themeDefinitions, customThemeDefinition(customWallpaper)] : themeDefinitions, [customWallpaper]);
+  const activeTheme = availableThemes.find((item) => item.id === theme) || themeDefinitions[0];
 
   const clientMap = useMemo(() => new Map(environment.clients.map((client) => [client.id, client])), [environment.clients]);
 
@@ -301,6 +359,19 @@ function App() {
     if (feedbackTimer.current !== undefined) window.clearTimeout(feedbackTimer.current);
     if (actionTimer.current !== undefined) window.clearTimeout(actionTimer.current);
   }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.body.dataset.theme = theme;
+    try {
+      window.localStorage.setItem(themeStorageKey, theme);
+      if (customWallpaper) window.localStorage.setItem(customWallpaperStorageKey, customWallpaper);
+      else window.localStorage.removeItem(customWallpaperStorageKey);
+    } catch {
+      // Theme remains active for this session when persistence is unavailable.
+    }
+    if (theme === 'custom' && !customWallpaper) setTheme('ciyuan');
+  }, [theme, customWallpaper]);
 
   function showFeedback(next: { tone: NoticeTone; text: string }, dismissAfter = 0) {
     if (feedbackTimer.current !== undefined) window.clearTimeout(feedbackTimer.current);
@@ -909,6 +980,17 @@ function App() {
     else window.open(url, '_blank', 'noopener,noreferrer');
   }
 
+  function applyCustomWallpaper(wallpaper: string) {
+    try {
+      if (wallpaper) window.localStorage.setItem(customWallpaperStorageKey, wallpaper);
+      else window.localStorage.removeItem(customWallpaperStorageKey);
+    } catch {
+      showFeedback({ tone: 'error', text: wallpaper ? '图片已应用，但本机存储空间不足，重启后可能需要重新选择' : '已恢复默认皮肤，但本机存储未能清理' }, 3600);
+    }
+    setCustomWallpaper(wallpaper);
+    setTheme(wallpaper ? 'custom' : 'ciyuan');
+  }
+
   function selectTab(nextTab: TabId) {
     setTab(nextTab);
     if (nextTab === 'groups') void fetchGroupRatios();
@@ -916,7 +998,7 @@ function App() {
   }
 
   return (
-    <div className="window-frame">
+    <div className="window-frame" data-theme={theme} style={{ '--theme-wallpaper': activeTheme.wallpaper ? `url(${activeTheme.wallpaper})` : 'none' } as CSSProperties}>
       {inWails() && <WindowTitlebar />}
       <div className="app-shell">
         <aside className="sidebar">
@@ -930,6 +1012,7 @@ function App() {
             <NavButton active={tab === 'groups'} icon={<Layers3 size={17} />} label="分组倍率" onClick={() => selectTab('groups')} />
             <NavButton active={tab === 'backups'} icon={<RotateCcw size={17} />} label="配置备份" onClick={() => selectTab('backups')} count={backups.length || undefined} />
             <NavButton active={tab === 'updates'} icon={<Download size={17} />} label="版本更新" onClick={() => selectTab('updates')} />
+            <NavButton active={tab === 'appearance'} icon={<Palette size={17} />} label="外观皮肤" onClick={() => selectTab('appearance')} />
             <NavButton active={false} icon={<BookOpen size={17} />} label="文档教程" onClick={() => void openExternal(documentationURL)} external />
             <NavButton active={false} icon={<Globe size={17} />} label="进入官网" onClick={() => void openExternal(officialWebsiteURL)} external />
             <NavButton active={false} icon={<Users size={17} />} label="加入QQ群" onClick={() => void openExternal(qqGroupURL)} external />
@@ -957,6 +1040,7 @@ function App() {
           {tab === 'groups' && <GroupRatios report={groupReport} busy={busy} refresh={() => void fetchGroupRatios()} />}
           {tab === 'backups' && <Backups backups={backups} backupRoot={backupRoot} busy={busy} restore={restore} remove={deleteBackup} refresh={() => void refreshBackups()} />}
           {tab === 'updates' && <Updates update={update} busy={busy} check={checkUpdate} openDownload={() => update?.downloadUrl && void openExternal(update.downloadUrl)} />}
+          {tab === 'appearance' && <ThemeGallery theme={theme} themes={availableThemes} customWallpaper={customWallpaper} onThemeChange={setTheme} onCustomWallpaperChange={applyCustomWallpaper} onOpenSource={(url) => void openExternal(url)} />}
         </main>
       </div>
 
@@ -1173,6 +1257,152 @@ function AccountLoginModal({ username, password, rememberLogin, code, requiresTw
 function ActionNotice({ tone, text, left, top, below }: { tone: NoticeTone; text: string; left: number; top: number; below: boolean }) {
   const icon = tone === 'success' ? <CheckCircle2 size={16} /> : tone === 'error' ? <AlertTriangle size={16} /> : <CircleDashed size={16} />;
   return <div className={`action-notice ${tone} ${below ? 'below' : ''}`} role="status" style={{ left, top }}>{icon}<span>{text}</span></div>;
+}
+
+type CropSource = { src: string; width: number; height: number };
+
+function cropSourceRect(width: number, height: number, zoom: number, focusX: number, focusY: number) {
+  const targetRatio = 16 / 9;
+  let cropWidth = width;
+  let cropHeight = height;
+  if (width / height > targetRatio) cropWidth = height * targetRatio;
+  else cropHeight = width / targetRatio;
+  cropWidth = Math.max(1, cropWidth / zoom);
+  cropHeight = Math.max(1, cropHeight / zoom);
+  const maxX = Math.max(0, width - cropWidth);
+  const maxY = Math.max(0, height - cropHeight);
+  return { sx: maxX * (focusX / 100), sy: maxY * (focusY / 100), sw: cropWidth, sh: cropHeight };
+}
+
+function drawCrop(canvas: HTMLCanvasElement, image: HTMLImageElement, zoom: number, focusX: number, focusY: number, width = 720, height = 405) {
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  if (!context) return;
+  const rect = cropSourceRect(image.naturalWidth, image.naturalHeight, zoom, focusX, focusY);
+  context.clearRect(0, 0, width, height);
+  context.drawImage(image, rect.sx, rect.sy, rect.sw, rect.sh, 0, 0, width, height);
+}
+
+function decodeImage(source: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('图片无法读取，请换一张图片'));
+    image.src = source;
+  });
+}
+
+function readCropSource(file: File): Promise<CropSource> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('读取图片失败'));
+    reader.onload = async () => {
+      if (typeof reader.result !== 'string') {
+        reject(new Error('图片格式无法识别'));
+        return;
+      }
+      try {
+        const image = await decodeImage(reader.result);
+        resolve({ src: reader.result, width: image.naturalWidth, height: image.naturalHeight });
+      } catch (error) {
+        reject(error);
+      }
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function ThemeGallery({ theme, themes, customWallpaper, onThemeChange, onCustomWallpaperChange, onOpenSource }: { theme: ThemeId; themes: ThemeDefinition[]; customWallpaper: string; onThemeChange: (theme: ThemeId) => void; onCustomWallpaperChange: (wallpaper: string) => void; onOpenSource: (url: string) => void }) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const previewCanvasRef = useRef<HTMLCanvasElement>(null);
+  const [cropSource, setCropSource] = useState<CropSource | null>(null);
+  const [cropZoom, setCropZoom] = useState(1);
+  const [cropFocusX, setCropFocusX] = useState(50);
+  const [cropFocusY, setCropFocusY] = useState(50);
+  const [cropBusy, setCropBusy] = useState(false);
+  const [cropError, setCropError] = useState('');
+  const cards = customWallpaper ? themes : [...themes, customThemeDefinition('')];
+
+  useEffect(() => {
+    if (!cropSource || !previewCanvasRef.current) return;
+    let cancelled = false;
+    void decodeImage(cropSource.src).then((image) => {
+      if (!cancelled && previewCanvasRef.current) drawCrop(previewCanvasRef.current, image, cropZoom, cropFocusX, cropFocusY);
+    }).catch(() => {
+      if (!cancelled) setCropError('图片预览失败，请重新选择');
+    });
+    return () => { cancelled = true; };
+  }, [cropSource, cropZoom, cropFocusX, cropFocusY]);
+
+  async function selectFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setCropError('请选择 JPG、PNG 或 WebP 图片');
+      return;
+    }
+    if (file.size > 15 * 1024 * 1024) {
+      setCropError('图片不能超过 15 MB');
+      return;
+    }
+    try {
+      const source = await readCropSource(file);
+      if (source.width < 320 || source.height < 180) throw new Error('图片尺寸太小，至少需要 320×180');
+      setCropError('');
+      setCropZoom(1);
+      setCropFocusX(50);
+      setCropFocusY(50);
+      setCropSource(source);
+    } catch (error) {
+      setCropError(error instanceof Error ? error.message : '读取图片失败');
+    }
+  }
+
+  function openPicker() {
+    fileInputRef.current?.click();
+  }
+
+  function closeCrop() {
+    if (cropBusy) return;
+    setCropSource(null);
+    setCropError('');
+  }
+
+  async function applyCrop() {
+    if (!cropSource) return;
+    setCropBusy(true);
+    setCropError('');
+    try {
+      const image = await decodeImage(cropSource.src);
+      const encode = (width: number, height: number, quality: number) => {
+        const canvas = document.createElement('canvas');
+        drawCrop(canvas, image, cropZoom, cropFocusX, cropFocusY, width, height);
+        return canvas.toDataURL('image/jpeg', quality);
+      };
+      let wallpaper = encode(1600, 900, 0.84);
+      if (wallpaper.length > 3800000) wallpaper = encode(1280, 720, 0.78);
+      if (wallpaper.length > 4800000) throw new Error('压缩后的图片仍然过大，请选择尺寸更小的图片');
+      onCustomWallpaperChange(wallpaper);
+      setCropSource(null);
+    } catch (error) {
+      setCropError(error instanceof Error ? error.message : '应用自定义皮肤失败');
+    } finally {
+      setCropBusy(false);
+    }
+  }
+
+  function removeCustom() {
+    if (!window.confirm('删除已保存的自定义皮肤并恢复默认吗？')) return;
+    onCustomWallpaperChange('');
+  }
+
+  return <>
+    <div className="content-stack narrow-stack"><section className="page-intro"><div className="section-icon blue"><Palette size={20} /></div><div><p className="eyebrow">LOCAL APPEARANCE</p><h2>外观皮肤</h2><p>选择人物、动漫和风景背景，偏好会自动保存在这台设备上。</p></div></section><section className="theme-panel"><div className="theme-grid">{cards.map((item) => <button type="button" key={item.id} className={`theme-card ${theme === item.id ? 'active' : ''} ${item.dark ? 'dark-preview' : ''}`} onClick={() => item.id === 'custom' && !customWallpaper ? openPicker() : onThemeChange(item.id)} aria-pressed={theme === item.id}><span className="theme-preview" style={{ '--theme-preview-bg': item.swatches[2], '--theme-preview-sidebar': item.swatches[0], '--theme-preview-accent': item.swatches[1], '--theme-preview-positive': item.swatches[3], '--theme-preview-wallpaper': item.wallpaper ? `url(${item.wallpaper})` : 'none' } as CSSProperties}><span className="theme-preview-sidebar" /><span className="theme-preview-main"><i /><i /><b /></span></span><span className="theme-card-copy"><strong>{item.id === 'custom' && !customWallpaper ? '自定义皮肤' : item.name}</strong><span>{item.id === 'custom' && !customWallpaper ? '上传图片并裁剪应用' : item.subtitle}</span><em>{item.sourceURL ? <span className="theme-source" onClick={(event) => { event.stopPropagation(); onOpenSource(item.sourceURL as string); }}>{item.source} <ArrowUpRight size={11} /></span> : item.source}</em></span>{theme === item.id && <span className="theme-selected" aria-label="当前使用"><Check size={14} /></span>}</button>)}<button type="button" className="theme-upload-card" onClick={openPicker}><ImagePlus size={21} /><span><strong>上传新图片</strong><small>选择图片后可调整裁剪区域</small></span></button></div>{cropError && !cropSource && <div className="theme-inline-error"><AlertTriangle size={15} />{cropError}</div>}<div className="theme-panel-footer"><span>当前皮肤：<strong>{cards.find((item) => item.id === theme)?.name || '词元神青'}</strong></span><span>{customWallpaper ? <button type="button" className="theme-delete" onClick={removeCustom}><Trash2 size={13} />删除自定义图片</button> : '图片随安装包提供，离线也能使用'}</span></div></section></div>
+    <input ref={fileInputRef} className="theme-file-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void selectFile(event)} />
+    {cropSource && <div className="modal-backdrop" role="presentation"><section className="crop-modal" role="dialog" aria-modal="true" aria-labelledby="crop-title"><div className="modal-heading"><div><p className="eyebrow">CUSTOM WALLPAPER</p><h2 id="crop-title">裁剪自定义皮肤</h2></div><button type="button" className="icon-button" title="关闭" aria-label="关闭" onClick={closeCrop} disabled={cropBusy}><X size={18} /></button></div><div className="crop-body"><div className="crop-preview"><canvas ref={previewCanvasRef} aria-label="裁剪预览" /></div><div className="crop-controls"><label className="range-field"><span>缩放 <b>{cropZoom.toFixed(2)}x</b></span><input type="range" min="1" max="2.5" step="0.05" value={cropZoom} onChange={(event) => setCropZoom(Number(event.target.value))} /></label><label className="range-field"><span>水平位置 <b>{Math.round(cropFocusX)}%</b></span><input type="range" min="0" max="100" step="1" value={cropFocusX} onChange={(event) => setCropFocusX(Number(event.target.value))} /></label><label className="range-field"><span>垂直位置 <b>{Math.round(cropFocusY)}%</b></span><input type="range" min="0" max="100" step="1" value={cropFocusY} onChange={(event) => setCropFocusY(Number(event.target.value))} /></label>{cropError && <div className="crop-error"><AlertTriangle size={16} />{cropError}</div>}</div></div><div className="modal-actions"><button type="button" className="secondary-button" onClick={closeCrop} disabled={cropBusy}>取消</button><button type="button" className="primary-button" onClick={() => void applyCrop()} disabled={cropBusy}><Crop size={16} />{cropBusy ? '处理中' : '应用皮肤'}</button></div></section></div>}
+  </>;
 }
 
 function GroupRatios({ report, busy, refresh }: { report: GroupRatioReport | null; busy: string; refresh: () => void }) {

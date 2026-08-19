@@ -54,6 +54,10 @@ Gemini 的 Base URL 不能直接写成 `https://ciyuanshen.top/v1`，因为 Gemi
 
 清单格式见 [`update-manifest.example.json`](update-manifest.example.json)。`downloadUrl` 必须是 HTTPS 地址；应用只负责检查版本并打开下载地址，不会静默替换用户的可执行文件。
 
+## 外观皮肤
+
+“外观皮肤”页提供词元神青、动漫人物、樱花、雪山和夜景城市背景，图片随前端安装包内置，不依赖网络。用户也可以选择本地 JPG、PNG 或 WebP 图片，在 16:9 裁剪窗口中调整缩放和焦点后应用；裁剪结果会压缩后保存在本机 WebView 存储中，不会上传到服务器。内置壁纸来源和许可证见 [`frontend/src/assets/themes/SOURCES.md`](frontend/src/assets/themes/SOURCES.md)。
+
 ## 客户端安装与更新
 
 助手会单独检查已支持客户端的本机版本与公开发布版本。可通过 npm 安装的 CLI 工具可在应用内执行固定的 npm 安装或更新命令；不支持自动安装的客户端会跳转到官方安装页。打开助手本身不会自动安装、更新客户端或发起多余的版本请求。
@@ -92,7 +96,7 @@ go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build
 ```bash
 go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build \
   -platform windows/amd64 -nsis \
-  -ldflags "-X main.appVersion=0.2.3"
+  -ldflags "-X main.appVersion=0.2.4"
 ```
 
 ## 设计边界
