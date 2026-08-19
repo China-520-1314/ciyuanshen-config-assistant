@@ -149,7 +149,7 @@ web_search = "live"
 
 [model_providers.ciyuanshen]
 name = "ciyuanshen"
-base_url = "https://ciyuanshen.top/v1"
+base_url = "https://api.ciyuanshen.top/v1"
 wire_api = "responses"
 `)
 

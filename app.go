@@ -13,18 +13,18 @@ import (
 )
 
 const (
-	updateManifestURL   = "https://ciyuanshen.top/downloads/ciyuanshen-config-assistant/update.json"
+	updateManifestURL   = "https://api.ciyuanshen.top/downloads/ciyuanshen-config-assistant/update.json"
 	githubReleaseAPIURL = "https://api.github.com/repos/China-520-1314/ciyuanshen-config-assistant/releases/latest"
-	defaultGatewayURL   = "https://ciyuanshen.top/v1"
-	claudeGatewayURL    = "https://ciyuanshen.top"
-	geminiGatewayURL    = "https://ciyuanshen.top"
+	defaultGatewayURL   = "https://api.ciyuanshen.top/v1"
+	claudeGatewayURL    = "https://api.ciyuanshen.top"
+	geminiGatewayURL    = "https://api.ciyuanshen.top"
 	geminiAPIVersion    = "v1"
 	managedProviderName = "ciyuanshen"
 )
 
 // appVersion is a variable so release builds can inject their tag with
 // -ldflags "-X main.appVersion=..." while local builds keep a useful default.
-var appVersion = "0.2.4"
+var appVersion = "0.2.5"
 
 // App is the bridge exposed to the Wails frontend. It never persists the API
 // key in the assistant's own data directory; the key only lives in memory for

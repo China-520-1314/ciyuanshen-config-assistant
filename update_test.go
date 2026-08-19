@@ -35,7 +35,7 @@ func TestCheckForUpdates(t *testing.T) {
 			_, _ = writer.Write([]byte("not json"))
 			return
 		}
-		_, _ = writer.Write([]byte(`{"version":"0.2.0","downloadUrl":"https://ciyuanshen.top/downloads/app.exe","releaseNotes":"修复配置检测","publishedAt":"2026-08-18"}`))
+		_, _ = writer.Write([]byte(`{"version":"0.2.0","downloadUrl":"https://api.ciyuanshen.top/downloads/app.exe","releaseNotes":"修复配置检测","publishedAt":"2026-08-18"}`))
 	}))
 	defer server.Close()
 

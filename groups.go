@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-const publicGroupRatiosURL = "https://ciyuanshen.top/api/user/groups"
+const publicGroupRatiosURL = "https://api.ciyuanshen.top/api/user/groups"
 
 // GroupRatio is a publicly visible CiyuanShen routing group and its current
 // base billing multiplier.

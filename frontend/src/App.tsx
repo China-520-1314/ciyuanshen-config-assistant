@@ -299,7 +299,7 @@ function App() {
   const [theme, setTheme] = useState<ThemeId>(readStoredTheme);
   const [customWallpaper, setCustomWallpaper] = useState(readStoredWallpaper);
   const [environment, setEnvironment] = useState<EnvironmentReport>(mockEnvironment);
-  const [appInfo, setAppInfo] = useState<AppInfo>({ name: '词元神配置助手', version: '0.2.4', updateManifestUrl: '', gatewayUrl: 'https://ciyuanshen.top/v1' });
+  const [appInfo, setAppInfo] = useState<AppInfo>({ name: '词元神配置助手', version: '0.2.5', updateManifestUrl: '', gatewayUrl: 'https://api.ciyuanshen.top/v1' });
   const [account, setAccount] = useState<AccountState>({ signedIn: false, username: '' });
   const [accountRefreshing, setAccountRefreshing] = useState(false);
   const [toolModels, setToolModels] = useState<Partial<Record<ClientId, Model[]>>>({});
@@ -494,7 +494,7 @@ function App() {
         success: false,
         configured: false,
         status: 0,
-        endpoint: 'https://ciyuanshen.top/v1/models',
+        endpoint: 'https://api.ciyuanshen.top/v1/models',
         message,
         checkedAt,
       }])) as Partial<Record<ClientId, ClientConnectionResult>>);
@@ -1428,7 +1428,7 @@ function EmptyState({ icon, title, text }: { icon: ReactNode; title: string; tex
 }
 
 function mockToolValidation(clientId: ClientId): ToolKeyValidationResult {
-  return { clientId, models: mockToolModels(clientId), status: 200, endpoint: 'https://ciyuanshen.top/v1/models' };
+  return { clientId, models: mockToolModels(clientId), status: 200, endpoint: 'https://api.ciyuanshen.top/v1/models' };
 }
 
 function mockToolModels(clientId: ClientId): Model[] {
@@ -1445,7 +1445,7 @@ function mockToolOptions(clientId: ClientId): ToolOptionsResponse {
 }
 
 function mockProvision(clientId: ClientId, group: string): ToolKeyResult {
-  return { provisionId: 'preview-provision', clientId, group, models: mockToolModels(clientId), status: 200, endpoint: 'https://ciyuanshen.top/v1/models' };
+  return { provisionId: 'preview-provision', clientId, group, models: mockToolModels(clientId), status: 200, endpoint: 'https://api.ciyuanshen.top/v1/models' };
 }
 
 function mockConfigure(clientId: ClientId): ConfigureResult {
@@ -1453,12 +1453,12 @@ function mockConfigure(clientId: ClientId): ConfigureResult {
 }
 
 function mockGroupRatios(): GroupRatioReport {
-  return { endpoint: 'https://ciyuanshen.top/api/user/groups', fetchedAt: new Date().toISOString(), groups: [{ name: 'GPT低价', description: '示例低价分组', ratio: 0.1 }, { name: 'Gemini', description: '示例 Gemini 分组', ratio: 0.4 }, { name: '默认', description: '示例默认分组', ratio: 1 }] };
+  return { endpoint: 'https://api.ciyuanshen.top/api/user/groups', fetchedAt: new Date().toISOString(), groups: [{ name: 'GPT低价', description: '示例低价分组', ratio: 0.1 }, { name: 'Gemini', description: '示例 Gemini 分组', ratio: 0.4 }, { name: '默认', description: '示例默认分组', ratio: 1 }] };
 }
 
 function browserPreviewConnectionCheck(targets: ClientId[]): ConnectionCheckReport {
   const checkedAt = new Date().toISOString();
-  return { checkedAt, results: targets.map((id) => ({ id, name: clientCopy[id].short, success: false, configured: false, status: 0, endpoint: 'https://ciyuanshen.top/v1/models', message: desktopOnlyMessage, checkedAt })) };
+  return { checkedAt, results: targets.map((id) => ({ id, name: clientCopy[id].short, success: false, configured: false, status: 0, endpoint: 'https://api.ciyuanshen.top/v1/models', message: desktopOnlyMessage, checkedAt })) };
 }
 
 function mockClientConfiguration(clientId: ClientId, revealSecrets: boolean): ClientConfigurationView {

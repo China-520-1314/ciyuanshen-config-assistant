@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	dashboardBaseURL      = "https://ciyuanshen.top"
+	dashboardBaseURL      = "https://api.ciyuanshen.top"
 	provisionLifetime     = 20 * time.Minute
 	maximumAltchaAttempts = 1000000
 )

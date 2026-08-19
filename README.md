@@ -15,11 +15,11 @@
 
 配置地址按客户端协议固定为：
 
-- GPT、Grok、Codex 及 OpenAI 兼容工具：`https://ciyuanshen.top/v1`
-- Claude：`https://ciyuanshen.top`
-- Gemini CLI：`GOOGLE_GEMINI_BASE_URL=https://ciyuanshen.top`，并设置 `GOOGLE_GENAI_API_VERSION=v1`
+- GPT、Grok、Codex 及 OpenAI 兼容工具：`https://api.ciyuanshen.top/v1`
+- Claude：`https://api.ciyuanshen.top`
+- Gemini CLI：`GOOGLE_GEMINI_BASE_URL=https://api.ciyuanshen.top`，并设置 `GOOGLE_GENAI_API_VERSION=v1`
 
-Gemini 的 Base URL 不能直接写成 `https://ciyuanshen.top/v1`，因为 Gemini CLI 会自行拼接 `/v1beta` 路径。
+Gemini 的 Base URL 不能直接写成 `https://api.ciyuanshen.top/v1`，因为 Gemini CLI 会自行拼接 `/v1beta` 路径。
 
 ## 配置方式
 
@@ -38,11 +38,11 @@ Gemini 的 Base URL 不能直接写成 `https://ciyuanshen.top/v1`，因为 Gemi
 
 ## 分组倍率
 
-“分组倍率”页从 `https://ciyuanshen.top/api/user/groups` 读取当前公开可见分组及实时基础倍率，并显示月卡 85 折、周卡 9 折后的参考倍率。该页面不读取或修改 NewAPI 数据库。
+“分组倍率”页从 `https://api.ciyuanshen.top/api/user/groups` 读取当前公开可见分组及实时基础倍率，并显示月卡 85 折、周卡 9 折后的参考倍率。该页面不读取或修改 NewAPI 数据库。
 
 ## Codex 固定模板
 
-选择 Codex 时会覆盖 `~/.codex/config.toml` 和 `~/.codex/auth.json`。配置文件使用 `ciyuanshen` Responses 服务商，写入用户选定的默认 `model`，并固定使用 `review_model = "gpt-5.6-sol"`、`model_reasoning_effort = "medium"`、`service_tier = "fast"` 和实时网络搜索；认证文件写入选定 API Key。原文件会先进入备份目录。
+选择 Codex 时会覆盖 `~/.codex/config.toml` 和 `~/.codex/auth.json`。配置文件使用 `ciyuanshen` Responses 服务商（`base_url = "https://api.ciyuanshen.top/v1"`），写入用户选定的默认 `model`，并固定使用 `review_model = "gpt-5.6-sol"`、`model_reasoning_effort = "medium"`、`service_tier = "fast"` 和实时网络搜索；认证文件写入选定 API Key。原文件会先进入备份目录。
 
 ## 更新检查
 
@@ -50,7 +50,7 @@ Gemini 的 Base URL 不能直接写成 `https://ciyuanshen.top/v1`，因为 Gemi
 
 如果 GitHub 更新服务暂时不可用，应用会回退读取以下 HTTPS 更新清单：
 
-`https://ciyuanshen.top/downloads/ciyuanshen-config-assistant/update.json`
+`https://api.ciyuanshen.top/downloads/ciyuanshen-config-assistant/update.json`
 
 清单格式见 [`update-manifest.example.json`](update-manifest.example.json)。`downloadUrl` 必须是 HTTPS 地址；应用只负责检查版本并打开下载地址，不会静默替换用户的可执行文件。
 
@@ -96,7 +96,7 @@ go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build
 ```bash
 go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build \
   -platform windows/amd64 -nsis \
-  -ldflags "-X main.appVersion=0.2.4"
+  -ldflags "-X main.appVersion=0.2.5"
 ```
 
 ## 设计边界
