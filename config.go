@@ -135,23 +135,11 @@ func configureClaude(home, key, model string) ([]fileOperation, error) {
 
 func configureCodex(home, key, model string) ([]fileOperation, error) {
 	configPath := firstClientPath("codex", home)
-	modelLine := ""
-	if model = strings.TrimSpace(model); model != "" {
-		modelLine = "model = " + strconv.Quote(model) + "\n"
+	existingConfig, err := readTextOrEmpty(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("读取 Codex 配置失败：%w", err)
 	}
-	configContent := []byte(modelLine + `model_provider = "ciyuanshen"
-review_model = "gpt-5.6-sol"
-model_reasoning_effort = "medium"
-disable_response_storage = true
-preferred_auth_method = "apikey"
-service_tier = "fast"
-web_search = "live"
-
-[model_providers.ciyuanshen]
-name = "ciyuanshen"
-base_url = "https://api.ciyuanshen.top/v1"
-wire_api = "responses"
-`)
+	configContent := []byte(patchCodexConfig(existingConfig, model))
 
 	authPath := filepath.Join(home, ".codex", "auth.json")
 	authContent, err := marshalJSON(map[string]string{"OPENAI_API_KEY": key})
@@ -162,6 +150,168 @@ wire_api = "responses"
 		newOperation("codex", configPath, configTOML, configContent),
 		newOperation("codex", authPath, configJSON, authContent),
 	}, nil
+}
+
+const codexDefaultModel = "gpt-5.6-terra"
+
+type codexTemplateField struct {
+	Key   string
+	Value string
+}
+
+var codexTopLevelTemplate = []codexTemplateField{
+	{Key: "model_provider", Value: `"ciyuanshen"`},
+	{Key: "model", Value: `"gpt-5.6-terra"`},
+	{Key: "model_reasoning_effort", Value: `"max"`},
+	{Key: "disable_response_storage", Value: "true"},
+	{Key: "preferred_auth_method", Value: `"apikey"`},
+	{Key: "service_tier", Value: `"fast"`},
+	{Key: "web_search", Value: `"live"`},
+}
+
+var codexProviderTemplate = []codexTemplateField{
+	{Key: "name", Value: `"ciyuanshen"`},
+	{Key: "base_url", Value: `"https://api.ciyuanshen.top/v1"`},
+	{Key: "wire_api", Value: `"responses"`},
+	{Key: "requires_openai_auth", Value: "true"},
+}
+
+// patchCodexConfig adds only missing managed fields. It deliberately edits
+// text instead of re-marshalling TOML so comments, ordering, and unrelated
+// user configuration remain untouched.
+func patchCodexConfig(existing, selectedModel string) string {
+	if strings.TrimSpace(selectedModel) == "" {
+		selectedModel = codexDefaultModel
+	}
+	selectedModel = strconv.Quote(strings.TrimSpace(selectedModel))
+
+	lines := []string(nil)
+	if existing != "" {
+		lines = strings.Split(existing, "\n")
+	}
+	trailingNewline := strings.HasSuffix(existing, "\n")
+	firstTable := len(lines)
+	for index, line := range lines {
+		if codexTableName(line) != "" {
+			firstTable = index
+			break
+		}
+	}
+
+	prefix := append([]string(nil), lines[:firstTable]...)
+	present := make(map[string]bool)
+	for _, line := range prefix {
+		if key, ok := codexAssignmentKey(line); ok {
+			present[key] = true
+		}
+	}
+	for _, field := range codexTopLevelTemplate {
+		if field.Key == "model" {
+			field.Value = selectedModel
+		}
+		if !present[field.Key] {
+			prefix = append(prefix, field.Key+" = "+field.Value)
+			present[field.Key] = true
+		}
+	}
+
+	suffix := append([]string(nil), lines[firstTable:]...)
+	providerStart, providerEnd := -1, -1
+	for index, line := range suffix {
+		table := codexTableName(line)
+		if table == "model_providers.ciyuanshen" {
+			providerStart = index
+			providerEnd = len(suffix)
+			continue
+		}
+		if providerStart >= 0 && table != "" {
+			providerEnd = index
+			break
+		}
+	}
+	if providerStart < 0 {
+		if len(prefix) > 0 && strings.TrimSpace(prefix[len(prefix)-1]) != "" {
+			prefix = append(prefix, "")
+		}
+		prefix = append(prefix, "[model_providers.ciyuanshen]")
+		prefix = appendCodexMissingFields(prefix, codexProviderTemplate, nil)
+	} else {
+		providerLines := append([]string(nil), suffix[providerStart:providerEnd]...)
+		providerPresent := make(map[string]bool)
+		for _, line := range providerLines[1:] {
+			if key, ok := codexAssignmentKey(line); ok {
+				providerPresent[key] = true
+			}
+		}
+		missing := make([]string, 0, len(codexProviderTemplate))
+		for _, field := range codexProviderTemplate {
+			if !providerPresent[field.Key] {
+				missing = append(missing, field.Key+" = "+field.Value)
+			}
+		}
+		if len(missing) > 0 {
+			insertAt := providerEnd
+			for len(providerLines) > 1 && strings.TrimSpace(providerLines[len(providerLines)-1]) == "" {
+				insertAt--
+				providerLines = providerLines[:len(providerLines)-1]
+			}
+			providerLines = append(providerLines, missing...)
+			if insertAt < providerEnd {
+				providerLines = append(providerLines, "")
+			}
+			// Build a fresh slice: providerLines may share suffix's backing array,
+			// so nested append could otherwise overwrite the following table.
+			updatedSuffix := make([]string, 0, len(suffix)+len(missing))
+			updatedSuffix = append(updatedSuffix, suffix[:providerStart]...)
+			updatedSuffix = append(updatedSuffix, providerLines...)
+			updatedSuffix = append(updatedSuffix, suffix[providerEnd:]...)
+			suffix = updatedSuffix
+		}
+	}
+
+	resultLines := append(prefix, suffix...)
+	result := strings.Join(resultLines, "\n")
+	if trailingNewline || strings.TrimSpace(result) != "" {
+		result = strings.TrimRight(result, "\n") + "\n"
+	}
+	return result
+}
+
+func appendCodexMissingFields(lines []string, fields []codexTemplateField, present map[string]bool) []string {
+	if present == nil {
+		present = map[string]bool{}
+	}
+	for _, field := range fields {
+		if !present[field.Key] {
+			lines = append(lines, field.Key+" = "+field.Value)
+			present[field.Key] = true
+		}
+	}
+	return lines
+}
+
+func codexTableName(line string) string {
+	trimmed := strings.TrimSpace(strings.SplitN(line, "#", 2)[0])
+	if !strings.HasPrefix(trimmed, "[") || !strings.HasSuffix(trimmed, "]") {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "["), "]"))
+}
+
+func codexAssignmentKey(line string) (string, bool) {
+	trimmed := strings.TrimSpace(strings.SplitN(line, "#", 2)[0])
+	if trimmed == "" || strings.HasPrefix(trimmed, "[") {
+		return "", false
+	}
+	key, _, ok := strings.Cut(trimmed, "=")
+	if !ok {
+		return "", false
+	}
+	key = strings.TrimSpace(key)
+	if key == "" || strings.ContainsAny(key, " \t") {
+		return "", false
+	}
+	return key, true
 }
 
 func configureGemini(home, key, model string) ([]fileOperation, error) {

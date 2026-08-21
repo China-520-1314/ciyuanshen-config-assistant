@@ -718,6 +718,8 @@ export namespace main {
 	    provisionId: string;
 	    clientId: string;
 	    group: string;
+	    name: string;
+	    existing: boolean;
 	    models: Model[];
 	    status: number;
 	    endpoint: string;
@@ -731,6 +733,8 @@ export namespace main {
 	        this.provisionId = source["provisionId"];
 	        this.clientId = source["clientId"];
 	        this.group = source["group"];
+	        this.name = source["name"];
+	        this.existing = source["existing"];
 	        this.models = this.convertValues(source["models"], Model);
 	        this.status = source["status"];
 	        this.endpoint = source["endpoint"];
@@ -918,6 +922,7 @@ export namespace main {
 	export class ToolOptionsResponse {
 	    clientId: string;
 	    groups: ToolGroupOption[];
+	    existingKeys: ToolKeyResult[];
 
 	    static createFrom(source: any = {}) {
 	        return new ToolOptionsResponse(source);
@@ -927,6 +932,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.clientId = source["clientId"];
 	        this.groups = this.convertValues(source["groups"], ToolGroupOption);
+	        this.existingKeys = this.convertValues(source["existingKeys"], ToolKeyResult);
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

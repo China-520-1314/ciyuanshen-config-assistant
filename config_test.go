@@ -146,11 +146,11 @@ func TestValidateWrittenConfigReadsTheWrittenFile(t *testing.T) {
 	}
 }
 
-func TestConfigureCodexReplacesConfigAndAuth(t *testing.T) {
+func TestConfigureCodexAddsDefaultsAndPreservesExistingConfig(t *testing.T) {
 	home := isolateHome(t)
 	configPath := filepath.Join(home, ".codex", "config.toml")
 	authPath := filepath.Join(home, ".codex", "auth.json")
-	writeFixture(t, configPath, "model = \"old-model\"\n[model_providers.old]\nbase_url = \"https://old.example\"\n")
+	writeFixture(t, configPath, "model = \"old-model\"\ncustom_top_level = \"keep\"\n[model_providers.old]\nbase_url = \"https://old.example\"\ncustom = true\n")
 	writeFixture(t, authPath, `{"OPENAI_API_KEY":"old-key","tokens":{"access_token":"keep-out"}}`)
 
 	operations, err := configureCodex(home, "new-key", "ignored-model")
@@ -158,22 +158,28 @@ func TestConfigureCodexReplacesConfigAndAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 	configOperation := operationFor(t, operations, configPath)
-	expectedConfig := `model = "ignored-model"
-model_provider = "ciyuanshen"
-review_model = "gpt-5.6-sol"
-model_reasoning_effort = "medium"
-disable_response_storage = true
-preferred_auth_method = "apikey"
-service_tier = "fast"
-web_search = "live"
-
-[model_providers.ciyuanshen]
-name = "ciyuanshen"
-base_url = "https://api.ciyuanshen.top/v1"
-wire_api = "responses"
-`
-	if string(configOperation.Content) != expectedConfig {
-		t.Fatalf("unexpected Codex config:\n%s", configOperation.Content)
+	configContent := string(configOperation.Content)
+	for _, expected := range []string{
+		`model = "old-model"`,
+		`custom_top_level = "keep"`,
+		`model_provider = "ciyuanshen"`,
+		`model_reasoning_effort = "max"`,
+		`disable_response_storage = true`,
+		`preferred_auth_method = "apikey"`,
+		`service_tier = "fast"`,
+		`web_search = "live"`,
+		`[model_providers.old]`,
+		`base_url = "https://old.example"`,
+		`custom = true`,
+		`[model_providers.ciyuanshen]`,
+		`name = "ciyuanshen"`,
+		`base_url = "https://api.ciyuanshen.top/v1"`,
+		`wire_api = "responses"`,
+		`requires_openai_auth = true`,
+	} {
+		if !strings.Contains(configContent, expected) {
+			t.Fatalf("Codex config is missing %q:\n%s", expected, configContent)
+		}
 	}
 
 	authOperation := operationFor(t, operations, authPath)
@@ -182,7 +188,64 @@ wire_api = "responses"
 		t.Fatal(err)
 	}
 	if len(auth) != 1 || auth["OPENAI_API_KEY"] != "new-key" {
-		t.Fatalf("auth.json was not replaced: %#v", auth)
+		t.Fatalf("auth.json was not updated: %#v", auth)
+	}
+}
+
+func TestConfigureCodexUsesNewDefaultModelForEmptyConfig(t *testing.T) {
+	home := isolateHome(t)
+	operations, err := configureCodex(home, "new-key", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(operationFor(t, operations, filepath.Join(home, ".codex", "config.toml")).Content)
+	if !strings.Contains(content, `model = "gpt-5.6-terra"`) {
+		t.Fatalf("empty Codex config did not receive the new default model:\n%s", content)
+	}
+	if strings.Contains(content, "review_model") {
+		t.Fatal("legacy review_model should not be added to a new Codex config")
+	}
+}
+
+func TestPatchCodexConfigPreservesExistingManagedValuesAndOtherTables(t *testing.T) {
+	existing := `# keep this comment
+model_provider = "user-provider"
+model = "user-model"
+disable_response_storage = false
+
+[model_providers.ciyuanshen]
+name = "user-name"
+custom_provider_value = "keep"
+
+[other]
+model = "other-model"
+custom = true
+`
+	patched := patchCodexConfig(existing, "ignored-model")
+	for _, expected := range []string{
+		`model_provider = "user-provider"`,
+		`model = "user-model"`,
+		`disable_response_storage = false`,
+		`model_reasoning_effort = "max"`,
+		`preferred_auth_method = "apikey"`,
+		`service_tier = "fast"`,
+		`web_search = "live"`,
+		`[model_providers.ciyuanshen]`,
+		`name = "user-name"`,
+		`custom_provider_value = "keep"`,
+		`base_url = "https://api.ciyuanshen.top/v1"`,
+		`wire_api = "responses"`,
+		`requires_openai_auth = true`,
+		`[other]`,
+		`model = "other-model"`,
+		`custom = true`,
+	} {
+		if !strings.Contains(patched, expected) {
+			t.Fatalf("patched Codex config is missing %q:\n%s", expected, patched)
+		}
+	}
+	if strings.Count(patched, `model_provider =`) != 1 || strings.Count(patched, `model = "user-model"`) != 1 {
+		t.Fatalf("existing top-level assignments were duplicated:\n%s", patched)
 	}
 }
 

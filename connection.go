@@ -527,18 +527,12 @@ func verifyCodexConfiguration(home, key string) error {
 	if err != nil {
 		return errors.New("config.toml 格式无效")
 	}
-	for field, expected := range map[string]string{
-		"model_provider":        managedProviderName,
-		"review_model":          "gpt-5.6-sol",
-		"preferred_auth_method": "apikey",
-		"service_tier":          "fast",
-		"web_search":            "live",
-	} {
-		if err := requiredString(config, field, expected); err != nil {
+	for _, field := range []string{"model_provider", "model", "model_reasoning_effort", "preferred_auth_method", "service_tier", "web_search"} {
+		if _, err := requiredNonEmptyString(config, field); err != nil {
 			return err
 		}
 	}
-	if err := requiredBool(config, "disable_response_storage", true); err != nil {
+	if err := requiredBoolean(config, "disable_response_storage"); err != nil {
 		return err
 	}
 	providers, err := requiredMap(config, "model_providers")
@@ -549,14 +543,13 @@ func verifyCodexConfiguration(home, key string) error {
 	if err != nil {
 		return err
 	}
-	for field, expected := range map[string]string{
-		"name":     managedProviderName,
-		"base_url": defaultGatewayURL,
-		"wire_api": "responses",
-	} {
-		if err := requiredString(provider, field, expected); err != nil {
+	for _, field := range []string{"name", "base_url", "wire_api"} {
+		if _, err := requiredNonEmptyString(provider, field); err != nil {
 			return err
 		}
+	}
+	if err := requiredBoolean(provider, "requires_openai_auth"); err != nil {
+		return err
 	}
 
 	authPath := filepath.Join(home, ".codex", "auth.json")
@@ -761,6 +754,13 @@ func requiredNonEmptyString(root map[string]any, key string) (string, error) {
 func requiredBool(root map[string]any, key string, expected bool) error {
 	value, ok := root[key].(bool)
 	if !ok || value != expected {
+		return fmt.Errorf("%s 未正确配置", key)
+	}
+	return nil
+}
+
+func requiredBoolean(root map[string]any, key string) error {
+	if _, ok := root[key].(bool); !ok {
 		return fmt.Errorf("%s 未正确配置", key)
 	}
 	return nil

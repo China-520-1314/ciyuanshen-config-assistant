@@ -34,13 +34,13 @@ func TestVerifyCodexConfiguration(t *testing.T) {
 
 	configPath := filepath.Join(home, ".codex", "config.toml")
 	configuredContent := string(operationFor(t, operations, configPath).Content)
-	writeFixture(t, configPath, strings.Replace(configuredContent, "model_reasoning_effort = \"medium\"\n", "model_reasoning_effort = \"ultra\"\n", 1))
+	writeFixture(t, configPath, strings.Replace(configuredContent, "model_reasoning_effort = \"max\"\n", "model_reasoning_effort = \"ultra\"\n", 1))
 	if err := verifyManagedClientConfiguration(home, "codex", "test-key"); err != nil {
 		t.Fatalf("a valid non-default reasoning effort should pass: %v", err)
 	}
-	writeFixture(t, configPath, strings.Replace(configuredContent, "model_reasoning_effort = \"medium\"\n", "", 1))
-	if err := verifyManagedClientConfiguration(home, "codex", "test-key"); err != nil {
-		t.Fatalf("an omitted reasoning effort should pass: %v", err)
+	writeFixture(t, configPath, strings.Replace(configuredContent, "model_reasoning_effort = \"max\"\n", "", 1))
+	if err := verifyManagedClientConfiguration(home, "codex", "test-key"); err == nil {
+		t.Fatal("an omitted required reasoning effort should fail verification")
 	}
 	writeFixture(t, configPath, "model_provider = \"other\"\n")
 	if err := verifyManagedClientConfiguration(home, "codex", "test-key"); err == nil {

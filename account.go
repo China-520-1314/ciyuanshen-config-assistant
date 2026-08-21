@@ -21,9 +21,11 @@ import (
 )
 
 const (
-	dashboardBaseURL      = "https://api.ciyuanshen.top"
-	provisionLifetime     = 20 * time.Minute
-	maximumAltchaAttempts = 1000000
+	dashboardBaseURL       = "https://api.ciyuanshen.top"
+	provisionLifetime      = 20 * time.Minute
+	maximumAltchaAttempts  = 1000000
+	dashboardTokenPageSize = 100
+	dashboardTokenMaxPages = 1000
 )
 
 type AccountLoginRequest struct {
@@ -61,8 +63,9 @@ type ToolGroupOption struct {
 }
 
 type ToolOptionsResponse struct {
-	ClientID string            `json:"clientId"`
-	Groups   []ToolGroupOption `json:"groups"`
+	ClientID     string            `json:"clientId"`
+	Groups       []ToolGroupOption `json:"groups"`
+	ExistingKeys []ToolKeyResult   `json:"existingKeys,omitempty"`
 }
 
 type ToolKeyRequest struct {
@@ -77,6 +80,8 @@ type ToolKeyResult struct {
 	ProvisionID string  `json:"provisionId"`
 	ClientID    string  `json:"clientId"`
 	Group       string  `json:"group"`
+	Name        string  `json:"name,omitempty"`
+	Existing    bool    `json:"existing,omitempty"`
 	Models      []Model `json:"models"`
 	Status      int     `json:"status"`
 	Endpoint    string  `json:"endpoint"`
@@ -135,10 +140,29 @@ type dashboardAccountStatus struct {
 type provisionedToolKey struct {
 	ClientID string
 	Group    string
+	Name     string
 	Key      string
 	Models   []Model
+	Existing bool
 	Created  time.Time
 }
+
+// dashboardToken is the masked token record returned by the account API. The
+// unmasked key is fetched separately and never crosses the Wails bridge.
+type dashboardToken struct {
+	ID                 int    `json:"id"`
+	Name               string `json:"name"`
+	Status             int    `json:"status"`
+	ExpiredTime        int64  `json:"expired_time"`
+	RemainQuota        int64  `json:"remain_quota"`
+	UnlimitedQuota     bool   `json:"unlimited_quota"`
+	Group              string `json:"group"`
+	CreatedTime        int64  `json:"created_time"`
+	ModelLimitsEnabled bool   `json:"model_limits_enabled"`
+	ModelLimits        string `json:"model_limits"`
+}
+
+const automaticToolKeyName = "自动配置创建"
 
 type dashboardEnvelope struct {
 	Success bool            `json:"success"`
@@ -336,6 +360,10 @@ func (a *App) GetAccountToolOptions(clientID string) (ToolOptionsResponse, error
 	if err != nil {
 		return ToolOptionsResponse{}, err
 	}
+	return a.accountToolOptions(clientID, true)
+}
+
+func (a *App) accountToolOptions(clientID string, includeExisting bool) (ToolOptionsResponse, error) {
 	accessToken, err := a.accountAccessToken()
 	if err != nil {
 		return ToolOptionsResponse{}, err
@@ -371,8 +399,15 @@ func (a *App) GetAccountToolOptions(clientID string) (ToolOptionsResponse, error
 		})
 	}
 	sort.Slice(result.Groups, func(i, j int) bool { return result.Groups[i].Name < result.Groups[j].Name })
-	if len(result.Groups) == 0 {
-		return ToolOptionsResponse{}, fmt.Errorf("没有找到支持 %s 的可用分组", clientDisplayName(clientID))
+	if includeExisting {
+		candidates, candidatesErr := a.findExistingToolKeys(accessToken, clientID)
+		if candidatesErr != nil {
+			return ToolOptionsResponse{}, fmt.Errorf("检测账号已有 Key 失败：%w", candidatesErr)
+		}
+		result.ExistingKeys = candidates
+	}
+	if len(result.Groups) == 0 && len(result.ExistingKeys) == 0 {
+		return ToolOptionsResponse{}, fmt.Errorf("没有找到支持 %s 的可用分组或已有 Key", clientDisplayName(clientID))
 	}
 	return result, nil
 }
@@ -391,7 +426,7 @@ func (a *App) CreateToolKey(request ToolKeyRequest) (ToolKeyResult, error) {
 		return ToolKeyResult{}, err
 	}
 
-	options, err := a.GetAccountToolOptions(clientID)
+	options, err := a.accountToolOptions(clientID, false)
 	if err != nil {
 		return ToolKeyResult{}, err
 	}
@@ -410,8 +445,16 @@ func (a *App) CreateToolKey(request ToolKeyRequest) (ToolKeyResult, error) {
 	for _, model := range selected.Models {
 		modelNames = append(modelNames, model.ID)
 	}
+	before, err := a.fetchAccountTokens(accessToken)
+	if err != nil {
+		return ToolKeyResult{}, fmt.Errorf("读取账号已有 Key 失败：%w", err)
+	}
+	knownIDs := make(map[int]bool, len(before))
+	for _, token := range before {
+		knownIDs[token.ID] = true
+	}
 	createPayload := map[string]any{
-		"name":                 fmt.Sprintf("config-assistant-%s-%s", clientID, time.Now().Format("20060102-150405")),
+		"name":                 automaticToolKeyName,
 		"remain_quota":         0,
 		"expired_time":         -1,
 		"unlimited_quota":      true,
@@ -426,30 +469,214 @@ func (a *App) CreateToolKey(request ToolKeyRequest) (ToolKeyResult, error) {
 	if err != nil {
 		return ToolKeyResult{}, fmt.Errorf("创建 API Key 失败：%w", err)
 	}
-	var created struct {
-		ID int `json:"id"`
-	}
-	if err := json.Unmarshal(data, &created); err != nil || created.ID <= 0 {
-		return ToolKeyResult{}, errors.New("创建 API Key 后未返回有效令牌")
+	createdID := tokenIDFromResponse(data)
+	if createdID <= 0 {
+		createdID, err = a.findNewTokenID(accessToken, knownIDs)
+		if err != nil {
+			return ToolKeyResult{}, fmt.Errorf("API Key 已创建，但读取新 Key 失败：%w", err)
+		}
 	}
 
-	keyData, _, err := a.dashboardData(http.MethodPost, fmt.Sprintf("/api/token/%d/key", created.ID), accessToken, nil)
+	key, err := a.fetchAccountTokenKey(accessToken, createdID)
 	if err != nil {
-		return ToolKeyResult{}, fmt.Errorf("读取新建 API Key 失败：%w", err)
-	}
-	var keyPayload struct {
-		Key string `json:"key"`
-	}
-	if err := json.Unmarshal(keyData, &keyPayload); err != nil || strings.TrimSpace(keyPayload.Key) == "" {
-		return ToolKeyResult{}, errors.New("读取新建 API Key 后未返回有效密钥")
+		return ToolKeyResult{}, fmt.Errorf("API Key 已创建，但读取新建 Key 失败：%w", err)
 	}
 
-	validated, validationErr := a.validateToolKey(clientID, keyPayload.Key)
+	validated, validationErr := a.validateToolKey(clientID, key)
 	if validationErr != nil {
-		_, _, _ = a.dashboardData(http.MethodDelete, fmt.Sprintf("/api/token/%d/", created.ID), accessToken, nil)
+		_, _, _ = a.dashboardData(http.MethodDelete, fmt.Sprintf("/api/token/%d", createdID), accessToken, nil)
 		return ToolKeyResult{}, fmt.Errorf("新建 API Key 检测失败，已自动删除：%w", validationErr)
 	}
 
+	return a.storeProvisionedToolKey(clientID, groupName, automaticToolKeyName, key, validated, false)
+}
+
+func (a *App) fetchAccountTokens(accessToken string) ([]dashboardToken, error) {
+	allTokens := make([]dashboardToken, 0)
+	seenIDs := make(map[int]bool)
+	for pageNumber := 1; pageNumber <= dashboardTokenMaxPages; pageNumber++ {
+		path := fmt.Sprintf("/api/token/?p=%d&size=%d", pageNumber, dashboardTokenPageSize)
+		data, _, err := a.dashboardData(http.MethodGet, path, accessToken, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		var page struct {
+			Items    json.RawMessage `json:"items"`
+			PageSize int             `json:"page_size"`
+			Total    int             `json:"total"`
+		}
+		if err := json.Unmarshal(data, &page); err == nil && page.Items != nil {
+			var pageItems []dashboardToken
+			if err := json.Unmarshal(page.Items, &pageItems); err != nil {
+				return nil, errors.New("词元神 Key 列表数据格式无法识别")
+			}
+			for _, token := range pageItems {
+				if token.ID > 0 && !seenIDs[token.ID] {
+					seenIDs[token.ID] = true
+					allTokens = append(allTokens, token)
+				}
+			}
+			pageSize := page.PageSize
+			if pageSize <= 0 {
+				pageSize = dashboardTokenPageSize
+			}
+			if len(pageItems) == 0 || (page.Total > 0 && len(allTokens) >= page.Total) || len(pageItems) < pageSize {
+				return allTokens, nil
+			}
+			continue
+		}
+
+		// Keep compatibility with older deployments that returned a bare array.
+		if pageNumber != 1 {
+			return nil, errors.New("词元神 Key 列表数据格式无法识别")
+		}
+		var tokens []dashboardToken
+		if err := json.Unmarshal(data, &tokens); err != nil {
+			return nil, errors.New("词元神 Key 列表数据格式无法识别")
+		}
+		return tokens, nil
+	}
+	return nil, errors.New("词元神 Key 列表分页超过安全上限")
+}
+
+func (a *App) fetchAccountTokenKey(accessToken string, tokenID int) (string, error) {
+	if tokenID <= 0 {
+		return "", errors.New("新建 Key 缺少有效编号")
+	}
+	data, _, err := a.dashboardData(http.MethodPost, fmt.Sprintf("/api/token/%d/key", tokenID), accessToken, nil)
+	if err != nil {
+		return "", err
+	}
+	var payload struct {
+		Key string `json:"key"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil || strings.TrimSpace(payload.Key) == "" {
+		return "", errors.New("响应中未返回有效密钥")
+	}
+	return strings.TrimSpace(payload.Key), nil
+}
+
+func (a *App) fetchAccountTokenKeys(accessToken string, tokenIDs []int) (map[int]string, error) {
+	keys := make(map[int]string, len(tokenIDs))
+	for start := 0; start < len(tokenIDs); start += dashboardTokenPageSize {
+		end := start + dashboardTokenPageSize
+		if end > len(tokenIDs) {
+			end = len(tokenIDs)
+		}
+		data, _, err := a.dashboardData(http.MethodPost, "/api/token/batch/keys", accessToken, map[string][]int{"ids": tokenIDs[start:end]})
+		if err != nil {
+			return nil, err
+		}
+		var payload struct {
+			Keys map[string]string `json:"keys"`
+		}
+		if err := json.Unmarshal(data, &payload); err != nil {
+			return nil, errors.New("批量读取 Key 响应格式无法识别")
+		}
+		for rawID, key := range payload.Keys {
+			id, idErr := strconv.Atoi(rawID)
+			if idErr != nil || id <= 0 || strings.TrimSpace(key) == "" {
+				continue
+			}
+			keys[id] = strings.TrimSpace(key)
+		}
+	}
+	return keys, nil
+}
+
+func tokenIDFromResponse(data json.RawMessage) int {
+	var payload struct {
+		ID int `json:"id"`
+	}
+	if json.Unmarshal(data, &payload) == nil && payload.ID > 0 {
+		return payload.ID
+	}
+	return 0
+}
+
+func (a *App) findNewTokenID(accessToken string, knownIDs map[int]bool) (int, error) {
+	var lastErr error
+	for attempt := 0; attempt < 4; attempt++ {
+		tokens, err := a.fetchAccountTokens(accessToken)
+		if err != nil {
+			lastErr = err
+		} else {
+			candidateID := 0
+			candidateCreated := int64(0)
+			for _, token := range tokens {
+				if token.ID <= 0 || knownIDs[token.ID] || strings.TrimSpace(token.Name) != automaticToolKeyName {
+					continue
+				}
+				if token.CreatedTime > candidateCreated || (token.CreatedTime == candidateCreated && token.ID > candidateID) {
+					candidateID = token.ID
+					candidateCreated = token.CreatedTime
+				}
+			}
+			if candidateID > 0 {
+				return candidateID, nil
+			}
+			lastErr = errors.New("新建 Key 尚未出现在账号列表中")
+		}
+		if attempt < 3 {
+			time.Sleep(150 * time.Millisecond)
+		}
+	}
+	if lastErr == nil {
+		lastErr = errors.New("未找到新建 Key")
+	}
+	return 0, lastErr
+}
+
+func (a *App) findExistingToolKeys(accessToken, clientID string) ([]ToolKeyResult, error) {
+	tokens, err := a.fetchAccountTokens(accessToken)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]ToolKeyResult, 0, len(tokens))
+	available := make([]dashboardToken, 0, len(tokens))
+	ids := make([]int, 0, len(tokens))
+	for _, token := range tokens {
+		if token.ID <= 0 || !dashboardTokenAvailable(token) {
+			continue
+		}
+		available = append(available, token)
+		ids = append(ids, token.ID)
+	}
+	keys, err := a.fetchAccountTokenKeys(accessToken, ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, token := range available {
+		key := keys[token.ID]
+		if key == "" {
+			continue
+		}
+		validated, validateErr := a.validateToolKey(clientID, key)
+		if validateErr != nil {
+			continue
+		}
+		result, provisionErr := a.storeProvisionedToolKey(clientID, strings.TrimSpace(token.Group), strings.TrimSpace(token.Name), key, validated, true)
+		if provisionErr != nil {
+			return nil, provisionErr
+		}
+		result.Existing = true
+		results = append(results, result)
+	}
+	return results, nil
+}
+
+func dashboardTokenAvailable(token dashboardToken) bool {
+	if token.Status != 1 {
+		return false
+	}
+	if token.ExpiredTime >= 0 && token.ExpiredTime <= time.Now().Unix() {
+		return false
+	}
+	return token.UnlimitedQuota || token.RemainQuota > 0
+}
+
+func (a *App) storeProvisionedToolKey(clientID, group, name, key string, validated ToolKeyValidationResult, existing bool) (ToolKeyResult, error) {
 	provisionID, err := createProvisionID()
 	if err != nil {
 		return ToolKeyResult{}, errors.New("生成本地配置会话失败")
@@ -458,9 +685,11 @@ func (a *App) CreateToolKey(request ToolKeyRequest) (ToolKeyResult, error) {
 	a.pruneProvisionsLocked()
 	a.provisions[provisionID] = provisionedToolKey{
 		ClientID: clientID,
-		Group:    groupName,
-		Key:      keyPayload.Key,
+		Group:    group,
+		Name:     name,
+		Key:      key,
 		Models:   validated.Models,
+		Existing: existing,
 		Created:  time.Now(),
 	}
 	a.provisionMu.Unlock()
@@ -468,7 +697,9 @@ func (a *App) CreateToolKey(request ToolKeyRequest) (ToolKeyResult, error) {
 	return ToolKeyResult{
 		ProvisionID: provisionID,
 		ClientID:    clientID,
-		Group:       groupName,
+		Group:       group,
+		Name:        name,
+		Existing:    existing,
 		Models:      validated.Models,
 		Status:      validated.Status,
 		Endpoint:    validated.Endpoint,

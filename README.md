@@ -23,13 +23,14 @@ Gemini 的 Base URL 不能直接写成 `https://api.ciyuanshen.top/v1`，因为 
 
 ## 配置方式
 
-- 词元神账号模式：支持账号密码与两步验证登录，读取该账号可用的分组和模型，为选定工具创建仅限对应分组与模型的新 API Key；创建后会先检测可用模型，再写入本机客户端配置。
+- 词元神账号模式：支持账号密码与两步验证登录，读取该账号已有的可用 API Key，并按目标工具检测模型后优先推荐；确认后可直接配置。没有合适的已有 Key 时，助手会创建名为“自动配置创建”的 Key，检测成功后自动完成配置。
 - 已有 API Key 模式：输入现有 Key 后，助手通过 `/v1/models` 检测该 Key 可用且与目标客户端兼容的模型，再允许完成配置。
 - 已配置的工具可以直接重新选择默认模型；助手会读取本机已有 Key 进行验证，无需再次把 Key 输入界面。
 
 ## 安全和恢复
 
 - 用户输入的 API Key、账号会话和账号模式新建的原始 Key 只在当前进程内存中使用，不会保存到助手自己的数据库或浏览器存储。新建 Key 不会经过前端桥接，配置成功后才写入用户选定的客户端配置文件。
+- 仓库公开的是接口调用逻辑，不包含用户令牌；发布前不得提交 `.env`、本机 `config.toml`、`auth.json`、日志或构建产物中的敏感内容。服务端仍必须做好鉴权、限流和审计。
 - 写入目标客户端配置前会弹出确认，并在用户配置目录创建备份。
 - 配置文件使用临时文件 + 原子替换；写入后会再次解析校验，失败时自动回滚。
 - 备份页面显示备份目录，支持查看包含的文件、恢复和删除历史备份。
@@ -42,7 +43,7 @@ Gemini 的 Base URL 不能直接写成 `https://api.ciyuanshen.top/v1`，因为 
 
 ## Codex 固定模板
 
-选择 Codex 时会覆盖 `~/.codex/config.toml` 和 `~/.codex/auth.json`。配置文件使用 `ciyuanshen` Responses 服务商（`base_url = "https://api.ciyuanshen.top/v1"`），写入用户选定的默认 `model`，并固定使用 `review_model = "gpt-5.6-sol"`、`model_reasoning_effort = "medium"`、`service_tier = "fast"` 和实时网络搜索；认证文件写入选定 API Key。原文件会先进入备份目录。
+选择 Codex 时会先备份 `~/.codex/config.toml` 和 `~/.codex/auth.json`。如果已有 `config.toml`，助手只在文件前部补齐缺少的 `model_provider`、`model`、`model_reasoning_effort`、`disable_response_storage`、`preferred_auth_method`、`service_tier`、`web_search`，以及 `[model_providers.ciyuanshen]` 下缺少的 `name`、`base_url`、`wire_api`、`requires_openai_auth`；已有值、注释和其他表段保持不变。新文件默认使用 `gpt-5.6-terra`、`model_reasoning_effort = "max"`、实时网络搜索和 `https://api.ciyuanshen.top/v1` Responses 服务商，认证文件写入选定 API Key。
 
 ## 更新检查
 
@@ -96,7 +97,7 @@ go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build
 ```bash
 go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build \
   -platform windows/amd64 -nsis \
-  -ldflags "-X main.appVersion=0.2.5"
+  -ldflags "-X main.appVersion=0.2.6"
 ```
 
 ## 设计边界

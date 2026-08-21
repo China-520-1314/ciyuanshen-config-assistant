@@ -113,8 +113,8 @@ type AccountState = { signedIn: boolean; username: string; balance?: string; quo
 type AccountLoginResult = { signedIn: boolean; requiresTwoFactor: boolean; flowToken: string; username: string; expiresAt?: string };
 type SavedAccountLogin = { username: string; password: string };
 type ToolGroupOption = { name: string; description: string; ratio: string; models: Model[] };
-type ToolOptionsResponse = { clientId: ClientId; groups: ToolGroupOption[] };
-type ToolKeyResult = { provisionId: string; clientId: ClientId; group: string; models: Model[]; status: number; endpoint: string };
+type ToolOptionsResponse = { clientId: ClientId; groups: ToolGroupOption[]; existingKeys?: ToolKeyResult[] };
+type ToolKeyResult = { provisionId: string; clientId: ClientId; group: string; name?: string; existing?: boolean; models: Model[]; status: number; endpoint: string };
 type ToolKeyValidationResult = { clientId: ClientId; models: Model[]; selectedModel?: string; status: number; endpoint: string };
 type ConfigureResult = { success: boolean; error?: string; configured: string[]; finishedAt: string };
 type GroupRatio = { name: string; description: string; ratio: number };
@@ -183,7 +183,7 @@ const clientCopy: Record<ClientId, { short: string; badge: string }> = {
 const recommendedModels: Record<ClientId, string> = {
   claude: 'claude-sonnet-4-5',
   'claude-desktop': 'claude-sonnet-4-5',
-  codex: 'gpt-5.6-sol',
+  codex: 'gpt-5.6-terra',
   gemini: 'gemini-2.5-pro',
   grok: 'grok-4',
   opencode: 'gpt-5.6-sol',
@@ -299,7 +299,7 @@ function App() {
   const [theme, setTheme] = useState<ThemeId>(readStoredTheme);
   const [customWallpaper, setCustomWallpaper] = useState(readStoredWallpaper);
   const [environment, setEnvironment] = useState<EnvironmentReport>(mockEnvironment);
-  const [appInfo, setAppInfo] = useState<AppInfo>({ name: '词元神配置助手', version: '0.2.5', updateManifestUrl: '', gatewayUrl: 'https://api.ciyuanshen.top/v1' });
+  const [appInfo, setAppInfo] = useState<AppInfo>({ name: '词元神配置助手', version: '0.2.6', updateManifestUrl: '', gatewayUrl: 'https://api.ciyuanshen.top/v1' });
   const [account, setAccount] = useState<AccountState>({ signedIn: false, username: '' });
   const [accountRefreshing, setAccountRefreshing] = useState(false);
   const [toolModels, setToolModels] = useState<Partial<Record<ClientId, Model[]>>>({});
@@ -744,11 +744,28 @@ function App() {
       const options = result as ToolOptionsResponse;
       setToolOptions(options);
       setSetupGroup(options.groups[0]?.name || '');
+      const suggested = options.existingKeys?.[0];
+      if (suggested) {
+        setProvision(suggested);
+        setSetupValidation({ clientId, models: suggested.models, status: suggested.status, endpoint: suggested.endpoint });
+        setSetupModel(defaultModel(clientId, suggested.models, modelByClient[clientId]));
+        setSetupMessage({ tone: 'success', text: `检测到可用 Key「${suggested.name || '已有 Key'}」，已为你推荐` });
+      }
     } catch (error) {
       setSetupMessage({ tone: 'error', text: error instanceof Error ? error.message : '读取分组失败' });
     } finally {
       setSetupBusy('');
     }
+  }
+
+  function chooseExistingAccountKey(provisionId: string) {
+    if (!setup || !toolOptions) return;
+    const candidate = toolOptions.existingKeys?.find((item) => item.provisionId === provisionId);
+    if (!candidate) return;
+    setProvision(candidate);
+    setSetupValidation({ clientId: setup.clientId, models: candidate.models, status: candidate.status, endpoint: candidate.endpoint });
+    setSetupModel(defaultModel(setup.clientId, candidate.models, modelByClient[setup.clientId]));
+    setSetupMessage({ tone: 'success', text: `已选择 Key「${candidate.name || '已有 Key'}」，请选择默认模型后配置` });
   }
 
   function switchSetupMode(mode: 'account' | 'manual') {
@@ -763,8 +780,15 @@ function App() {
       setSetupMessage({ tone: 'error', text: '请选择分组' });
       return;
     }
+    const hasExistingKeys = Boolean(toolOptions?.existingKeys?.length);
+    const prompt = hasExistingKeys
+      ? `账号中已有可用 Key。仍将创建名为“自动配置创建”的新 Key，并使用推荐模型完成一键配置。是否继续？`
+      : `当前账号没有检测到适合 ${clientCopy[setup.clientId].short} 的已有 Key。将创建名为“自动配置创建”的 Key，并使用推荐模型完成一键配置。是否继续？`;
+    if (!window.confirm(prompt)) return;
     setSetupBusy('key');
     setSetupMessage(null);
+    setProvision(null);
+    setSetupValidation(null);
     try {
       const result = inWails()
         ? await CreateToolKey({ clientId: setup.clientId, group: setupGroup })
@@ -772,10 +796,21 @@ function App() {
       const next = result as ToolKeyResult;
       setProvision(next);
       setSetupValidation({ clientId: setup.clientId, models: next.models, status: next.status, endpoint: next.endpoint });
-      setSetupModel((current) => defaultModel(setup.clientId, next.models, current || modelByClient[setup.clientId]));
-      setSetupMessage({ tone: 'success', text: '已创建并检测 Key，请选择默认模型' });
+      const selectedModel = defaultModel(setup.clientId, next.models, modelByClient[setup.clientId]);
+      setSetupModel(selectedModel);
+      const configured = inWails()
+        ? await ConfigureProvisionedTool({ provisionId: next.provisionId, clientId: setup.clientId, model: selectedModel })
+        : mockConfigure(setup.clientId);
+      const configuredResult = configured as ConfigureResult;
+      if (!configuredResult.success) throw new Error(configuredResult.error || 'Key 已创建，但自动配置失败');
+      const configuredClient = setup.clientId;
+      setModelByClient((current) => ({ ...current, [configuredClient]: selectedModel }));
+      setSetup(null);
+      resetSetup();
+      await Promise.all([refreshBackups(), refreshEnvironment(false)]);
+      await checkClient(configuredClient, configureAnchor.current);
     } catch (error) {
-      setSetupMessage({ tone: 'error', text: error instanceof Error ? error.message : '创建 Key 失败' });
+      setSetupMessage({ tone: 'error', text: error instanceof Error ? error.message : '创建或配置 Key 失败' });
     } finally {
       setSetupBusy('');
     }
@@ -1045,7 +1080,7 @@ function App() {
       </div>
 
       {actionNotice && <ActionNotice {...actionNotice} />}
-      {setup && <ToolSetupModal setup={setup} account={account} options={toolOptions} group={setupGroup} keyValue={setupKey} showKey={showSetupKey} validation={setupValidation} provision={provision} model={setupModel} busy={setupBusy} message={setupMessage} onClose={() => { setSetup(null); resetSetup(); }} onModeChange={switchSetupMode} onGroupChange={(value) => { setSetupGroup(value); setSetupValidation(null); setProvision(null); setSetupModel(''); setSetupMessage(null); }} onKeyChange={(value) => { setSetupKey(value); setSetupValidation(null); setProvision(null); setSetupModel(''); setSetupMessage(null); }} onShowKey={() => setShowSetupKey((current) => !current)} onModelChange={setSetupModel} onCreateKey={() => void createAccountKey()} onValidateKey={() => void validateManualKey()} onConfigure={() => void configureSelectedTool()} onLogin={() => openLogin(setup.clientId)} onReloadGroups={() => void loadToolOptions(setup.clientId)} />}
+      {setup && <ToolSetupModal setup={setup} account={account} options={toolOptions} group={setupGroup} keyValue={setupKey} showKey={showSetupKey} validation={setupValidation} provision={provision} model={setupModel} busy={setupBusy} message={setupMessage} onClose={() => { setSetup(null); resetSetup(); }} onModeChange={switchSetupMode} onGroupChange={(value) => { setSetupGroup(value); setSetupValidation(null); setProvision(null); setSetupModel(''); setSetupMessage(null); }} onKeyChange={(value) => { setSetupKey(value); setSetupValidation(null); setProvision(null); setSetupModel(''); setSetupMessage(null); }} onExistingKeyChange={chooseExistingAccountKey} onShowKey={() => setShowSetupKey((current) => !current)} onModelChange={setSetupModel} onCreateKey={() => void createAccountKey()} onValidateKey={() => void validateManualKey()} onConfigure={() => void configureSelectedTool()} onLogin={() => openLogin(setup.clientId)} onReloadGroups={() => void loadToolOptions(setup.clientId)} />}
       {configurationClient && <ConfigurationViewerModal clientId={configurationClient} view={configurationView} busy={configurationBusy} error={configurationError} revealSecrets={revealConfigurationSecrets} onClose={() => { setConfigurationClient(null); setConfigurationView(null); setConfigurationError(null); setRevealConfigurationSecrets(false); }} onReload={() => void loadClientConfiguration(configurationClient, revealConfigurationSecrets)} onToggleSecrets={toggleConfigurationSecrets} />}
       {loginOpen && <AccountLoginModal username={loginUsername} password={loginPassword} rememberLogin={rememberLogin} code={twoFactorCode} requiresTwoFactor={Boolean(twoFactorFlow)} showPassword={showLoginPassword} busy={loginBusy} message={loginMessage} onUsername={setLoginUsername} onPassword={setLoginPassword} onRememberLogin={setRememberLogin} onCode={setTwoFactorCode} onTogglePassword={() => setShowLoginPassword((current) => !current)} onClose={() => { setLoginOpen(false); setLoginMessage(null); setTwoFactorFlow(''); }} onSubmit={() => void (twoFactorFlow ? submitTwoFactor() : submitLogin())} onRegister={() => void openExternal(signUpURL)} onForgotPassword={() => void openExternal(forgotPasswordURL)} />}
     </div>
@@ -1154,7 +1189,7 @@ function ClientCard({ clientId, status, models, model, modelsLoading, modelError
   </article>;
 }
 
-function ToolSetupModal({ setup, account, options, group, keyValue, showKey, validation, provision, model, busy, message, onClose, onModeChange, onGroupChange, onKeyChange, onShowKey, onModelChange, onCreateKey, onValidateKey, onConfigure, onLogin, onReloadGroups }: {
+function ToolSetupModal({ setup, account, options, group, keyValue, showKey, validation, provision, model, busy, message, onClose, onModeChange, onGroupChange, onKeyChange, onExistingKeyChange, onShowKey, onModelChange, onCreateKey, onValidateKey, onConfigure, onLogin, onReloadGroups }: {
   setup: SetupState;
   account: AccountState;
   options: ToolOptionsResponse | null;
@@ -1170,6 +1205,7 @@ function ToolSetupModal({ setup, account, options, group, keyValue, showKey, val
   onModeChange: (mode: 'account' | 'manual') => void;
   onGroupChange: (value: string) => void;
   onKeyChange: (value: string) => void;
+  onExistingKeyChange: (provisionId: string) => void;
   onShowKey: () => void;
   onModelChange: (value: string) => void;
   onCreateKey: () => void;
@@ -1180,6 +1216,7 @@ function ToolSetupModal({ setup, account, options, group, keyValue, showKey, val
 }) {
   const client = clientCopy[setup.clientId];
   const selectedGroup = options?.groups.find((item) => item.name === group);
+  const hasExistingKeys = Boolean(options?.existingKeys?.length);
   const keyReady = Boolean(validation && validation.models.length > 0);
   return <div className="modal-backdrop" role="presentation"><section className="setup-modal" role="dialog" aria-modal="true" aria-labelledby="setup-title">
     <div className="modal-heading"><div><p className="eyebrow">{client.badge}</p><h2 id="setup-title">配置 {client.short}</h2></div><button className="icon-button" title="关闭" aria-label="关闭" onClick={onClose}><X size={18} /></button></div>
@@ -1189,15 +1226,16 @@ function ToolSetupModal({ setup, account, options, group, keyValue, showKey, val
     </div>
     {setup.mode === 'account' ? <div className="setup-flow">
       {!account.signedIn ? <div className="setup-empty"><UserRound size={21} /><strong>尚未登录词元神账号</strong><button className="secondary-button" onClick={onLogin}><LogIn size={16} />登录账号</button></div> : <>
-        <div className="field-block"><label htmlFor="group-select">可用分组</label><div className="select-row"><select id="group-select" value={group} onChange={(event) => onGroupChange(event.target.value)} disabled={busy === 'groups' || Boolean(provision)}>{options?.groups.map((item) => <option key={item.name} value={item.name}>{item.name} · {item.ratio ? `${item.ratio}x` : '倍率待定'} · {item.models.length} 个模型</option>)}</select><button className="icon-button" title="刷新分组" aria-label="刷新分组" onClick={onReloadGroups} disabled={busy === 'groups' || Boolean(provision)}><RefreshCw size={16} className={busy === 'groups' ? 'spin' : ''} /></button></div>{selectedGroup?.description && <span className="field-note">{selectedGroup.description}</span>}</div>
-        {!keyReady && <button className="primary-button full-width" onClick={onCreateKey} disabled={busy === 'groups' || busy === 'key' || !group}><ShieldCheck size={17} />{busy === 'key' ? '创建并检测中' : '创建并检测 Key'}</button>}
+        {options?.existingKeys?.length ? <div className="field-block"><label htmlFor="existing-key-select">推荐可用 Key</label><select id="existing-key-select" value={provision?.existing ? provision.provisionId : ''} onChange={(event) => onExistingKeyChange(event.target.value)} disabled={busy === 'groups' || busy === 'key'}>{options.existingKeys.map((item) => <option key={item.provisionId} value={item.provisionId}>{item.name || '已有 Key'}{item.group ? ` · ${item.group}` : ''} · {item.models.length} 个可用模型</option>)}</select><span className="field-note">选择后可直接完成配置，无需新建 Key。</span></div> : null}
+        <div className="field-block"><label htmlFor="group-select">新建 Key 分组</label><div className="select-row"><select id="group-select" value={group} onChange={(event) => onGroupChange(event.target.value)} disabled={busy === 'groups' || busy === 'key'}>{options?.groups.map((item) => <option key={item.name} value={item.name}>{item.name} · {item.ratio ? `${item.ratio}x` : '倍率待定'} · {item.models.length} 个模型</option>)}</select><button className="icon-button" title="刷新分组" aria-label="刷新分组" onClick={onReloadGroups} disabled={busy === 'groups' || busy === 'key'}><RefreshCw size={16} className={busy === 'groups' ? 'spin' : ''} /></button></div>{selectedGroup?.description && <span className="field-note">{selectedGroup.description}</span>}</div>
+        <button className="primary-button full-width" onClick={onCreateKey} disabled={busy === 'groups' || busy === 'key' || !group}><ShieldCheck size={17} />{busy === 'key' ? '创建并配置中' : hasExistingKeys ? '仍然创建新的 Key' : '没有可用 Key，创建并一键配置'}</button>
       </>}
     </div> : <div className="setup-flow">
       <div className="field-block"><label htmlFor="manual-key">API Key</label><div className="key-input-wrap"><KeyRound size={17} /><input id="manual-key" type={showKey ? 'text' : 'password'} value={keyValue} placeholder="粘贴 API Key" autoComplete="off" onChange={(event) => onKeyChange(event.target.value)} /><button className="input-action" title={showKey ? '隐藏 Key' : '显示 Key'} aria-label={showKey ? '隐藏 Key' : '显示 Key'} onClick={onShowKey}>{showKey ? <EyeOff size={17} /> : <Eye size={17} />}</button></div></div>
       {!keyReady && <button className="primary-button full-width" onClick={onValidateKey} disabled={busy === 'validate'}><Activity size={17} />{busy === 'validate' ? '检测中' : '检测 Key'}</button>}
     </div>}
     {message && <div className={`setup-status ${message.tone}`}><span>{message.tone === 'success' ? <CheckCircle2 size={16} /> : message.tone === 'error' ? <AlertTriangle size={16} /> : <CircleDashed size={16} />}</span>{message.text}</div>}
-    {validation && validation.models.length > 0 && <div className="model-step"><div className="field-block"><label htmlFor="default-model">默认模型</label><select id="default-model" value={model} onChange={(event) => onModelChange(event.target.value)}>{validation.models.map((option) => <option key={option.id} value={option.id}>{option.id}</option>)}</select></div><div className="model-step-footer"><span>{provision ? '新建 Key 已限制为该工具可用模型' : '仅使用当前输入的 Key 完成本次配置'}</span><button className="primary-button" onClick={onConfigure} disabled={busy === 'configure' || !model}><ClipboardCheck size={17} />{busy === 'configure' ? '备份并配置中' : '备份并一键配置'}</button></div></div>}
+    {validation && validation.models.length > 0 && <div className="model-step"><div className="field-block"><label htmlFor="default-model">默认模型</label><select id="default-model" value={model} onChange={(event) => onModelChange(event.target.value)}>{validation.models.map((option) => <option key={option.id} value={option.id}>{option.id}</option>)}</select></div><div className="model-step-footer"><span>{provision?.existing ? `使用账号已有 Key${provision.name ? `「${provision.name}」` : ''}` : provision ? '新建 Key 已限制为该工具可用模型' : '仅使用当前输入的 Key 完成本次配置'}</span><button className="primary-button" onClick={onConfigure} disabled={busy === 'configure' || !model}><ClipboardCheck size={17} />{busy === 'configure' ? '备份并配置中' : '确认并一键配置'}</button></div></div>}
   </section></div>;
 }
 
@@ -1432,7 +1470,7 @@ function mockToolValidation(clientId: ClientId): ToolKeyValidationResult {
 }
 
 function mockToolModels(clientId: ClientId): Model[] {
-  const all = [{ id: 'gpt-5.6-sol' }, { id: 'claude-sonnet-4-5' }, { id: 'gemini-2.5-pro' }, { id: 'grok-4' }];
+  const all = [{ id: 'gpt-5.6-terra' }, { id: 'gpt-5.6-sol' }, { id: 'claude-sonnet-4-5' }, { id: 'gemini-2.5-pro' }, { id: 'grok-4' }];
   if (clientId === 'claude' || clientId === 'claude-desktop') return all.filter((model) => model.id.startsWith('claude'));
   if (clientId === 'codex') return all.filter((model) => model.id.startsWith('gpt'));
   if (clientId === 'gemini') return all.filter((model) => model.id.startsWith('gemini'));
