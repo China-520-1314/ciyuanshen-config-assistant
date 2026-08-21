@@ -527,7 +527,11 @@ func verifyCodexConfiguration(home, key string) error {
 	if err != nil {
 		return errors.New("config.toml 格式无效")
 	}
-	for _, field := range []string{"model_provider", "model", "model_reasoning_effort", "preferred_auth_method", "service_tier", "web_search"} {
+	providerName, err := requiredNonEmptyString(config, "model_provider")
+	if err != nil {
+		return err
+	}
+	for _, field := range []string{"model", "model_reasoning_effort", "preferred_auth_method", "service_tier", "web_search"} {
 		if _, err := requiredNonEmptyString(config, field); err != nil {
 			return err
 		}
@@ -539,8 +543,11 @@ func verifyCodexConfiguration(home, key string) error {
 	if err != nil {
 		return err
 	}
-	provider, err := requiredMap(providers, managedProviderName)
+	provider, err := requiredMap(providers, providerName)
 	if err != nil {
+		return err
+	}
+	if err := requiredString(provider, "name", providerName); err != nil {
 		return err
 	}
 	for _, field := range []string{"name", "base_url", "wire_api"} {

@@ -70,7 +70,7 @@ jobs:
           $version = $env:RELEASE_TAG
           $isRelease = $version -match "^v\d+\.\d+\.\d+$"
           if (-not $isRelease) {
-            $version = "0.2.6-dev"
+            $version = "0.2.7-dev"
           } else {
             $version = $version.Substring(1)
             $project = Get-Content wails.json -Raw | ConvertFrom-Json
@@ -88,7 +88,7 @@ jobs:
           if ($version -match "^v\d+\.\d+\.\d+$") {
             $version = $version.Substring(1)
           } else {
-            $version = "0.2.6-dev"
+            $version = "0.2.7-dev"
           }
           $installer = Get-ChildItem -Path build/bin -Filter "*installer.exe" | Select-Object -First 1
           if ($null -eq $installer) {

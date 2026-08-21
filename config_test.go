@@ -230,8 +230,8 @@ custom = true
 		`preferred_auth_method = "apikey"`,
 		`service_tier = "fast"`,
 		`web_search = "live"`,
-		`[model_providers.ciyuanshen]`,
-		`name = "user-name"`,
+		`[model_providers.user-provider]`,
+		`name = "user-provider"`,
 		`custom_provider_value = "keep"`,
 		`base_url = "https://api.ciyuanshen.top/v1"`,
 		`wire_api = "responses"`,
@@ -246,6 +246,70 @@ custom = true
 	}
 	if strings.Count(patched, `model_provider =`) != 1 || strings.Count(patched, `model = "user-model"`) != 1 {
 		t.Fatalf("existing top-level assignments were duplicated:\n%s", patched)
+	}
+}
+
+func TestPatchCodexConfigUnifiesDuplicateCustomProvider(t *testing.T) {
+	existing := `model_provider = "ciyuanshen"
+model = "gpt-5.5"
+model_reasoning_effort = "medium"
+disable_response_storage = true
+preferred_auth_method = "apikey"
+service_tier = "fast"
+web_search = "live"
+
+[model_providers.custom]
+name = "custom"
+wire_api = "responses"
+requires_openai_auth = true
+
+[model_providers.ciyuanshen]
+name = "ciyuanshen"
+base_url = "[https://ciyuanshen.top/v1](https://ciyuanshen.top/v1)"
+wire_api = "responses"
+requires_openai_auth = true
+`
+	patched := patchCodexConfig(existing, "ignored-model")
+	if strings.Count(patched, "[model_providers.") != 1 {
+		t.Fatalf("provider tables were not unified:\n%s", patched)
+	}
+	for _, expected := range []string{
+		`model_provider = "ciyuanshen"`,
+		`[model_providers.ciyuanshen]`,
+		`name = "ciyuanshen"`,
+		`base_url = "https://api.ciyuanshen.top/v1"`,
+		`wire_api = "responses"`,
+		`requires_openai_auth = true`,
+	} {
+		if !strings.Contains(patched, expected) {
+			t.Fatalf("unified Codex config is missing %q:\n%s", expected, patched)
+		}
+	}
+	if strings.Contains(patched, "model_providers.custom") || strings.Contains(patched, `name = "custom"`) {
+		t.Fatalf("stale custom provider remained:\n%s", patched)
+	}
+	if strings.Count(patched, `name = "ciyuanshen"`) != 1 || strings.Count(patched, `base_url = "https://api.ciyuanshen.top/v1"`) != 1 {
+		t.Fatalf("provider fields were duplicated:\n%s", patched)
+	}
+}
+
+func TestPatchCodexConfigKeepsCustomProviderName(t *testing.T) {
+	existing := `model_provider = "custom"
+[model_providers.custom]
+name = "custom"
+base_url = "https://custom.example/v1"
+wire_api = "responses"
+requires_openai_auth = true
+`
+	patched := patchCodexConfig(existing, "")
+	if !strings.Contains(patched, `model_provider = "custom"`) || !strings.Contains(patched, `[model_providers.custom]`) || !strings.Contains(patched, `name = "custom"`) {
+		t.Fatalf("custom provider name was not preserved:\n%s", patched)
+	}
+	if !strings.Contains(patched, `base_url = "https://custom.example/v1"`) {
+		t.Fatalf("custom provider URL was overwritten:\n%s", patched)
+	}
+	if strings.Contains(patched, `[model_providers.ciyuanshen]`) {
+		t.Fatalf("unexpected ciyuanshen provider was added:\n%s", patched)
 	}
 }
 

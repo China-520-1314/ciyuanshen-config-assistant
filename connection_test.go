@@ -48,6 +48,28 @@ func TestVerifyCodexConfiguration(t *testing.T) {
 	}
 }
 
+func TestVerifyCodexConfigurationAcceptsPreservedCustomProvider(t *testing.T) {
+	home := isolateHome(t)
+	writeFixture(t, filepath.Join(home, ".codex", "config.toml"), `model_provider = "custom"
+model = "gpt-5.5"
+model_reasoning_effort = "medium"
+disable_response_storage = true
+preferred_auth_method = "apikey"
+service_tier = "fast"
+web_search = "live"
+
+[model_providers.custom]
+name = "custom"
+base_url = "https://custom.example/v1"
+wire_api = "responses"
+requires_openai_auth = true
+`)
+	writeFixture(t, filepath.Join(home, ".codex", "auth.json"), `{"OPENAI_API_KEY":"test-key"}`)
+	if err := verifyManagedClientConfiguration(home, "codex", "test-key"); err != nil {
+		t.Fatalf("custom provider should pass configuration verification: %v", err)
+	}
+}
+
 func TestEnvFileValue(t *testing.T) {
 	content := "# comment\nGEMINI_API_KEY=plain\nQUOTED=\"value with space\"\n"
 	if value, ok := envFileValue(content, "GEMINI_API_KEY"); !ok || value != "plain" {

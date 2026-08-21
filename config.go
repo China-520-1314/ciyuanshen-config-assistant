@@ -176,15 +176,16 @@ var codexProviderTemplate = []codexTemplateField{
 	{Key: "requires_openai_auth", Value: "true"},
 }
 
-// patchCodexConfig adds only missing managed fields. It deliberately edits
-// text instead of re-marshalling TOML so comments, ordering, and unrelated
-// user configuration remain untouched.
-func patchCodexConfig(existing, selectedModel string) string {
-	if strings.TrimSpace(selectedModel) == "" {
-		selectedModel = codexDefaultModel
-	}
-	selectedModel = strconv.Quote(strings.TrimSpace(selectedModel))
+type codexTableBlock struct {
+	Name  string
+	Lines []string
+}
 
+// patchCodexConfig edits TOML text in place. The provider name is taken from
+// the existing top-level model_provider, or inferred from the first provider
+// table when the top-level field is missing. This keeps custom providers
+// custom while repairing stale custom/ciyuanshen duplicates from older runs.
+func patchCodexConfig(existing, selectedModel string) string {
 	lines := []string(nil)
 	if existing != "" {
 		lines = strings.Split(existing, "\n")
@@ -199,77 +200,24 @@ func patchCodexConfig(existing, selectedModel string) string {
 	}
 
 	prefix := append([]string(nil), lines[:firstTable]...)
-	present := make(map[string]bool)
-	for _, line := range prefix {
-		if key, ok := codexAssignmentKey(line); ok {
-			present[key] = true
-		}
-	}
-	for _, field := range codexTopLevelTemplate {
-		if field.Key == "model" {
-			field.Value = selectedModel
-		}
-		if !present[field.Key] {
-			prefix = append(prefix, field.Key+" = "+field.Value)
-			present[field.Key] = true
-		}
+	blocks := codexTableBlocks(lines[firstTable:])
+	providerName := codexProviderName(prefix, blocks)
+	prefix = patchCodexTopLevel(prefix, providerName, selectedModel)
+	blocks, providerIndex := patchCodexProviderBlocks(blocks, providerName)
+	if providerIndex < 0 {
+		blocks = append(blocks, codexTableBlock{
+			Name:  codexProviderTableName(providerName),
+			Lines: codexProviderBlockLines(nil, providerName),
+		})
 	}
 
-	suffix := append([]string(nil), lines[firstTable:]...)
-	providerStart, providerEnd := -1, -1
-	for index, line := range suffix {
-		table := codexTableName(line)
-		if table == "model_providers.ciyuanshen" {
-			providerStart = index
-			providerEnd = len(suffix)
-			continue
+	resultLines := append([]string(nil), prefix...)
+	for _, block := range blocks {
+		if len(resultLines) > 0 && strings.TrimSpace(resultLines[len(resultLines)-1]) != "" {
+			resultLines = append(resultLines, "")
 		}
-		if providerStart >= 0 && table != "" {
-			providerEnd = index
-			break
-		}
+		resultLines = append(resultLines, block.Lines...)
 	}
-	if providerStart < 0 {
-		if len(prefix) > 0 && strings.TrimSpace(prefix[len(prefix)-1]) != "" {
-			prefix = append(prefix, "")
-		}
-		prefix = append(prefix, "[model_providers.ciyuanshen]")
-		prefix = appendCodexMissingFields(prefix, codexProviderTemplate, nil)
-	} else {
-		providerLines := append([]string(nil), suffix[providerStart:providerEnd]...)
-		providerPresent := make(map[string]bool)
-		for _, line := range providerLines[1:] {
-			if key, ok := codexAssignmentKey(line); ok {
-				providerPresent[key] = true
-			}
-		}
-		missing := make([]string, 0, len(codexProviderTemplate))
-		for _, field := range codexProviderTemplate {
-			if !providerPresent[field.Key] {
-				missing = append(missing, field.Key+" = "+field.Value)
-			}
-		}
-		if len(missing) > 0 {
-			insertAt := providerEnd
-			for len(providerLines) > 1 && strings.TrimSpace(providerLines[len(providerLines)-1]) == "" {
-				insertAt--
-				providerLines = providerLines[:len(providerLines)-1]
-			}
-			providerLines = append(providerLines, missing...)
-			if insertAt < providerEnd {
-				providerLines = append(providerLines, "")
-			}
-			// Build a fresh slice: providerLines may share suffix's backing array,
-			// so nested append could otherwise overwrite the following table.
-			updatedSuffix := make([]string, 0, len(suffix)+len(missing))
-			updatedSuffix = append(updatedSuffix, suffix[:providerStart]...)
-			updatedSuffix = append(updatedSuffix, providerLines...)
-			updatedSuffix = append(updatedSuffix, suffix[providerEnd:]...)
-			suffix = updatedSuffix
-		}
-	}
-
-	resultLines := append(prefix, suffix...)
 	result := strings.Join(resultLines, "\n")
 	if trailingNewline || strings.TrimSpace(result) != "" {
 		result = strings.TrimRight(result, "\n") + "\n"
@@ -277,41 +225,345 @@ func patchCodexConfig(existing, selectedModel string) string {
 	return result
 }
 
-func appendCodexMissingFields(lines []string, fields []codexTemplateField, present map[string]bool) []string {
-	if present == nil {
-		present = map[string]bool{}
+func codexTableBlocks(lines []string) []codexTableBlock {
+	blocks := make([]codexTableBlock, 0)
+	for index := 0; index < len(lines); {
+		name := codexTableName(lines[index])
+		if name == "" {
+			index++
+			continue
+		}
+		end := index + 1
+		for end < len(lines) && codexTableName(lines[end]) == "" {
+			end++
+		}
+		blocks = append(blocks, codexTableBlock{Name: name, Lines: append([]string(nil), lines[index:end]...)})
+		index = end
 	}
-	for _, field := range fields {
+	return blocks
+}
+
+func codexProviderName(prefix []string, blocks []codexTableBlock) string {
+	for _, line := range prefix {
+		key, value, ok := codexAssignment(line)
+		if key == "model_provider" && ok {
+			if name := validCodexProviderName(value); name != "" {
+				return name
+			}
+		}
+	}
+	for _, block := range blocks {
+		if !strings.HasPrefix(block.Name, "model_providers.") {
+			continue
+		}
+		shortName := validCodexProviderName(strings.TrimPrefix(block.Name, "model_providers."))
+		blockName := validCodexProviderName(codexBlockAssignmentValue(block.Lines, "name"))
+		if shortName == "custom" || shortName == managedProviderName {
+			if blockName != "" {
+				return blockName
+			}
+			return shortName
+		}
+		if blockName == shortName && (codexHasAssignment(block.Lines, "wire_api") || codexHasAssignment(block.Lines, "requires_openai_auth")) {
+			return blockName
+		}
+	}
+	return managedProviderName
+}
+
+func patchCodexTopLevel(lines []string, providerName, selectedModel string) []string {
+	if strings.TrimSpace(selectedModel) == "" {
+		selectedModel = codexDefaultModel
+	}
+	values := map[string]string{
+		"model_provider":           strconv.Quote(providerName),
+		"model":                    strconv.Quote(strings.TrimSpace(selectedModel)),
+		"model_reasoning_effort":   `"max"`,
+		"disable_response_storage": "true",
+		"preferred_auth_method":    `"apikey"`,
+		"service_tier":             `"fast"`,
+		"web_search":               `"live"`,
+	}
+	managed := make(map[string]bool, len(values))
+	for key := range values {
+		managed[key] = true
+	}
+	patched := make([]string, 0, len(lines)+len(values))
+	present := make(map[string]bool, len(values))
+	for _, line := range lines {
+		key, _, ok := codexAssignment(line)
+		if ok && managed[key] {
+			if present[key] {
+				continue
+			}
+			present[key] = true
+			if key == "model_provider" {
+				line = "model_provider = " + values[key]
+			}
+		}
+		patched = append(patched, line)
+	}
+	missing := make([]string, 0, len(values))
+	for _, field := range codexTopLevelTemplate {
+		value := values[field.Key]
 		if !present[field.Key] {
-			lines = append(lines, field.Key+" = "+field.Value)
+			missing = append(missing, field.Key+" = "+value)
 			present[field.Key] = true
 		}
 	}
-	return lines
+	return insertCodexBeforeTrailingBlankLines(patched, missing)
+}
+
+func patchCodexProviderBlocks(blocks []codexTableBlock, providerName string) ([]codexTableBlock, int) {
+	targetName := codexProviderTableName(providerName)
+	targetIndex := -1
+	for index, block := range blocks {
+		if block.Name == targetName {
+			targetIndex = index
+			break
+		}
+	}
+	if targetIndex < 0 {
+		candidate := -1
+		for index, block := range blocks {
+			if !strings.HasPrefix(block.Name, "model_providers.") {
+				continue
+			}
+			shortName := strings.TrimPrefix(block.Name, "model_providers.")
+			if shortName == "custom" || shortName == managedProviderName {
+				candidate = index
+				break
+			}
+		}
+		if candidate >= 0 {
+			targetIndex = candidate
+			blocks[targetIndex].Name = targetName
+		}
+	}
+	if targetIndex < 0 {
+		return blocks, -1
+	}
+
+	merged := append([]string(nil), blocks[targetIndex].Lines...)
+	for index, block := range blocks {
+		if index == targetIndex || (!codexStaleProviderBlock(block, providerName) && block.Name != targetName) {
+			continue
+		}
+		merged = mergeCodexProviderLines(merged, block.Lines)
+	}
+	blocks[targetIndex] = codexTableBlock{
+		Name:  targetName,
+		Lines: codexProviderBlockLines(merged, providerName),
+	}
+	filtered := make([]codexTableBlock, 0, len(blocks))
+	for index, block := range blocks {
+		if index != targetIndex && (codexStaleProviderBlock(block, providerName) || block.Name == targetName) {
+			continue
+		}
+		filtered = append(filtered, block)
+	}
+	newIndex := -1
+	for index := range filtered {
+		if filtered[index].Name == targetName {
+			newIndex = index
+			break
+		}
+	}
+	return filtered, newIndex
+}
+
+func codexStaleProviderBlock(block codexTableBlock, providerName string) bool {
+	if !strings.HasPrefix(block.Name, "model_providers.") {
+		return false
+	}
+	shortName := strings.TrimPrefix(block.Name, "model_providers.")
+	if shortName == providerName {
+		return false
+	}
+	blockName := validCodexProviderName(codexBlockAssignmentValue(block.Lines, "name"))
+	return shortName == "custom" || shortName == managedProviderName || blockName == shortName
+}
+
+func mergeCodexProviderLines(target, source []string) []string {
+	merged := append([]string(nil), target...)
+	for _, line := range source {
+		key, _, ok := codexAssignment(line)
+		if !ok || codexProviderManagedField(key) || codexHasAssignment(merged, key) {
+			continue
+		}
+		merged = append(merged, line)
+	}
+	return merged
+}
+
+func codexProviderBlockLines(existing []string, providerName string) []string {
+	targetName := codexProviderTableName(providerName)
+	values := map[string]string{
+		"name":                 strconv.Quote(providerName),
+		"base_url":             strconv.Quote(defaultGatewayURL),
+		"wire_api":             `"responses"`,
+		"requires_openai_auth": "true",
+	}
+	managed := make(map[string]bool, len(values))
+	for key := range values {
+		managed[key] = true
+	}
+	lines := existing
+	if len(lines) == 0 {
+		lines = []string{"[" + targetName + "]"}
+	}
+	patched := make([]string, 0, len(lines)+len(values))
+	present := make(map[string]bool, len(values))
+	for index, line := range lines {
+		if index == 0 {
+			patched = append(patched, "["+targetName+"]")
+			continue
+		}
+		key, _, ok := codexAssignment(line)
+		if ok && managed[key] {
+			if present[key] {
+				continue
+			}
+			present[key] = true
+			switch key {
+			case "name":
+				line = "name = " + values[key]
+			case "base_url":
+				if providerName == managedProviderName {
+					line = "base_url = " + values[key]
+				}
+			case "wire_api":
+				if providerName == managedProviderName {
+					line = "wire_api = " + values[key]
+				}
+			case "requires_openai_auth":
+				if providerName == managedProviderName {
+					line = "requires_openai_auth = " + values[key]
+				}
+			}
+		}
+		patched = append(patched, line)
+	}
+	missing := make([]string, 0, len(values))
+	for _, field := range codexProviderTemplate {
+		value := values[field.Key]
+		if !present[field.Key] {
+			missing = append(missing, field.Key+" = "+value)
+			present[field.Key] = true
+		}
+	}
+	return insertCodexBeforeTrailingBlankLines(patched, missing)
+}
+
+func insertCodexBeforeTrailingBlankLines(lines, additions []string) []string {
+	if len(additions) == 0 {
+		return lines
+	}
+	insertAt := len(lines)
+	for insertAt > 0 && strings.TrimSpace(lines[insertAt-1]) == "" {
+		insertAt--
+	}
+	result := make([]string, 0, len(lines)+len(additions))
+	result = append(result, lines[:insertAt]...)
+	result = append(result, additions...)
+	result = append(result, lines[insertAt:]...)
+	return result
+}
+
+func codexProviderTableName(providerName string) string {
+	return "model_providers." + providerName
+}
+
+func validCodexProviderName(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.ContainsAny(value, " \t\r\n[]=") {
+		return ""
+	}
+	return value
+}
+
+func codexBlockAssignmentValue(lines []string, wanted string) string {
+	for _, line := range lines {
+		key, value, ok := codexAssignment(line)
+		if ok && key == wanted {
+			return value
+		}
+	}
+	return ""
+}
+
+func codexHasAssignment(lines []string, wanted string) bool {
+	for _, line := range lines {
+		key, _, ok := codexAssignment(line)
+		if ok && key == wanted {
+			return true
+		}
+	}
+	return false
+}
+
+func codexProviderManagedField(key string) bool {
+	switch key {
+	case "name", "base_url", "wire_api", "requires_openai_auth":
+		return true
+	default:
+		return false
+	}
 }
 
 func codexTableName(line string) string {
-	trimmed := strings.TrimSpace(strings.SplitN(line, "#", 2)[0])
+	trimmed := strings.TrimSpace(codexStripComment(line))
 	if !strings.HasPrefix(trimmed, "[") || !strings.HasSuffix(trimmed, "]") {
 		return ""
 	}
 	return strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "["), "]"))
 }
 
-func codexAssignmentKey(line string) (string, bool) {
-	trimmed := strings.TrimSpace(strings.SplitN(line, "#", 2)[0])
+func codexAssignment(line string) (string, string, bool) {
+	trimmed := strings.TrimSpace(codexStripComment(line))
 	if trimmed == "" || strings.HasPrefix(trimmed, "[") {
-		return "", false
+		return "", "", false
 	}
-	key, _, ok := strings.Cut(trimmed, "=")
+	key, value, ok := strings.Cut(trimmed, "=")
 	if !ok {
-		return "", false
+		return "", "", false
 	}
-	key = strings.TrimSpace(key)
+	key = strings.Trim(strings.TrimSpace(key), "\"'")
 	if key == "" || strings.ContainsAny(key, " \t") {
-		return "", false
+		return "", "", false
 	}
-	return key, true
+	value = strings.TrimSpace(value)
+	if decoded, err := strconv.Unquote(value); err == nil {
+		value = decoded
+	} else {
+		value = strings.Trim(value, "\"'")
+	}
+	return key, strings.TrimSpace(value), true
+}
+
+func codexAssignmentKey(line string) (string, bool) {
+	key, _, ok := codexAssignment(line)
+	return key, ok
+}
+
+func codexStripComment(line string) string {
+	inBasic, inLiteral, escaped := false, false, false
+	for index := 0; index < len(line); index++ {
+		char := line[index]
+		if char == '\\' && inBasic && !escaped {
+			escaped = true
+			continue
+		}
+		if char == '"' && !inLiteral && !escaped {
+			inBasic = !inBasic
+		} else if char == '\'' && !inBasic {
+			inLiteral = !inLiteral
+		} else if char == '#' && !inBasic && !inLiteral {
+			return line[:index]
+		}
+		escaped = false
+	}
+	return line
 }
 
 func configureGemini(home, key, model string) ([]fileOperation, error) {

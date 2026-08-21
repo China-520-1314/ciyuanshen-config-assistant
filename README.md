@@ -43,7 +43,7 @@ Gemini 的 Base URL 不能直接写成 `https://api.ciyuanshen.top/v1`，因为 
 
 ## Codex 固定模板
 
-选择 Codex 时会先备份 `~/.codex/config.toml` 和 `~/.codex/auth.json`。如果已有 `config.toml`，助手只在文件前部补齐缺少的 `model_provider`、`model`、`model_reasoning_effort`、`disable_response_storage`、`preferred_auth_method`、`service_tier`、`web_search`，以及 `[model_providers.ciyuanshen]` 下缺少的 `name`、`base_url`、`wire_api`、`requires_openai_auth`；已有值、注释和其他表段保持不变。新文件默认使用 `gpt-5.6-terra`、`model_reasoning_effort = "max"`、实时网络搜索和 `https://api.ciyuanshen.top/v1` Responses 服务商，认证文件写入选定 API Key。
+选择 Codex 时会先备份 `~/.codex/config.toml` 和 `~/.codex/auth.json`。如果已有 `config.toml`，助手会保留用户原来的 provider 名称（例如 `custom`），让 `model_provider`、`[model_providers.<名称>]` 和表内 `name` 三处保持一致；遇到旧版本留下的重复 `custom`/`ciyuanshen` provider 会合并为一个表，并清理重复字段。对于 `ciyuanshen` provider，`base_url` 会统一修正为 `https://api.ciyuanshen.top/v1`；已有模型、推理强度、注释和其他表段保持不变，缺失字段才按模板补齐。新文件默认使用 `gpt-5.6-terra`、`model_reasoning_effort = "max"`、实时网络搜索和 `https://api.ciyuanshen.top/v1` Responses 服务商，认证文件写入选定 API Key。
 
 ## 更新检查
 
@@ -97,7 +97,7 @@ go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build
 ```bash
 go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build \
   -platform windows/amd64 -nsis \
-  -ldflags "-X main.appVersion=0.2.6"
+  -ldflags "-X main.appVersion=0.2.7"
 ```
 
 ## 设计边界
