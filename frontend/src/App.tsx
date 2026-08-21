@@ -56,6 +56,9 @@ import cherryWallpaper from './assets/themes/cherry-blossoms-blue.jpg';
 import mountainWallpaper from './assets/themes/mountain-place.jpg';
 import cityWallpaper from './assets/themes/city-lights.jpg';
 import ikunWallpaper from './assets/themes/ikun.png';
+import chinaWallpaper from './assets/themes/China.png';
+import animeBoyWallpaper from './assets/themes/二次元男.png';
+import animeGirlWallpaper from './assets/themes/二次元女.png';
 import './App.css';
 import {
   CheckClientConnections,
@@ -92,8 +95,9 @@ import { Quit, WindowMinimise, WindowToggleMaximise } from '../wailsjs/runtime/r
 
 type ClientId = 'claude' | 'claude-desktop' | 'codex' | 'gemini' | 'grok' | 'opencode' | 'openclaw' | 'hermes';
 type TabId = 'overview' | 'groups' | 'backups' | 'updates' | 'appearance';
-type ThemeId = 'ciyuan' | 'anime' | 'sakura' | 'mountain' | 'city' | 'ikun' | 'custom';
-type ThemeMode = 'light' | 'dark';
+type ThemeId = 'ciyuan' | 'anime' | 'sakura' | 'mountain' | 'city' | 'ikun' | 'china' | 'anime-boy' | 'anime-girl' | 'custom';
+type ThemeMode = 'system' | 'light' | 'dark';
+type ResolvedThemeMode = Exclude<ThemeMode, 'system'>;
 type NoticeTone = 'success' | 'error' | 'neutral';
 
 type ClientStatus = {
@@ -211,7 +215,6 @@ type ThemeDefinition = {
   source: string;
   sourceURL?: string;
   wallpaper?: string;
-  dark: boolean;
   swatches: string[];
 };
 
@@ -219,13 +222,16 @@ const themeStorageKey = 'ciyuanshen-config-assistant.theme';
 const themeModeStorageKey = 'ciyuanshen-config-assistant.theme-mode';
 const customWallpaperStorageKey = 'ciyuanshen-config-assistant.custom-wallpaper';
 const themeDefinitions: ThemeDefinition[] = [
-  { id: 'ciyuan', name: '词元神青', subtitle: '清爽工作台', source: '词元神', dark: false, swatches: ['#173735', '#0c766d', '#f4f7f7', '#e4f3f0'] },
-  { id: 'anime', name: '冬日人物', subtitle: '动漫人物 · 柔和青', source: 'FrenzyExists/wallpapers', sourceURL: 'https://github.com/FrenzyExists/wallpapers', wallpaper: animeWallpaper, dark: false, swatches: ['#406b70', '#d97c9f', '#e9f2ef', '#b9e4de'] },
-  { id: 'sakura', name: '蓝樱花', subtitle: '花枝风景 · 清透蓝', source: 'FrenzyExists/wallpapers', sourceURL: 'https://github.com/FrenzyExists/wallpapers', wallpaper: cherryWallpaper, dark: false, swatches: ['#31566f', '#d8797c', '#edf5f5', '#bfe3e6'] },
-  { id: 'mountain', name: '雪山远景', subtitle: '自然风景 · 深色', source: 'FrenzyExists/wallpapers', sourceURL: 'https://github.com/FrenzyExists/wallpapers', wallpaper: mountainWallpaper, dark: true, swatches: ['#122c35', '#76b6c9', '#203d46', '#d2e4d6'] },
-  { id: 'city', name: '夜色城市', subtitle: '城市灯火 · 暗色', source: 'FrenzyExists/wallpapers', sourceURL: 'https://github.com/FrenzyExists/wallpapers', wallpaper: cityWallpaper, dark: true, swatches: ['#171c29', '#e8873c', '#28303c', '#f5c96a'] },
-  { id: 'ikun', name: '爱坤', subtitle: '用户提供皮肤', source: '词元神用户', wallpaper: ikunWallpaper, dark: false, swatches: ['#313f52', '#d28e55', '#e9eff3', '#8ab1bc'] },
-  { id: 'custom', name: '我的图片', subtitle: '自定义背景 · 本地保存', source: '本机图片', wallpaper: undefined, dark: false, swatches: ['#173735', '#0c766d', '#f4f7f7', '#e4f3f0'] },
+  { id: 'ciyuan', name: '词元神青', subtitle: '清爽工作台', source: '词元神', swatches: ['#173735', '#0c766d', '#f4f7f7', '#e4f3f0'] },
+  { id: 'anime', name: '冬日人物', subtitle: '动漫人物 · 柔和青', source: 'FrenzyExists/wallpapers', sourceURL: 'https://github.com/FrenzyExists/wallpapers', wallpaper: animeWallpaper, swatches: ['#406b70', '#d97c9f', '#e9f2ef', '#b9e4de'] },
+  { id: 'sakura', name: '蓝樱花', subtitle: '花枝风景 · 清透蓝', source: 'FrenzyExists/wallpapers', sourceURL: 'https://github.com/FrenzyExists/wallpapers', wallpaper: cherryWallpaper, swatches: ['#31566f', '#d8797c', '#edf5f5', '#bfe3e6'] },
+  { id: 'mountain', name: '雪山远景', subtitle: '自然风景', source: 'FrenzyExists/wallpapers', sourceURL: 'https://github.com/FrenzyExists/wallpapers', wallpaper: mountainWallpaper, swatches: ['#122c35', '#76b6c9', '#203d46', '#d2e4d6'] },
+  { id: 'city', name: '夜色城市', subtitle: '城市灯火', source: 'FrenzyExists/wallpapers', sourceURL: 'https://github.com/FrenzyExists/wallpapers', wallpaper: cityWallpaper, swatches: ['#171c29', '#e8873c', '#28303c', '#f5c96a'] },
+  { id: 'ikun', name: '爱坤', subtitle: '用户提供皮肤', source: '词元神用户', wallpaper: ikunWallpaper, swatches: ['#20242a', '#cb7b38', '#f7f4ef', '#f0b864'] },
+  { id: 'china', name: '中国风', subtitle: '水墨山水', source: '词元神用户', wallpaper: chinaWallpaper, swatches: ['#3d332b', '#a54d3d', '#f5ede0', '#d67155'] },
+  { id: 'anime-boy', name: '二次元男', subtitle: '夜幕幻境', source: '词元神用户', wallpaper: animeBoyWallpaper, swatches: ['#20234f', '#7569ef', '#e8e8ff', '#a89dff'] },
+  { id: 'anime-girl', name: '二次元女', subtitle: '樱夜和风', source: '词元神用户', wallpaper: animeGirlWallpaper, swatches: ['#3b2f58', '#a65caa', '#f6eefa', '#d391e1'] },
+  { id: 'custom', name: '我的图片', subtitle: '自定义背景 · 本地保存', source: '本机图片', wallpaper: undefined, swatches: ['#173735', '#0c766d', '#f4f7f7', '#e4f3f0'] },
 ];
 
 function readStoredTheme(): ThemeId {
@@ -251,12 +257,15 @@ function readStoredWallpaper() {
 function readStoredThemeMode(): ThemeMode {
   try {
     const stored = window.localStorage.getItem(themeModeStorageKey);
-    if (stored === 'dark' || stored === 'light') return stored;
+    if (stored === 'system' || stored === 'dark' || stored === 'light') return stored;
   } catch {
     // Private browsing or a restricted WebView may disable localStorage.
   }
-  const storedTheme = readStoredTheme();
-  return themeDefinitions.find((theme) => theme.id === storedTheme)?.dark ? 'dark' : 'light';
+  return 'system';
+}
+
+function getSystemThemeMode(): ResolvedThemeMode {
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
 const tabTitles: Record<TabId, string> = {
@@ -312,9 +321,10 @@ function App() {
   const [tab, setTab] = useState<TabId>('overview');
   const [theme, setTheme] = useState<ThemeId>(readStoredTheme);
   const [themeMode, setThemeMode] = useState<ThemeMode>(readStoredThemeMode);
+  const [systemThemeMode, setSystemThemeMode] = useState<ResolvedThemeMode>(getSystemThemeMode);
   const [customWallpaper, setCustomWallpaper] = useState(readStoredWallpaper);
   const [environment, setEnvironment] = useState<EnvironmentReport>(mockEnvironment);
-  const [appInfo, setAppInfo] = useState<AppInfo>({ name: '词元神配置助手', version: '0.2.10', updateManifestUrl: '', gatewayUrl: 'https://api.ciyuanshen.top/v1' });
+  const [appInfo, setAppInfo] = useState<AppInfo>({ name: '词元神配置助手', version: '0.2.11', updateManifestUrl: '', gatewayUrl: 'https://api.ciyuanshen.top/v1' });
   const [account, setAccount] = useState<AccountState>({ signedIn: false, username: '' });
   const [accountRefreshing, setAccountRefreshing] = useState(false);
   const [toolModels, setToolModels] = useState<Partial<Record<ClientId, Model[]>>>({});
@@ -364,6 +374,8 @@ function App() {
   const [revealConfigurationSecrets, setRevealConfigurationSecrets] = useState(false);
   const availableThemes = themeDefinitions;
   const activeTheme = availableThemes.find((item) => item.id === theme) || themeDefinitions[0];
+  const wallpaper = theme === 'custom' ? customWallpaper : activeTheme.wallpaper || '';
+  const resolvedThemeMode: ResolvedThemeMode = themeMode === 'system' ? systemThemeMode : themeMode;
 
   const clientMap = useMemo(() => new Map(environment.clients.map((client) => [client.id, client])), [environment.clients]);
 
@@ -377,10 +389,20 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const syncThemeMode = () => setSystemThemeMode(mediaQuery.matches ? 'dark' : 'light');
+    syncThemeMode();
+    mediaQuery.addEventListener('change', syncThemeMode);
+    return () => mediaQuery.removeEventListener('change', syncThemeMode);
+  }, []);
+
+  useEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.body.dataset.theme = theme;
-    document.documentElement.dataset.themeMode = themeMode;
-    document.body.dataset.themeMode = themeMode;
+    document.documentElement.dataset.themeMode = resolvedThemeMode;
+    document.body.dataset.themeMode = resolvedThemeMode;
+    document.documentElement.dataset.themeModePreference = themeMode;
+    document.body.dataset.themeModePreference = themeMode;
     try {
       window.localStorage.setItem(themeStorageKey, theme);
       window.localStorage.setItem(themeModeStorageKey, themeMode);
@@ -390,7 +412,7 @@ function App() {
       // Theme remains active for this session when persistence is unavailable.
     }
     if (theme === 'custom' && !customWallpaper) setTheme('ciyuan');
-  }, [theme, themeMode, customWallpaper]);
+  }, [theme, themeMode, resolvedThemeMode, customWallpaper]);
 
   function showFeedback(next: { tone: NoticeTone; text: string }, dismissAfter = 0) {
     if (feedbackTimer.current !== undefined) window.clearTimeout(feedbackTimer.current);
@@ -1109,7 +1131,7 @@ function App() {
   }
 
   return (
-    <div className="window-frame" data-theme={theme} data-theme-mode={themeMode} style={{ '--theme-wallpaper': theme === 'custom' && customWallpaper ? `url(${customWallpaper})` : activeTheme.wallpaper ? `url(${activeTheme.wallpaper})` : 'none' } as CSSProperties}>
+    <div className="window-frame" data-theme={theme} data-theme-mode={resolvedThemeMode} data-theme-mode-preference={themeMode} data-has-wallpaper={wallpaper ? 'true' : 'false'} style={{ '--theme-wallpaper': wallpaper ? `url(${wallpaper})` : 'none' } as CSSProperties}>
       {inWails() && <WindowTitlebar />}
       <div className="app-shell">
         <aside className="sidebar">
@@ -1151,7 +1173,7 @@ function App() {
           {tab === 'groups' && <GroupRatios report={groupReport} busy={busy} refresh={() => void fetchGroupRatios()} />}
           {tab === 'backups' && <Backups backups={backups} backupRoot={backupRoot} busy={busy} restore={restore} remove={deleteBackup} refresh={() => void refreshBackups()} />}
           {tab === 'updates' && <Updates update={update} busy={busy} check={() => void checkUpdate(false)} install={() => void installUpdate()} openDownload={() => update?.downloadUrl && void openExternal(update.downloadUrl)} />}
-          {tab === 'appearance' && <ThemeGallery theme={theme} themeMode={themeMode} themes={availableThemes} customWallpaper={customWallpaper} onThemeChange={(nextTheme) => { setTheme(nextTheme); if (nextTheme !== 'custom') setThemeMode(themeDefinitions.find((item) => item.id === nextTheme)?.dark ? 'dark' : 'light'); }} onThemeModeChange={setThemeMode} onCustomWallpaperChange={applyCustomWallpaper} onOpenSource={(url) => void openExternal(url)} />}
+          {tab === 'appearance' && <ThemeGallery theme={theme} themeMode={themeMode} themes={availableThemes} customWallpaper={customWallpaper} onThemeChange={setTheme} onThemeModeChange={setThemeMode} onCustomWallpaperChange={applyCustomWallpaper} onOpenSource={(url) => void openExternal(url)} />}
         </main>
       </div>
 
@@ -1522,8 +1544,9 @@ function ThemeGallery({ theme, themeMode, themes, customWallpaper, onThemeChange
       <section className="theme-panel">
         <div className="theme-panel-controls">
           <div className="theme-mode-switch" role="group" aria-label="界面主题">
-            <button type="button" className={themeMode === 'light' ? 'active' : ''} onClick={() => onThemeModeChange('light')}>浅色</button>
-            <button type="button" className={themeMode === 'dark' ? 'active' : ''} onClick={() => onThemeModeChange('dark')}>深色</button>
+            <button type="button" className={themeMode === 'system' ? 'active' : ''} aria-pressed={themeMode === 'system'} onClick={() => onThemeModeChange('system')}>系统</button>
+            <button type="button" className={themeMode === 'light' ? 'active' : ''} aria-pressed={themeMode === 'light'} onClick={() => onThemeModeChange('light')}>浅色</button>
+            <button type="button" className={themeMode === 'dark' ? 'active' : ''} aria-pressed={themeMode === 'dark'} onClick={() => onThemeModeChange('dark')}>深色</button>
           </div>
           <p>如果你有好看的皮肤想让他人看到，可以进群联系管理，审核成功后下个版本会看到你的界面皮肤</p>
         </div>
@@ -1532,7 +1555,7 @@ function ThemeGallery({ theme, themeMode, themes, customWallpaper, onThemeChange
             const isCustom = item.id === 'custom';
             const hasCustomWallpaper = isCustom && Boolean(customWallpaper);
             const wallpaper = isCustom ? customWallpaper : item.wallpaper;
-            return <button type="button" key={item.id} className={`theme-card ${theme === item.id ? 'active' : ''} ${item.dark ? 'dark-preview' : ''}`} onClick={() => { if (!isCustom || hasCustomWallpaper) onThemeChange(item.id); }} disabled={isCustom && !hasCustomWallpaper} aria-pressed={theme === item.id}>
+            return <button type="button" key={item.id} className={`theme-card ${theme === item.id ? 'active' : ''}`} onClick={() => { if (!isCustom || hasCustomWallpaper) onThemeChange(item.id); }} disabled={isCustom && !hasCustomWallpaper} aria-pressed={theme === item.id}>
               <span className="theme-preview" style={{ '--theme-preview-bg': item.swatches[2], '--theme-preview-sidebar': item.swatches[0], '--theme-preview-accent': item.swatches[1], '--theme-preview-positive': item.swatches[3], '--theme-preview-wallpaper': wallpaper ? `url(${wallpaper})` : 'none' } as CSSProperties}><span className="theme-preview-sidebar" /><span className="theme-preview-main"><i /><i /><b /></span></span>
               <span className="theme-card-copy"><strong>{item.name}</strong><span>{isCustom && !hasCustomWallpaper ? '尚未上传图片' : item.subtitle}</span><em>{item.sourceURL ? <span className="theme-source" onClick={(event) => { event.stopPropagation(); onOpenSource(item.sourceURL as string); }}>{item.source} <ArrowUpRight size={11} /></span> : item.source}</em></span>
               {theme === item.id && <span className="theme-selected" aria-label="当前使用"><Check size={14} /></span>}

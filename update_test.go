@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCompareVersions(t *testing.T) {
@@ -118,5 +119,24 @@ func TestBuildUpdateInstallScriptStopsAllExistingInstances(t *testing.T) {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("update script missing %q:\n%s", expected, script)
 		}
+	}
+}
+
+func TestNewUpdateDownloadHTTPClientUsesDedicatedTimeout(t *testing.T) {
+	base := &http.Client{Timeout: 15 * time.Second, Transport: http.DefaultTransport}
+	client := newUpdateDownloadHTTPClient(base)
+	if client.Timeout != updateDownloadTimeout {
+		t.Fatalf("download timeout = %s, want %s", client.Timeout, updateDownloadTimeout)
+	}
+	if client.Timeout <= base.Timeout {
+		t.Fatalf("download timeout %s must exceed API timeout %s", client.Timeout, base.Timeout)
+	}
+	if client.Transport != base.Transport {
+		t.Fatal("download client must preserve the base transport")
+	}
+
+	defaultClient := newUpdateDownloadHTTPClient(nil)
+	if defaultClient.Timeout != updateDownloadTimeout {
+		t.Fatalf("default download timeout = %s, want %s", defaultClient.Timeout, updateDownloadTimeout)
 	}
 }

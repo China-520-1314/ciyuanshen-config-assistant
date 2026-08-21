@@ -28,11 +28,14 @@ const (
 	geminiGatewayURL    = "https://api.ciyuanshen.top"
 	geminiAPIVersion    = "v1"
 	managedProviderName = "ciyuanshen"
+	// Update installers can be several megabytes and GitHub may take longer
+	// than routine API calls to begin or finish a download.
+	updateDownloadTimeout = 10 * time.Minute
 )
 
 // appVersion is a variable so release builds can inject their tag with
 // -ldflags "-X main.appVersion=..." while local builds keep a useful default.
-var appVersion = "0.2.10"
+var appVersion = "0.2.11"
 
 type InstallUpdateResult struct {
 	Success     bool   `json:"success"`
@@ -298,7 +301,7 @@ func (a *App) InstallLatestUpdate() InstallUpdateResult {
 		return result
 	}
 	request.Header.Set("User-Agent", "CiyuanShen-Config-Assistant/"+appVersion)
-	response, err := a.client.Do(request)
+	response, err := newUpdateDownloadHTTPClient(a.client).Do(request)
 	if err != nil {
 		_ = os.Remove(tempPath)
 		result.Error = "下载更新失败：" + err.Error()
@@ -362,6 +365,19 @@ func (a *App) InstallLatestUpdate() InstallUpdateResult {
 		wailsRuntime.Quit(a.ctx)
 	}
 	return result
+}
+
+// newUpdateDownloadHTTPClient keeps the normal client transport settings while
+// isolating the installer download from the short timeout used by API calls.
+func newUpdateDownloadHTTPClient(base *http.Client) *http.Client {
+	client := &http.Client{Timeout: updateDownloadTimeout}
+	if base == nil {
+		return client
+	}
+	client.Transport = base.Transport
+	client.CheckRedirect = base.CheckRedirect
+	client.Jar = base.Jar
+	return client
 }
 
 func validateUpdateDownloadURL(raw string) error {
