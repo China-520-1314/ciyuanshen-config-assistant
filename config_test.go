@@ -313,6 +313,31 @@ requires_openai_auth = true
 	}
 }
 
+func TestPatchCodexConfigPreservesUnrelatedProviderTable(t *testing.T) {
+	existing := `model_provider = "ciyuanshen"
+[model_providers.ciyuanshen]
+name = "ciyuanshen"
+base_url = "https://api.ciyuanshen.top/v1"
+
+[model_providers.other]
+name = "other"
+base_url = "https://other.example/v1"
+wire_api = "responses"
+requires_openai_auth = true
+`
+	patched := patchCodexConfig(existing, "")
+	for _, expected := range []string{
+		`[model_providers.ciyuanshen]`,
+		`[model_providers.other]`,
+		`name = "other"`,
+		`base_url = "https://other.example/v1"`,
+	} {
+		if !strings.Contains(patched, expected) {
+			t.Fatalf("unrelated provider was not preserved (%q):\n%s", expected, patched)
+		}
+	}
+}
+
 func TestConfigureAllSupportedClientsFromEmptyFiles(t *testing.T) {
 	home := isolateHome(t)
 	targets := []string{"claude", "codex", "gemini", "grok", "opencode", "openclaw", "hermes"}

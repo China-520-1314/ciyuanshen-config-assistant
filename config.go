@@ -380,8 +380,7 @@ func codexStaleProviderBlock(block codexTableBlock, providerName string) bool {
 	if shortName == providerName {
 		return false
 	}
-	blockName := validCodexProviderName(codexBlockAssignmentValue(block.Lines, "name"))
-	return shortName == "custom" || shortName == managedProviderName || blockName == shortName
+	return shortName == "custom" || shortName == managedProviderName
 }
 
 func mergeCodexProviderLines(target, source []string) []string {
