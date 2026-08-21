@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -31,7 +32,7 @@ const (
 
 // appVersion is a variable so release builds can inject their tag with
 // -ldflags "-X main.appVersion=..." while local builds keep a useful default.
-var appVersion = "0.2.9"
+var appVersion = "0.2.10"
 
 type InstallUpdateResult struct {
 	Success     bool   `json:"success"`
@@ -345,7 +346,8 @@ func (a *App) InstallLatestUpdate() InstallUpdateResult {
 		result.Error = "无法确定当前程序路径：" + executableErr.Error()
 		return result
 	}
-	installScript := fmt.Sprintf("$oldPid=%d; while (Get-Process -Id $oldPid -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 200 }; Start-Process -FilePath %s -ArgumentList '/S' -Wait; Start-Process -FilePath %s; Remove-Item -LiteralPath %s -Force -ErrorAction SilentlyContinue", os.Getpid(), powershellQuote(tempPath), powershellQuote(currentExecutable), powershellQuote(tempPath))
+	processName := strings.TrimSuffix(filepath.Base(currentExecutable), filepath.Ext(currentExecutable))
+	installScript := buildUpdateInstallScript(os.Getpid(), processName, currentExecutable, tempPath)
 	command := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", installScript)
 	command.Stdin = nil
 	if err := command.Start(); err != nil {
@@ -400,6 +402,15 @@ func fileSHA256(path string) (string, error) {
 
 func powershellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
+
+func buildUpdateInstallScript(oldPID int, processName, currentExecutable, installerPath string) string {
+	// The app can have more than one process with the same image (for example
+	// after a second launch). Waiting on only the initiating PID leaves another
+	// process holding the installed executable and makes NSIS show a file-lock
+	// retry dialog. Stop every instance of this image, then wait for handles to
+	// drain before starting the installer.
+	return fmt.Sprintf("$oldPid=%d; $processName=%s; Start-Sleep -Milliseconds 700; Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue; Get-Process -Name $processName -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; for ($attempt=0; $attempt -lt 50; $attempt++) { if (-not (Get-Process -Name $processName -ErrorAction SilentlyContinue)) { break }; Start-Sleep -Milliseconds 200 }; Start-Sleep -Milliseconds 500; Start-Process -FilePath %s -ArgumentList '/S' -Wait; Start-Process -FilePath %s; Remove-Item -LiteralPath %s -Force -ErrorAction SilentlyContinue", oldPID, powershellQuote(processName), powershellQuote(installerPath), powershellQuote(currentExecutable), powershellQuote(installerPath))
 }
 
 func (a *App) OpenExternalURL(url string) error {

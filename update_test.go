@@ -106,3 +106,17 @@ func TestCheckGitHubReleaseRejectsMissingInstallerForNewVersion(t *testing.T) {
 		t.Fatalf("missing installer should be reported: %#v", result)
 	}
 }
+
+func TestBuildUpdateInstallScriptStopsAllExistingInstances(t *testing.T) {
+	script := buildUpdateInstallScript(42, "ciyuanshen-config-assistant", `C:\Program Files\ciyuanshen\ciyuanshen-config-assistant.exe`, `C:\Users\Public\update.exe`)
+	for _, expected := range []string{
+		"Stop-Process -Id $oldPid -Force",
+		"Get-Process -Name $processName",
+		"Start-Sleep -Milliseconds 500",
+		"-ArgumentList '/S'",
+	} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("update script missing %q:\n%s", expected, script)
+		}
+	}
+}
