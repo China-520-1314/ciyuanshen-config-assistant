@@ -99,7 +99,7 @@ func (a *App) toolLifecycleInfo(clientID string) (ToolLifecycleInfo, error) {
 	}
 
 	if definition.NPMPackage != "" {
-		if npmPath, npmErr := exec.LookPath("npm"); npmErr == nil && npmPath != "" {
+		if npmPath := findExecutable([]string{"npm"}); npmPath != "" || findWindowsCommandShim([]string{"npm"}, home) != "" {
 			info.CanInstall = true
 			info.CanUpdate = info.Installed
 			info.InstallMethod = "npm"
@@ -169,8 +169,12 @@ func (a *App) RunToolLifecycleAction(request ToolLifecycleRequest) ToolLifecycle
 	if !ok || definition.NPMPackage == "" {
 		return ToolLifecycleResult{Manual: true, DownloadURL: info.DownloadURL, Message: "该工具请从官方下载页安装", Info: info}
 	}
-	npmPath, npmErr := exec.LookPath("npm")
-	if npmErr != nil || npmPath == "" {
+	home, _ := os.UserHomeDir()
+	npmPath := findExecutable([]string{"npm"})
+	if npmPath == "" {
+		npmPath = findWindowsCommandShim([]string{"npm"}, home)
+	}
+	if npmPath == "" {
 		return ToolLifecycleResult{Manual: true, DownloadURL: info.DownloadURL, Message: "未检测到 npm，请从官方下载页安装", Info: info}
 	}
 

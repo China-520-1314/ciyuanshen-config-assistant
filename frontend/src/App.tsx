@@ -55,6 +55,7 @@ import animeWallpaper from './assets/themes/anime-coffee-girl.jpg';
 import cherryWallpaper from './assets/themes/cherry-blossoms-blue.jpg';
 import mountainWallpaper from './assets/themes/mountain-place.jpg';
 import cityWallpaper from './assets/themes/city-lights.jpg';
+import ikunWallpaper from './assets/themes/ikun.png';
 import './App.css';
 import {
   CheckClientConnections,
@@ -74,6 +75,7 @@ import {
   GetPublicGroupRatios,
   GetSavedAccountLogin,
   GetToolLifecycleInfo,
+  InstallLatestUpdate,
   ListBackups,
   LoginAccount,
   LogoutAccount,
@@ -90,7 +92,8 @@ import { Quit, WindowMinimise, WindowToggleMaximise } from '../wailsjs/runtime/r
 
 type ClientId = 'claude' | 'claude-desktop' | 'codex' | 'gemini' | 'grok' | 'opencode' | 'openclaw' | 'hermes';
 type TabId = 'overview' | 'groups' | 'backups' | 'updates' | 'appearance';
-type ThemeId = 'ciyuan' | 'anime' | 'sakura' | 'mountain' | 'city' | 'custom';
+type ThemeId = 'ciyuan' | 'anime' | 'sakura' | 'mountain' | 'city' | 'ikun' | 'custom';
+type ThemeMode = 'light' | 'dark';
 type NoticeTone = 'success' | 'error' | 'neutral';
 
 type ClientStatus = {
@@ -131,6 +134,7 @@ type UpdateInfo = {
   checkedAt: string;
   error?: string;
 };
+type InstallUpdateResult = { success: boolean; message?: string; error?: string; downloadUrl?: string };
 type ClientConnectionResult = {
   id: ClientId;
   name: string;
@@ -169,7 +173,7 @@ const signUpURL = 'https://ciyuanshen.top/sign-up';
 const forgotPasswordURL = 'https://ciyuanshen.top/forgot-password';
 const qqGroupURL = 'https://qm.qq.com/q/rmwfirFNp8';
 const desktopOnlyMessage = '浏览器预览无法读取本机配置，请下载并运行 Windows 安装版。';
-const clientOrder: ClientId[] = ['claude', 'claude-desktop', 'codex', 'gemini', 'grok', 'opencode', 'openclaw', 'hermes'];
+const clientOrder: ClientId[] = ['codex', 'claude', 'claude-desktop', 'gemini', 'grok', 'opencode', 'openclaw', 'hermes'];
 const clientCopy: Record<ClientId, { short: string; badge: string }> = {
   claude: { short: 'Claude Code终端', badge: 'Anthropic CLI' },
   'claude-desktop': { short: 'Claude Code客户端', badge: 'Anthropic Desktop' },
@@ -212,6 +216,7 @@ type ThemeDefinition = {
 };
 
 const themeStorageKey = 'ciyuanshen-config-assistant.theme';
+const themeModeStorageKey = 'ciyuanshen-config-assistant.theme-mode';
 const customWallpaperStorageKey = 'ciyuanshen-config-assistant.custom-wallpaper';
 const themeDefinitions: ThemeDefinition[] = [
   { id: 'ciyuan', name: '词元神青', subtitle: '清爽工作台', source: '词元神', dark: false, swatches: ['#173735', '#0c766d', '#f4f7f7', '#e4f3f0'] },
@@ -219,6 +224,8 @@ const themeDefinitions: ThemeDefinition[] = [
   { id: 'sakura', name: '蓝樱花', subtitle: '花枝风景 · 清透蓝', source: 'FrenzyExists/wallpapers', sourceURL: 'https://github.com/FrenzyExists/wallpapers', wallpaper: cherryWallpaper, dark: false, swatches: ['#31566f', '#d8797c', '#edf5f5', '#bfe3e6'] },
   { id: 'mountain', name: '雪山远景', subtitle: '自然风景 · 深色', source: 'FrenzyExists/wallpapers', sourceURL: 'https://github.com/FrenzyExists/wallpapers', wallpaper: mountainWallpaper, dark: true, swatches: ['#122c35', '#76b6c9', '#203d46', '#d2e4d6'] },
   { id: 'city', name: '夜色城市', subtitle: '城市灯火 · 暗色', source: 'FrenzyExists/wallpapers', sourceURL: 'https://github.com/FrenzyExists/wallpapers', wallpaper: cityWallpaper, dark: true, swatches: ['#171c29', '#e8873c', '#28303c', '#f5c96a'] },
+  { id: 'ikun', name: '爱坤', subtitle: '用户提供皮肤', source: '词元神用户', wallpaper: ikunWallpaper, dark: false, swatches: ['#313f52', '#d28e55', '#e9eff3', '#8ab1bc'] },
+  { id: 'custom', name: '我的图片', subtitle: '自定义背景 · 本地保存', source: '本机图片', wallpaper: undefined, dark: false, swatches: ['#173735', '#0c766d', '#f4f7f7', '#e4f3f0'] },
 ];
 
 function readStoredTheme(): ThemeId {
@@ -241,12 +248,19 @@ function readStoredWallpaper() {
   }
 }
 
-function customThemeDefinition(wallpaper: string): ThemeDefinition {
-  return { id: 'custom', name: '我的图片', subtitle: '自定义背景 · 本地保存', source: '本机图片', wallpaper, dark: true, swatches: ['#101923', '#82c7cf', '#1d2a35', '#d9b56d'] };
+function readStoredThemeMode(): ThemeMode {
+  try {
+    const stored = window.localStorage.getItem(themeModeStorageKey);
+    if (stored === 'dark' || stored === 'light') return stored;
+  } catch {
+    // Private browsing or a restricted WebView may disable localStorage.
+  }
+  const storedTheme = readStoredTheme();
+  return themeDefinitions.find((theme) => theme.id === storedTheme)?.dark ? 'dark' : 'light';
 }
 
 const tabTitles: Record<TabId, string> = {
-  overview: '环境概览',
+  overview: '一键配置',
   groups: '分组倍率',
   backups: '配置备份',
   updates: '版本更新',
@@ -297,9 +311,10 @@ function defaultModel(clientId: ClientId, models: Model[], current?: string) {
 function App() {
   const [tab, setTab] = useState<TabId>('overview');
   const [theme, setTheme] = useState<ThemeId>(readStoredTheme);
+  const [themeMode, setThemeMode] = useState<ThemeMode>(readStoredThemeMode);
   const [customWallpaper, setCustomWallpaper] = useState(readStoredWallpaper);
   const [environment, setEnvironment] = useState<EnvironmentReport>(mockEnvironment);
-  const [appInfo, setAppInfo] = useState<AppInfo>({ name: '词元神配置助手', version: '0.2.8', updateManifestUrl: '', gatewayUrl: 'https://api.ciyuanshen.top/v1' });
+  const [appInfo, setAppInfo] = useState<AppInfo>({ name: '词元神配置助手', version: '0.2.9', updateManifestUrl: '', gatewayUrl: 'https://api.ciyuanshen.top/v1' });
   const [account, setAccount] = useState<AccountState>({ signedIn: false, username: '' });
   const [accountRefreshing, setAccountRefreshing] = useState(false);
   const [toolModels, setToolModels] = useState<Partial<Record<ClientId, Model[]>>>({});
@@ -307,6 +322,7 @@ function App() {
   const [modelsLoading, setModelsLoading] = useState<Partial<Record<ClientId, boolean>>>({});
   const [modelErrors, setModelErrors] = useState<Partial<Record<ClientId, string>>>({});
   const [connectionResults, setConnectionResults] = useState<Partial<Record<ClientId, ClientConnectionResult>>>({});
+  const [keyValidationResults, setKeyValidationResults] = useState<Partial<Record<ClientId, ToolKeyValidationResult>>>({});
   const [busy, setBusy] = useState('');
   const [checkingClient, setCheckingClient] = useState<ClientId | null>(null);
   const [applyingModelClient, setApplyingModelClient] = useState<ClientId | null>(null);
@@ -346,7 +362,7 @@ function App() {
   const [configurationBusy, setConfigurationBusy] = useState(false);
   const [configurationError, setConfigurationError] = useState<string | null>(null);
   const [revealConfigurationSecrets, setRevealConfigurationSecrets] = useState(false);
-  const availableThemes = useMemo(() => customWallpaper ? [...themeDefinitions, customThemeDefinition(customWallpaper)] : themeDefinitions, [customWallpaper]);
+  const availableThemes = themeDefinitions;
   const activeTheme = availableThemes.find((item) => item.id === theme) || themeDefinitions[0];
 
   const clientMap = useMemo(() => new Map(environment.clients.map((client) => [client.id, client])), [environment.clients]);
@@ -363,15 +379,18 @@ function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.body.dataset.theme = theme;
+    document.documentElement.dataset.themeMode = themeMode;
+    document.body.dataset.themeMode = themeMode;
     try {
       window.localStorage.setItem(themeStorageKey, theme);
+      window.localStorage.setItem(themeModeStorageKey, themeMode);
       if (customWallpaper) window.localStorage.setItem(customWallpaperStorageKey, customWallpaper);
       else window.localStorage.removeItem(customWallpaperStorageKey);
     } catch {
       // Theme remains active for this session when persistence is unavailable.
     }
     if (theme === 'custom' && !customWallpaper) setTheme('ciyuan');
-  }, [theme, customWallpaper]);
+  }, [theme, themeMode, customWallpaper]);
 
   function showFeedback(next: { tone: NoticeTone; text: string }, dismissAfter = 0) {
     if (feedbackTimer.current !== undefined) window.clearTimeout(feedbackTimer.current);
@@ -419,7 +438,8 @@ function App() {
           // Some Linux installations have no Secret Service provider. Login
           // remains available; remembering credentials is simply disabled.
         }
-        await refreshConfiguredModels(report as EnvironmentReport);
+        await Promise.all([refreshConfiguredModels(report as EnvironmentReport), refreshToolLifecycles()]);
+        void checkUpdate(true);
       } else {
         setEnvironment(mockEnvironment);
         setBackupRoot('~/.config/CiyuanShen/Config Assistant/backups');
@@ -456,7 +476,7 @@ function App() {
     try {
       const report = inWails() ? await ScanEnvironment() : mockEnvironment;
       setEnvironment(report as EnvironmentReport);
-      await refreshConfiguredModels(report as EnvironmentReport);
+      await Promise.all([refreshConfiguredModels(report as EnvironmentReport), refreshToolLifecycles()]);
       if (announce) showFeedback({ tone: 'success', text: '环境检测已完成' }, 2200);
     } catch {
       if (announce) showFeedback({ tone: 'error', text: '环境检测失败，请检查权限后重试' });
@@ -471,6 +491,7 @@ function App() {
     setModelErrors({});
     setToolModels({});
     setConnectionResults({});
+    setKeyValidationResults({});
     if (clients.length === 0) {
       return;
     }
@@ -523,6 +544,29 @@ function App() {
     }));
   }
 
+  async function refreshToolLifecycles() {
+    const entries = await Promise.all(clientOrder.map(async (clientId) => {
+      try {
+        const info = inWails()
+          ? await GetToolLifecycleInfo(clientId)
+          : await fetchBrowserPreviewToolLifecycle(clientId);
+        return [clientId, info as ToolLifecycleInfo] as const;
+      } catch (error) {
+        return [clientId, {
+          clientId,
+          name: clientCopy[clientId].short,
+          installed: false,
+          updateAvailable: false,
+          canInstall: false,
+          canUpdate: false,
+          checkedAt: new Date().toISOString(),
+          error: error instanceof Error ? error.message : '工具检测失败',
+        } as ToolLifecycleInfo] as const;
+      }
+    }));
+    setLifecycleByClient(Object.fromEntries(entries) as Partial<Record<ClientId, ToolLifecycleInfo>>);
+  }
+
   async function loadConfiguredClientModels(clientId: ClientId) {
     setModelsLoading((current) => ({ ...current, [clientId]: true }));
     setModelErrors((current) => {
@@ -537,6 +581,7 @@ function App() {
       const result = response as ToolKeyValidationResult;
       if (!result.models || result.models.length === 0) throw new Error('该 Key 没有返回可用模型');
       setToolModels((current) => ({ ...current, [clientId]: result.models }));
+      setKeyValidationResults((current) => ({ ...current, [clientId]: result }));
       setModelByClient((current) => ({
         ...current,
         [clientId]: defaultModel(clientId, result.models, result.selectedModel || current[clientId]),
@@ -544,6 +589,11 @@ function App() {
       return result;
     } catch (error) {
       setToolModels((current) => {
+        const next = { ...current };
+        delete next[clientId];
+        return next;
+      });
+      setKeyValidationResults((current) => {
         const next = { ...current };
         delete next[clientId];
         return next;
@@ -601,13 +651,11 @@ function App() {
     }
   }
 
-  async function applyExistingModel(clientId: ClientId, anchor: HTMLElement) {
-    const model = modelByClient[clientId];
+  async function applyExistingModel(clientId: ClientId, model: string, anchor: HTMLElement) {
     if (!model) {
       showActionNotice(anchor, { tone: 'error', text: '请先读取该工具当前 Key 可用的模型' });
       return;
     }
-    if (!window.confirm(`将备份 ${clientCopy[clientId].short} 当前配置，并将默认模型改为 ${model}。是否继续？`)) return;
     setApplyingModelClient(clientId);
     try {
       const result = inWails()
@@ -615,8 +663,9 @@ function App() {
         : mockConfigure(clientId);
       const configured = result as ConfigureResult;
       if (!configured.success) throw new Error(configured.error || '默认模型应用失败');
-      await Promise.all([refreshBackups(), refreshEnvironment(false)]);
-      await checkClient(clientId, anchor);
+      setModelByClient((current) => ({ ...current, [clientId]: model }));
+      await refreshEnvironment(false);
+      showActionNotice(anchor, { tone: 'success', text: '默认模型修改成功' });
     } catch (error) {
       showActionNotice(anchor, { tone: 'error', text: error instanceof Error ? error.message : '默认模型应用失败' });
     } finally {
@@ -996,15 +1045,42 @@ function App() {
     }
   }
 
-  async function checkUpdate() {
+  async function checkUpdate(promptToInstall = false) {
     setBusy('update');
     try {
       const result = inWails()
         ? await CheckForUpdates()
         : await fetchBrowserPreviewUpdate(appInfo.version);
-      setUpdate(result as UpdateInfo);
+      const next = result as UpdateInfo;
+      setUpdate(next);
+      if (promptToInstall && next.updateAvailable && !next.error && window.confirm(`发现新版本 v${next.latestVersion}。是否更新到最新版？`)) {
+        await installUpdate(next, false);
+      }
     } catch (error) {
       setUpdate({ currentVersion: appInfo.version, latestVersion: '', updateAvailable: false, checkedAt: new Date().toISOString(), error: error instanceof Error ? error.message : '暂时无法检查更新' });
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function installUpdate(currentUpdate = update, confirmInstall = true) {
+    if (!currentUpdate?.downloadUrl) {
+      showFeedback({ tone: 'error', text: '未找到可用更新包，请稍后重新检查' }, 3200);
+      return;
+    }
+    if (confirmInstall && !window.confirm(`将下载并安装 v${currentUpdate.latestVersion}，应用会自动关闭。是否继续？`)) return;
+    setBusy('install-update');
+    try {
+      if (!inWails()) {
+        await openExternal(currentUpdate.downloadUrl);
+        return;
+      }
+      const result = await InstallLatestUpdate() as InstallUpdateResult;
+      if (!result.success) throw new Error(result.error || '自动更新启动失败');
+      showFeedback({ tone: 'success', text: result.message || '正在安装更新' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '自动更新失败';
+      showFeedback({ tone: 'error', text: `${message}，可在版本更新页手动下载` }, 4600);
     } finally {
       setBusy('');
     }
@@ -1029,11 +1105,11 @@ function App() {
   function selectTab(nextTab: TabId) {
     setTab(nextTab);
     if (nextTab === 'groups') void fetchGroupRatios();
-    if (nextTab === 'updates') void checkUpdate();
+    if (nextTab === 'updates') void checkUpdate(false);
   }
 
   return (
-    <div className="window-frame" data-theme={theme} style={{ '--theme-wallpaper': activeTheme.wallpaper ? `url(${activeTheme.wallpaper})` : 'none' } as CSSProperties}>
+    <div className="window-frame" data-theme={theme} data-theme-mode={themeMode} style={{ '--theme-wallpaper': theme === 'custom' && customWallpaper ? `url(${customWallpaper})` : activeTheme.wallpaper ? `url(${activeTheme.wallpaper})` : 'none' } as CSSProperties}>
       {inWails() && <WindowTitlebar />}
       <div className="app-shell">
         <aside className="sidebar">
@@ -1043,14 +1119,14 @@ function App() {
           </div>
           <div className="sidebar-rule" />
           <nav className="side-nav" aria-label="主导航">
-            <NavButton active={tab === 'overview'} icon={<ScanSearch size={17} />} label="环境概览" onClick={() => selectTab('overview')} />
+            <NavButton active={tab === 'overview'} icon={<ScanSearch size={17} />} label="一键配置" onClick={() => selectTab('overview')} />
+            <NavButton active={false} icon={<BookOpen size={17} />} label="文档教程" onClick={() => void openExternal(documentationURL)} external />
             <NavButton active={tab === 'groups'} icon={<Layers3 size={17} />} label="分组倍率" onClick={() => selectTab('groups')} />
             <NavButton active={tab === 'backups'} icon={<RotateCcw size={17} />} label="配置备份" onClick={() => selectTab('backups')} count={backups.length || undefined} />
-            <NavButton active={tab === 'updates'} icon={<Download size={17} />} label="版本更新" onClick={() => selectTab('updates')} />
             <NavButton active={tab === 'appearance'} icon={<Palette size={17} />} label="外观皮肤" onClick={() => selectTab('appearance')} />
-            <NavButton active={false} icon={<BookOpen size={17} />} label="文档教程" onClick={() => void openExternal(documentationURL)} external />
             <NavButton active={false} icon={<Globe size={17} />} label="进入官网" onClick={() => void openExternal(officialWebsiteURL)} external />
             <NavButton active={false} icon={<Users size={17} />} label="加入QQ群" onClick={() => void openExternal(qqGroupURL)} external />
+            <NavButton active={tab === 'updates'} icon={<Download size={17} />} label="版本更新" onClick={() => selectTab('updates')} />
           </nav>
           <div className="sidebar-bottom">
             <div className="secure-note"><LockKeyhole size={16} /><span>账号会话与新 Key 仅保留本次运行；保存密码使用系统凭据管理器</span></div>
@@ -1071,11 +1147,11 @@ function App() {
           </header>
 
           {feedback && <Feedback tone={feedback.tone} text={feedback.text} onClose={() => setFeedback(null)} />}
-          {tab === 'overview' && <Overview environment={environment} clientMap={clientMap} toolModels={toolModels} modelByClient={modelByClient} modelsLoading={modelsLoading} modelErrors={modelErrors} setClientModel={(clientId, model) => setModelByClient((current) => ({ ...current, [clientId]: model }))} connectionResults={connectionResults} checkingClient={checkingClient} applyingModelClient={applyingModelClient} lifecycleByClient={lifecycleByClient} lifecycleBusyClient={lifecycleBusyClient} onCheck={checkClient} onConfigure={openToolSetup} onApplyModel={applyExistingModel} onViewConfiguration={openClientConfiguration} onLifecycleCheck={checkToolLifecycle} onLifecycleAction={runToolLifecycleAction} />}
+          {tab === 'overview' && <Overview environment={environment} clientMap={clientMap} toolModels={toolModels} modelByClient={modelByClient} modelsLoading={modelsLoading} modelErrors={modelErrors} keyValidationResults={keyValidationResults} setClientModel={(clientId, model, anchor) => void applyExistingModel(clientId, model, anchor)} connectionResults={connectionResults} checkingClient={checkingClient} applyingModelClient={applyingModelClient} lifecycleByClient={lifecycleByClient} lifecycleBusyClient={lifecycleBusyClient} onCheck={checkClient} onConfigure={openToolSetup} onViewConfiguration={openClientConfiguration} onLifecycleCheck={checkToolLifecycle} onLifecycleAction={runToolLifecycleAction} />}
           {tab === 'groups' && <GroupRatios report={groupReport} busy={busy} refresh={() => void fetchGroupRatios()} />}
           {tab === 'backups' && <Backups backups={backups} backupRoot={backupRoot} busy={busy} restore={restore} remove={deleteBackup} refresh={() => void refreshBackups()} />}
-          {tab === 'updates' && <Updates update={update} busy={busy} check={checkUpdate} openDownload={() => update?.downloadUrl && void openExternal(update.downloadUrl)} />}
-          {tab === 'appearance' && <ThemeGallery theme={theme} themes={availableThemes} customWallpaper={customWallpaper} onThemeChange={setTheme} onCustomWallpaperChange={applyCustomWallpaper} onOpenSource={(url) => void openExternal(url)} />}
+          {tab === 'updates' && <Updates update={update} busy={busy} check={() => void checkUpdate(false)} install={() => void installUpdate()} openDownload={() => update?.downloadUrl && void openExternal(update.downloadUrl)} />}
+          {tab === 'appearance' && <ThemeGallery theme={theme} themeMode={themeMode} themes={availableThemes} customWallpaper={customWallpaper} onThemeChange={(nextTheme) => { setTheme(nextTheme); if (nextTheme !== 'custom') setThemeMode(themeDefinitions.find((item) => item.id === nextTheme)?.dark ? 'dark' : 'light'); }} onThemeModeChange={setThemeMode} onCustomWallpaperChange={applyCustomWallpaper} onOpenSource={(url) => void openExternal(url)} />}
         </main>
       </div>
 
@@ -1103,14 +1179,15 @@ function NavButton({ active, icon, label, count, onClick, external = false }: { 
   return <button className={`nav-button ${active ? 'active' : ''}`} onClick={onClick}>{icon}<span>{label}</span>{count ? <b>{count}</b> : external ? <ArrowUpRight size={15} className="nav-arrow" /> : <ChevronRight size={15} className="nav-arrow" />}</button>;
 }
 
-function Overview({ environment, clientMap, toolModels, modelByClient, modelsLoading, modelErrors, setClientModel, connectionResults, checkingClient, applyingModelClient, lifecycleByClient, lifecycleBusyClient, onCheck, onConfigure, onApplyModel, onViewConfiguration, onLifecycleCheck, onLifecycleAction }: {
+function Overview({ environment, clientMap, toolModels, modelByClient, modelsLoading, modelErrors, keyValidationResults, setClientModel, connectionResults, checkingClient, applyingModelClient, lifecycleByClient, lifecycleBusyClient, onCheck, onConfigure, onViewConfiguration, onLifecycleCheck, onLifecycleAction }: {
   environment: EnvironmentReport;
   clientMap: Map<ClientId, ClientStatus>;
   toolModels: Partial<Record<ClientId, Model[]>>;
   modelByClient: Record<ClientId, string>;
   modelsLoading: Partial<Record<ClientId, boolean>>;
   modelErrors: Partial<Record<ClientId, string>>;
-  setClientModel: (clientId: ClientId, model: string) => void;
+  keyValidationResults: Partial<Record<ClientId, ToolKeyValidationResult>>;
+  setClientModel: (clientId: ClientId, model: string, anchor: HTMLElement) => void;
   connectionResults: Partial<Record<ClientId, ClientConnectionResult>>;
   checkingClient: ClientId | null;
   applyingModelClient: ClientId | null;
@@ -1118,7 +1195,6 @@ function Overview({ environment, clientMap, toolModels, modelByClient, modelsLoa
   lifecycleBusyClient: ClientId | null;
   onCheck: (clientId: ClientId, anchor: HTMLElement) => void;
   onConfigure: (clientId: ClientId, anchor: HTMLElement) => void;
-  onApplyModel: (clientId: ClientId, anchor: HTMLElement) => void;
   onViewConfiguration: (clientId: ClientId) => void;
   onLifecycleCheck: (clientId: ClientId, anchor?: HTMLElement) => void;
   onLifecycleAction: (clientId: ClientId, action: 'install' | 'update' | 'download', anchor: HTMLElement) => void;
@@ -1135,20 +1211,21 @@ function Overview({ environment, clientMap, toolModels, modelByClient, modelsLoa
     <section className="clients-section">
       <div className="section-heading"><div><p className="eyebrow">TOOLS</p><h2>选择要配置的工具</h2></div></div>
       <div className="client-grid">
-        {clientOrder.map((clientId) => <ClientCard key={clientId} clientId={clientId} status={clientMap.get(clientId)} models={toolModels[clientId] || []} model={modelByClient[clientId]} modelsLoading={Boolean(modelsLoading[clientId])} modelError={modelErrors[clientId]} onModelChange={(model) => setClientModel(clientId, model)} result={connectionResults[clientId]} checking={checkingClient === clientId} applying={applyingModelClient === clientId} lifecycle={lifecycleByClient[clientId]} lifecycleBusy={lifecycleBusyClient === clientId} onCheck={onCheck} onConfigure={onConfigure} onApplyModel={onApplyModel} onViewConfiguration={onViewConfiguration} onLifecycleCheck={onLifecycleCheck} onLifecycleAction={onLifecycleAction} />)}
+        {clientOrder.map((clientId) => <ClientCard key={clientId} clientId={clientId} status={clientMap.get(clientId)} models={toolModels[clientId] || []} model={modelByClient[clientId]} modelsLoading={Boolean(modelsLoading[clientId])} modelError={modelErrors[clientId]} keyValidated={Boolean(keyValidationResults[clientId])} onModelChange={(model, anchor) => setClientModel(clientId, model, anchor)} result={connectionResults[clientId]} checking={checkingClient === clientId} applying={applyingModelClient === clientId} lifecycle={lifecycleByClient[clientId]} lifecycleBusy={lifecycleBusyClient === clientId} onCheck={onCheck} onConfigure={onConfigure} onViewConfiguration={onViewConfiguration} onLifecycleCheck={onLifecycleCheck} onLifecycleAction={onLifecycleAction} />)}
       </div>
     </section>
   </div>;
 }
 
-function ClientCard({ clientId, status, models, model, modelsLoading, modelError, onModelChange, result, checking, applying, lifecycle, lifecycleBusy, onCheck, onConfigure, onApplyModel, onViewConfiguration, onLifecycleCheck, onLifecycleAction }: {
+function ClientCard({ clientId, status, models, model, modelsLoading, modelError, keyValidated, onModelChange, result, checking, applying, lifecycle, lifecycleBusy, onCheck, onConfigure, onViewConfiguration, onLifecycleCheck, onLifecycleAction }: {
   clientId: ClientId;
   status?: ClientStatus;
   models: Model[];
   model: string;
   modelsLoading: boolean;
   modelError?: string;
-  onModelChange: (value: string) => void;
+  keyValidated: boolean;
+  onModelChange: (value: string, anchor: HTMLElement) => void;
   result?: ClientConnectionResult;
   checking: boolean;
   applying: boolean;
@@ -1156,14 +1233,14 @@ function ClientCard({ clientId, status, models, model, modelsLoading, modelError
   lifecycleBusy: boolean;
   onCheck: (clientId: ClientId, anchor: HTMLElement) => void;
   onConfigure: (clientId: ClientId, anchor: HTMLElement) => void;
-  onApplyModel: (clientId: ClientId, anchor: HTMLElement) => void;
   onViewConfiguration: (clientId: ClientId) => void;
   onLifecycleCheck: (clientId: ClientId, anchor?: HTMLElement) => void;
   onLifecycleAction: (clientId: ClientId, action: 'install' | 'update' | 'download', anchor: HTMLElement) => void;
 }) {
   const unsupported = status?.supported === false;
-  const available = Boolean(status?.installed || status?.configExists);
-  const state = unsupported ? 'unsupported' : status?.configState === 'invalid' || status?.configState === 'error' ? 'invalid' : available ? 'available' : 'not-found';
+  const installed = Boolean(status?.installed || lifecycle?.installed);
+  const keyKnown = keyValidated || Boolean(modelError);
+  const state = unsupported ? 'unsupported' : installed ? 'available' : 'not-found';
   const lifecycleAction = !lifecycle
     ? 'check'
     : !lifecycle.installed
@@ -1175,11 +1252,11 @@ function ClientCard({ clientId, status, models, model, modelsLoading, modelError
   const lifecycleIcon = lifecycleAction === 'download' ? <ArrowUpRight size={14} /> : lifecycleAction === 'check' ? <RefreshCw size={14} /> : lifecycleAction === 'install' ? <HardDriveDownload size={14} /> : <PackageCheck size={14} />;
   const lifecycleText = lifecycle ? lifecycleVersionSummary(lifecycle) : '';
   return <article className="client-card">
-    <div className="client-card-top"><div className="client-symbol"><img src={clientLogos[clientId]} alt="" /></div><div className="client-name"><strong>{clientCopy[clientId].short}</strong><span>{clientCopy[clientId].badge}</span></div><span className={`state-tag ${state}`}>{state === 'available' ? '可配置' : state === 'invalid' ? '需修复' : state === 'unsupported' ? '不支持' : '未安装'}</span></div>
+    <div className="client-card-top"><div className="client-symbol"><img src={clientLogos[clientId]} alt="" /></div><div className="client-name"><strong>{clientCopy[clientId].short}</strong><span>{clientCopy[clientId].badge}</span></div><div className="client-status-tags"><span className={`state-tag ${state}`}>{state === 'available' ? '已安装' : state === 'unsupported' ? '不支持' : '未安装'}</span><span className={`key-state-tag ${keyValidated ? 'success' : keyKnown ? 'error' : ''}`}>{keyValidated ? 'Key正常' : keyKnown ? 'Key异常' : 'Key未检测'}</span></div></div>
     <div className="client-card-path">{status?.configPath || '配置文件将自动创建'}{status?.version && <span className="client-version"> · {status.version}</span>}</div>
     <div className="client-card-bottom">
       <label>当前 Key 可用模型</label>
-      {modelsLoading ? <span className="model-empty"><RefreshCw size={13} className="spin" />正在读取 Key 可用模型</span> : models.length > 0 ? <><select value={models.some((item) => item.id === model) ? model : ''} onChange={(event) => onModelChange(event.target.value)}>{models.map((option) => <option key={option.id} value={option.id}>{option.id}</option>)}</select><button className="icon-button compact-icon" title="应用默认模型" aria-label="应用默认模型" onClick={(event) => onApplyModel(clientId, event.currentTarget)} disabled={applying || unsupported}><ClipboardCheck size={15} /></button></> : <span className={`model-empty ${modelError ? 'error' : ''}`} title={modelError}>{modelError ? `读取失败：${modelError}` : result?.success ? 'Key 未返回可用模型' : '尚未检测到可用 Key'}</span>}
+      {modelsLoading ? <span className="model-empty"><RefreshCw size={13} className="spin" />正在读取 Key 可用模型</span> : models.length > 0 ? <select value={models.some((item) => item.id === model) ? model : ''} onChange={(event) => onModelChange(event.target.value, event.currentTarget)} disabled={!keyValidated || applying || unsupported}>{models.map((option) => <option key={option.id} value={option.id}>{option.id}</option>)}</select> : <span className={`model-empty ${modelError ? 'error' : ''}`} title={modelError}>{modelError ? `读取失败：${modelError}` : keyValidated ? 'Key 未返回可用模型' : '尚未检测到可用 Key'}</span>}
     </div>
     <div className="client-card-actions">
       <span className={`check-result ${result ? (result.success ? 'success' : 'error') : ''}`}>{result ? (result.success ? <><CheckCircle2 size={14} />已通过</> : <><AlertTriangle size={14} />未通过</>) : <><CircleDashed size={14} />未检测</>}</span>
@@ -1351,7 +1428,7 @@ function readCropSource(file: File): Promise<CropSource> {
   });
 }
 
-function ThemeGallery({ theme, themes, customWallpaper, onThemeChange, onCustomWallpaperChange, onOpenSource }: { theme: ThemeId; themes: ThemeDefinition[]; customWallpaper: string; onThemeChange: (theme: ThemeId) => void; onCustomWallpaperChange: (wallpaper: string) => void; onOpenSource: (url: string) => void }) {
+function ThemeGallery({ theme, themeMode, themes, customWallpaper, onThemeChange, onThemeModeChange, onCustomWallpaperChange, onOpenSource }: { theme: ThemeId; themeMode: ThemeMode; themes: ThemeDefinition[]; customWallpaper: string; onThemeChange: (theme: ThemeId) => void; onThemeModeChange: (mode: ThemeMode) => void; onCustomWallpaperChange: (wallpaper: string) => void; onOpenSource: (url: string) => void }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
   const [cropSource, setCropSource] = useState<CropSource | null>(null);
@@ -1360,7 +1437,7 @@ function ThemeGallery({ theme, themes, customWallpaper, onThemeChange, onCustomW
   const [cropFocusY, setCropFocusY] = useState(50);
   const [cropBusy, setCropBusy] = useState(false);
   const [cropError, setCropError] = useState('');
-  const cards = customWallpaper ? themes : [...themes, customThemeDefinition('')];
+  const cards = themes;
 
   useEffect(() => {
     if (!cropSource || !previewCanvasRef.current) return;
@@ -1437,7 +1514,36 @@ function ThemeGallery({ theme, themes, customWallpaper, onThemeChange, onCustomW
   }
 
   return <>
-    <div className="content-stack narrow-stack"><section className="page-intro"><div className="section-icon blue"><Palette size={20} /></div><div><p className="eyebrow">LOCAL APPEARANCE</p><h2>外观皮肤</h2><p>选择人物、动漫和风景背景，偏好会自动保存在这台设备上。</p></div></section><section className="theme-panel"><div className="theme-grid">{cards.map((item) => <button type="button" key={item.id} className={`theme-card ${theme === item.id ? 'active' : ''} ${item.dark ? 'dark-preview' : ''}`} onClick={() => item.id === 'custom' && !customWallpaper ? openPicker() : onThemeChange(item.id)} aria-pressed={theme === item.id}><span className="theme-preview" style={{ '--theme-preview-bg': item.swatches[2], '--theme-preview-sidebar': item.swatches[0], '--theme-preview-accent': item.swatches[1], '--theme-preview-positive': item.swatches[3], '--theme-preview-wallpaper': item.wallpaper ? `url(${item.wallpaper})` : 'none' } as CSSProperties}><span className="theme-preview-sidebar" /><span className="theme-preview-main"><i /><i /><b /></span></span><span className="theme-card-copy"><strong>{item.id === 'custom' && !customWallpaper ? '自定义皮肤' : item.name}</strong><span>{item.id === 'custom' && !customWallpaper ? '上传图片并裁剪应用' : item.subtitle}</span><em>{item.sourceURL ? <span className="theme-source" onClick={(event) => { event.stopPropagation(); onOpenSource(item.sourceURL as string); }}>{item.source} <ArrowUpRight size={11} /></span> : item.source}</em></span>{theme === item.id && <span className="theme-selected" aria-label="当前使用"><Check size={14} /></span>}</button>)}<button type="button" className="theme-upload-card" onClick={openPicker}><ImagePlus size={21} /><span><strong>上传新图片</strong><small>选择图片后可调整裁剪区域</small></span></button></div>{cropError && !cropSource && <div className="theme-inline-error"><AlertTriangle size={15} />{cropError}</div>}<div className="theme-panel-footer"><span>当前皮肤：<strong>{cards.find((item) => item.id === theme)?.name || '词元神青'}</strong></span><span>{customWallpaper ? <button type="button" className="theme-delete" onClick={removeCustom}><Trash2 size={13} />删除自定义图片</button> : '图片随安装包提供，离线也能使用'}</span></div></section></div>
+    <div className="content-stack narrow-stack">
+      <section className="page-intro">
+        <div className="section-icon blue"><Palette size={20} /></div>
+        <div><p className="eyebrow">LOCAL APPEARANCE</p><h2>外观皮肤</h2><p>选择人物、动漫和风景背景，偏好会自动保存在这台设备上。</p></div>
+      </section>
+      <section className="theme-panel">
+        <div className="theme-panel-controls">
+          <div className="theme-mode-switch" role="group" aria-label="界面主题">
+            <button type="button" className={themeMode === 'light' ? 'active' : ''} onClick={() => onThemeModeChange('light')}>浅色</button>
+            <button type="button" className={themeMode === 'dark' ? 'active' : ''} onClick={() => onThemeModeChange('dark')}>深色</button>
+          </div>
+          <p>如果你有好看的皮肤想让他人看到，可以进群联系管理，审核成功后下个版本会看到你的界面皮肤</p>
+        </div>
+        <div className="theme-grid">
+          {cards.map((item) => {
+            const isCustom = item.id === 'custom';
+            const hasCustomWallpaper = isCustom && Boolean(customWallpaper);
+            const wallpaper = isCustom ? customWallpaper : item.wallpaper;
+            return <button type="button" key={item.id} className={`theme-card ${theme === item.id ? 'active' : ''} ${item.dark ? 'dark-preview' : ''}`} onClick={() => { if (!isCustom || hasCustomWallpaper) onThemeChange(item.id); }} disabled={isCustom && !hasCustomWallpaper} aria-pressed={theme === item.id}>
+              <span className="theme-preview" style={{ '--theme-preview-bg': item.swatches[2], '--theme-preview-sidebar': item.swatches[0], '--theme-preview-accent': item.swatches[1], '--theme-preview-positive': item.swatches[3], '--theme-preview-wallpaper': wallpaper ? `url(${wallpaper})` : 'none' } as CSSProperties}><span className="theme-preview-sidebar" /><span className="theme-preview-main"><i /><i /><b /></span></span>
+              <span className="theme-card-copy"><strong>{item.name}</strong><span>{isCustom && !hasCustomWallpaper ? '尚未上传图片' : item.subtitle}</span><em>{item.sourceURL ? <span className="theme-source" onClick={(event) => { event.stopPropagation(); onOpenSource(item.sourceURL as string); }}>{item.source} <ArrowUpRight size={11} /></span> : item.source}</em></span>
+              {theme === item.id && <span className="theme-selected" aria-label="当前使用"><Check size={14} /></span>}
+            </button>;
+          })}
+          <button type="button" className="theme-upload-card" onClick={openPicker}><ImagePlus size={21} /><span><strong>上传新图片</strong><small>选择图片后可调整裁剪区域</small></span></button>
+        </div>
+        {cropError && !cropSource && <div className="theme-inline-error"><AlertTriangle size={15} />{cropError}</div>}
+        <div className="theme-panel-footer"><span>当前皮肤：<strong>{cards.find((item) => item.id === theme)?.name || '词元神青'}</strong></span><span>{customWallpaper ? <button type="button" className="theme-delete" onClick={removeCustom}><Trash2 size={13} />删除自定义图片</button> : '图片随安装包提供，离线也能使用'}</span></div>
+      </section>
+    </div>
     <input ref={fileInputRef} className="theme-file-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void selectFile(event)} />
     {cropSource && <div className="modal-backdrop" role="presentation"><section className="crop-modal" role="dialog" aria-modal="true" aria-labelledby="crop-title"><div className="modal-heading"><div><p className="eyebrow">CUSTOM WALLPAPER</p><h2 id="crop-title">裁剪自定义皮肤</h2></div><button type="button" className="icon-button" title="关闭" aria-label="关闭" onClick={closeCrop} disabled={cropBusy}><X size={18} /></button></div><div className="crop-body"><div className="crop-preview"><canvas ref={previewCanvasRef} aria-label="裁剪预览" /></div><div className="crop-controls"><label className="range-field"><span>缩放 <b>{cropZoom.toFixed(2)}x</b></span><input type="range" min="1" max="2.5" step="0.05" value={cropZoom} onChange={(event) => setCropZoom(Number(event.target.value))} /></label><label className="range-field"><span>水平位置 <b>{Math.round(cropFocusX)}%</b></span><input type="range" min="0" max="100" step="1" value={cropFocusX} onChange={(event) => setCropFocusX(Number(event.target.value))} /></label><label className="range-field"><span>垂直位置 <b>{Math.round(cropFocusY)}%</b></span><input type="range" min="0" max="100" step="1" value={cropFocusY} onChange={(event) => setCropFocusY(Number(event.target.value))} /></label>{cropError && <div className="crop-error"><AlertTriangle size={16} />{cropError}</div>}</div></div><div className="modal-actions"><button type="button" className="secondary-button" onClick={closeCrop} disabled={cropBusy}>取消</button><button type="button" className="primary-button" onClick={() => void applyCrop()} disabled={cropBusy}><Crop size={16} />{cropBusy ? '处理中' : '应用皮肤'}</button></div></section></div>}
   </>;
@@ -1452,8 +1558,8 @@ function Backups({ backups, backupRoot, busy, restore, remove, refresh }: { back
   return <div className="content-stack narrow-stack"><section className="page-intro backup-intro"><div className="section-icon amber"><RotateCcw size={20} /></div><div><p className="eyebrow">RECOVERY</p><h2>配置备份</h2><p className="backup-root"><FolderArchive size={13} /><code>{backupRoot || '正在读取备份目录'}</code></p></div><button className="icon-button inline" title="刷新备份" aria-label="刷新备份" onClick={refresh}><RefreshCw size={17} /></button></section><section className="backup-list">{backups.length === 0 ? <EmptyState icon={<RotateCcw size={22} />} title="暂无备份" text="完成一次配置后，备份会显示在这里。" /> : backups.map((backup) => <article className="backup-entry" key={backup.id}><div className="backup-row"><div className="backup-icon"><FileCheck2 size={18} /></div><div className="backup-details"><strong>{formatTime(backup.createdAt)}</strong><span>{backup.files.length} 个文件 · {backup.path}</span></div><button className="icon-button compact-icon" title={expanded === backup.id ? '收起备份文件' : '查看备份文件'} aria-label={expanded === backup.id ? '收起备份文件' : '查看备份文件'} onClick={() => setExpanded(expanded === backup.id ? null : backup.id)}>{expanded === backup.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button><button className="secondary-button compact" onClick={() => restore(backup.id)} disabled={busy === 'restore' || busy === 'delete'}><RotateCcw size={15} />恢复</button><button className="icon-button compact-icon danger-button" title="删除备份" aria-label="删除备份" onClick={() => remove(backup.id)} disabled={busy === 'restore' || busy === 'delete'}><Trash2 size={16} /></button></div>{expanded === backup.id && <div className="backup-files">{backup.files.map((file) => <div key={`${file.clientId}-${file.originalPath}`}><strong>{clientCopy[file.clientId as ClientId]?.short || file.clientId}</strong><span>{file.originalPath}</span><code>{file.exists ? file.backupPath : '原文件当时不存在'}</code></div>)}</div>}</article>)}</section></div>;
 }
 
-function Updates({ update, busy, check, openDownload }: { update: UpdateInfo | null; busy: string; check: () => void; openDownload: () => void }) {
-  return <div className="content-stack narrow-stack"><section className="page-intro"><div className="section-icon blue"><Download size={20} /></div><div><p className="eyebrow">RELEASE CHANNEL</p><h2>版本更新</h2><p>通过 GitHub Release 获取最新安装版。</p></div><button className="primary-button" onClick={check} disabled={busy === 'update'}><RefreshCw size={16} className={busy === 'update' ? 'spin' : ''} />检查更新</button></section><section className="update-panel">{!update ? <EmptyState icon={<CircleDashed size={22} />} title="尚未检查" text="点击检查更新获取当前版本状态。" /> : update.error ? <div className="update-state error"><AlertTriangle size={22} /><div><strong>检查失败</strong><span>{update.error}</span></div></div> : update.updateAvailable ? <div className="update-state ready"><div className="update-state-icon"><Download size={20} /></div><div><strong>发现新版本 v{update.latestVersion}</strong><span>当前版本 v{update.currentVersion}{update.publishedAt ? ` · ${update.publishedAt}` : ''}</span></div><button className="primary-button" onClick={openDownload}><ArrowUpRight size={16} />打开下载</button></div> : <div className="update-state"><div className="update-state-icon"><CheckCircle2 size={20} /></div><div><strong>已经是最新版本</strong><span>当前版本 v{update.currentVersion} · 最新版本 v{update.latestVersion || update.currentVersion} · 检查于 {formatTime(update.checkedAt)}</span></div></div>}{update?.releaseNotes && <div className="release-notes">{update.releaseNotes}</div>}</section></div>;
+function Updates({ update, busy, check, install, openDownload }: { update: UpdateInfo | null; busy: string; check: () => void; install: () => void; openDownload: () => void }) {
+  return <div className="content-stack narrow-stack"><section className="page-intro"><div className="section-icon blue"><Download size={20} /></div><div><p className="eyebrow">RELEASE CHANNEL</p><h2>版本更新</h2><p>检测到新版本后可自动下载、校验并安装。</p></div><button className="primary-button" onClick={check} disabled={busy === 'update' || busy === 'install-update'}><RefreshCw size={16} className={busy === 'update' ? 'spin' : ''} />检查更新</button></section><section className="update-panel">{!update ? <EmptyState icon={<CircleDashed size={22} />} title="尚未检查" text="正在启动检测，或点击检查更新获取当前版本状态。" /> : update.error ? <div className="update-state error"><AlertTriangle size={22} /><div><strong>检查失败</strong><span>{update.error}</span></div></div> : update.updateAvailable ? <div className="update-state ready"><div className="update-state-icon"><Download size={20} /></div><div><strong>发现新版本 v{update.latestVersion}</strong><span>当前版本 v{update.currentVersion}{update.publishedAt ? ` · ${update.publishedAt}` : ''}</span></div><button className="primary-button" onClick={install} disabled={busy === 'install-update'}>{busy === 'install-update' ? <RefreshCw size={16} className="spin" /> : <HardDriveDownload size={16} />}{busy === 'install-update' ? '准备更新' : '立即更新'}</button><button className="secondary-button compact" onClick={openDownload}><ArrowUpRight size={15} />手动下载</button></div> : <div className="update-state"><div className="update-state-icon"><CheckCircle2 size={20} /></div><div><strong>已经是最新版本</strong><span>当前版本 v{update.currentVersion} · 最新版本 v{update.latestVersion || update.currentVersion} · 检查于 {formatTime(update.checkedAt)}</span></div></div>}{update?.releaseNotes && <div className="release-notes">{update.releaseNotes}</div>}</section></div>;
 }
 
 function Feedback({ tone, text, onClose }: { tone: NoticeTone; text: string; onClose: () => void }) {

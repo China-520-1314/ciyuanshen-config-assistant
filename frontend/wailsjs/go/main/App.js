@@ -78,6 +78,10 @@ export function GetToolLifecycleInfo(arg1) {
   return window['go']['main']['App']['GetToolLifecycleInfo'](arg1);
 }
 
+export function InstallLatestUpdate() {
+  return window['go']['main']['App']['InstallLatestUpdate']();
+}
+
 export function ListBackups() {
   return window['go']['main']['App']['ListBackups']();
 }

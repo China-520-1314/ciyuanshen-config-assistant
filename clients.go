@@ -24,13 +24,13 @@ type clientDefinition struct {
 
 func clientDefinitions() []clientDefinition {
 	return []clientDefinition{
+		{ID: "codex", Name: "ChatGPT/Codex Cli/Codex插件", Commands: []string{"codex"}, Kind: configTOML, NPMPackage: "@openai/codex", DownloadURL: "https://developers.openai.com/codex/cli/", Paths: func(home string) []string {
+			return []string{filepath.Join(home, ".codex", "config.toml")}
+		}},
 		{ID: "claude", Name: "Claude Code终端", Commands: []string{"claude"}, Kind: configJSON, NPMPackage: "@anthropic-ai/claude-code", DownloadURL: "https://docs.anthropic.com/en/docs/claude-code/setup", Paths: func(home string) []string {
 			return []string{filepath.Join(home, ".claude", "settings.json"), filepath.Join(home, ".claude", "claude.json")}
 		}},
 		{ID: "claude-desktop", Name: "Claude Code客户端", ExecutablePaths: claudeDesktopExecutablePaths, Kind: configJSON, Paths: claudeDesktopConfigPaths, Supported: claudeDesktopSupported, DownloadURL: "https://claude.com/download"},
-		{ID: "codex", Name: "ChatGPT/Codex Cli/Codex插件", Commands: []string{"codex"}, Kind: configTOML, NPMPackage: "@openai/codex", DownloadURL: "https://developers.openai.com/codex/cli/", Paths: func(home string) []string {
-			return []string{filepath.Join(home, ".codex", "config.toml")}
-		}},
 		{ID: "gemini", Name: "Gemini CLI", Commands: []string{"gemini"}, Kind: configEnv, NPMPackage: "@google/gemini-cli", DownloadURL: "https://github.com/google-gemini/gemini-cli", Paths: func(home string) []string {
 			return []string{filepath.Join(home, ".gemini", ".env")}
 		}},
@@ -133,19 +133,73 @@ func findClientExecutable(definition clientDefinition, home string) string {
 	if executable := findExecutable(definition.Commands); executable != "" {
 		return executable
 	}
+	if definition.ExecutablePaths == nil {
+		return findWindowsCommandShim(definition.Commands, home)
+	}
 	for _, candidate := range definition.ExecutablePaths(home) {
 		info, err := os.Stat(candidate)
 		if err == nil && !info.IsDir() {
 			return candidate
 		}
 	}
-	return ""
+	return findWindowsCommandShim(definition.Commands, home)
 }
 
 func findExecutable(commands []string) string {
 	for _, command := range commands {
-		if path, err := exec.LookPath(command); err == nil {
-			return path
+		for _, candidate := range executableCandidates(command) {
+			if path, err := exec.LookPath(candidate); err == nil {
+				return path
+			}
+		}
+	}
+	return ""
+}
+
+func executableCandidates(command string) []string {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return nil
+	}
+	result := []string{command}
+	if runtime.GOOS == "windows" && !strings.Contains(filepath.Base(command), ".") {
+		result = append(result, command+".cmd", command+".exe", command+".bat")
+	}
+	return result
+}
+
+// Wails-launched Windows processes can inherit a stale PATH that omits the
+// npm global bin directory. Check the standard Node/npm locations directly so
+// an installed CLI is not reported as missing just because of that PATH.
+func findWindowsCommandShim(commands []string, home string) string {
+	if runtime.GOOS != "windows" {
+		return ""
+	}
+	dirs := []string{}
+	appendDir := func(value string) {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			dirs = append(dirs, value)
+		}
+	}
+	appendDir(filepath.Join(home, "AppData", "Roaming", "npm"))
+	appendDir(os.Getenv("APPDATA"))
+	if appData := strings.TrimSpace(os.Getenv("APPDATA")); appData != "" {
+		appendDir(filepath.Join(appData, "npm"))
+	}
+	if local := strings.TrimSpace(os.Getenv("LOCALAPPDATA")); local != "" {
+		appendDir(filepath.Join(local, "Programs", "nodejs"))
+	}
+	appendDir(filepath.Join(os.Getenv("ProgramFiles"), "nodejs"))
+	appendDir(filepath.Join(os.Getenv("ProgramFiles(x86)"), "nodejs"))
+	for _, command := range commands {
+		for _, dir := range uniquePaths(dirs) {
+			for _, candidate := range executableCandidates(command) {
+				path := filepath.Join(dir, candidate)
+				if info, err := os.Stat(path); err == nil && !info.IsDir() {
+					return path
+				}
+			}
 		}
 	}
 	return ""

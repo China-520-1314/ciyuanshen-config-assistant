@@ -1000,5 +1000,23 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class InstallUpdateResult {
+	    success: boolean;
+	    message?: string;
+	    error?: string;
+	    downloadUrl?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new InstallUpdateResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.message = source["message"];
+	        this.error = source["error"];
+	        this.downloadUrl = source["downloadUrl"];
+	    }
+	}
 
 }

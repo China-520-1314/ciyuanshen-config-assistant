@@ -1,6 +1,6 @@
 {
-  "version": "0.2.8",
-  "downloadUrl": "https://github.com/China-520-1314/ciyuanshen-config-assistant/releases/download/v0.2.8/ciyuanshen-config-assistant-amd64-installer.exe",
+  "version": "0.2.9",
+  "downloadUrl": "https://github.com/China-520-1314/ciyuanshen-config-assistant/releases/download/v0.2.9/ciyuanshen-config-assistant-amd64-installer.exe",
   "releaseNotes": "保留 Codex 其他 provider 配置",
   "publishedAt": "2026-08-21",
   "sha256": ""

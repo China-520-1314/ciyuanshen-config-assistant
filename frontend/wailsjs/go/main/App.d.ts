@@ -40,6 +40,8 @@ export function GetPublicGroupRatios():Promise<main.GroupRatioReport>;
 
 export function GetToolLifecycleInfo(arg1:string):Promise<main.ToolLifecycleInfo>;
 
+export function InstallLatestUpdate():Promise<main.InstallUpdateResult>;
+
 export function ListBackups():Promise<Array<main.BackupInfo>>;
 
 export function LoginAccount(arg1:main.AccountLoginRequest):Promise<main.AccountLoginResult>;

@@ -40,6 +40,7 @@ type githubRelease struct {
 type githubReleaseAsset struct {
 	Name               string `json:"name"`
 	BrowserDownloadURL string `json:"browser_download_url"`
+	Digest             string `json:"digest"`
 }
 
 func checkGitHubRelease(client *http.Client, current, releaseURL string) UpdateInfo {
@@ -91,6 +92,7 @@ func checkGitHubRelease(client *http.Client, current, releaseURL string) UpdateI
 			return result
 		}
 		result.DownloadURL = asset.BrowserDownloadURL
+		result.SHA256 = strings.TrimPrefix(strings.TrimSpace(asset.Digest), "sha256:")
 	}
 	if result.UpdateAvailable && result.DownloadURL == "" {
 		result.Error = "GitHub Release 未包含 Windows 安装包"

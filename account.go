@@ -465,11 +465,17 @@ func (a *App) CreateToolKey(request ToolKeyRequest) (ToolKeyResult, error) {
 		"auto_groups":          []string{},
 		"cross_group_retry":    false,
 	}
-	data, _, err := a.dashboardData(http.MethodPost, "/api/token/", accessToken, createPayload)
-	if err != nil {
-		return ToolKeyResult{}, fmt.Errorf("创建 API Key 失败：%w", err)
-	}
+	data, _, createErr := a.dashboardData(http.MethodPost, "/api/token/", accessToken, createPayload)
 	createdID := tokenIDFromResponse(data)
+	// The dashboard can commit the token and still return an error (for
+	// example, a proxy timeout after the upstream write). Re-scan the account
+	// before reporting failure so the already-created token can be completed.
+	if createErr != nil && createdID <= 0 {
+		createdID, err = a.findNewTokenID(accessToken, knownIDs)
+		if err != nil {
+			return ToolKeyResult{}, fmt.Errorf("创建 API Key 失败：%w", createErr)
+		}
+	}
 	if createdID <= 0 {
 		createdID, err = a.findNewTokenID(accessToken, knownIDs)
 		if err != nil {
@@ -804,11 +810,15 @@ func (a *App) ConfigureExistingTool(request ExistingToolConfigurationRequest) Co
 	if !containsModel(validated.Models, request.Model) {
 		return ConfigureResult{FinishedAt: time.Now(), Error: "请选择当前 Key 可用的默认模型"}
 	}
-	return a.Configure(ConfigurationRequest{
-		APIKey:  key,
-		Targets: []string{clientID},
-		Models:  map[string]string{clientID: strings.TrimSpace(request.Model)},
-	})
+	a.operation.Lock()
+	defer a.operation.Unlock()
+	result := ConfigureResult{FinishedAt: time.Now(), Configured: []string{clientID}}
+	if err := updateConfiguredClientModel(home, clientID, request.Model); err != nil {
+		result.Error = err.Error()
+		return result
+	}
+	result.Success = true
+	return result
 }
 
 func (a *App) validateToolKey(clientID, apiKey string) (ToolKeyValidationResult, error) {

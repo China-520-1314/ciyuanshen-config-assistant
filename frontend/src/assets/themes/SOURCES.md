@@ -7,5 +7,6 @@ The bundled preview backgrounds are copied from the MIT-licensed
 - `cherry-blossoms-blue.jpg`: `Cherry Blossoms/CherryBlossomsBlue.jpg`
 - `mountain-place.jpg`: `Other/mountain-place-3.jpg`
 - `city-lights.jpg`: `Universal/city-3.jpg`
+- `ikun.png`: 用户提供的爱坤皮肤素材，随配置助手发布。
 
 The upstream MIT license is bundled as `FrenzyExists-WALLPAPERS-LICENSE.txt`.

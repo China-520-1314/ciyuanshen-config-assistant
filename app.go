@@ -2,14 +2,21 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
+	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const (
@@ -24,7 +31,14 @@ const (
 
 // appVersion is a variable so release builds can inject their tag with
 // -ldflags "-X main.appVersion=..." while local builds keep a useful default.
-var appVersion = "0.2.8"
+var appVersion = "0.2.9"
+
+type InstallUpdateResult struct {
+	Success     bool   `json:"success"`
+	Message     string `json:"message,omitempty"`
+	Error       string `json:"error,omitempty"`
+	DownloadURL string `json:"downloadUrl,omitempty"`
+}
 
 // App is the bridge exposed to the Wails frontend. It never persists the API
 // key in the assistant's own data directory; the key only lives in memory for
@@ -245,6 +259,149 @@ func (a *App) CheckForUpdates() UpdateInfo {
 	return githubUpdate
 }
 
+// InstallLatestUpdate downloads and verifies the latest Windows installer,
+// then hands off to a detached PowerShell process so the current executable
+// can exit before NSIS replaces it.
+func (a *App) InstallLatestUpdate() InstallUpdateResult {
+	result := InstallUpdateResult{}
+	if runtime.GOOS != "windows" {
+		result.Error = "自动安装更新目前仅支持 Windows"
+		return result
+	}
+	update := a.CheckForUpdates()
+	if update.Error != "" {
+		result.Error = update.Error
+		return result
+	}
+	if !update.UpdateAvailable {
+		result.Error = "当前已经是最新版本"
+		return result
+	}
+	if err := validateUpdateDownloadURL(update.DownloadURL); err != nil {
+		result.Error = err.Error()
+		return result
+	}
+	tempFile, err := os.CreateTemp("", "ciyuanshen-config-assistant-update-*.exe")
+	if err != nil {
+		result.Error = "创建更新临时文件失败：" + err.Error()
+		return result
+	}
+	tempPath := tempFile.Name()
+	defer func() {
+		_ = tempFile.Close()
+	}()
+	request, err := http.NewRequest(http.MethodGet, update.DownloadURL, nil)
+	if err != nil {
+		_ = os.Remove(tempPath)
+		result.Error = "更新下载地址无效"
+		return result
+	}
+	request.Header.Set("User-Agent", "CiyuanShen-Config-Assistant/"+appVersion)
+	response, err := a.client.Do(request)
+	if err != nil {
+		_ = os.Remove(tempPath)
+		result.Error = "下载更新失败：" + err.Error()
+		return result
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		response.Body.Close()
+		_ = os.Remove(tempPath)
+		result.Error = fmt.Sprintf("更新下载服务返回 HTTP %d", response.StatusCode)
+		return result
+	}
+	if _, err := io.Copy(tempFile, io.LimitReader(response.Body, 300*1024*1024)); err != nil {
+		response.Body.Close()
+		_ = os.Remove(tempPath)
+		result.Error = "保存更新包失败：" + err.Error()
+		return result
+	}
+	response.Body.Close()
+	if err := tempFile.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		result.Error = "关闭更新文件失败：" + err.Error()
+		return result
+	}
+	expected := normaliseSHA256(update.SHA256)
+	if expected == "" {
+		_ = os.Remove(tempPath)
+		result.Error = "更新清单缺少有效 SHA256，已取消安装"
+		return result
+	}
+	if expected != "" {
+		actual, hashErr := fileSHA256(tempPath)
+		if hashErr != nil || !strings.EqualFold(actual, expected) {
+			_ = os.Remove(tempPath)
+			if hashErr != nil {
+				result.Error = "校验更新包失败：" + hashErr.Error()
+			} else {
+				result.Error = "更新包校验失败，已取消安装"
+			}
+			return result
+		}
+	}
+	currentExecutable, executableErr := os.Executable()
+	if executableErr != nil {
+		_ = os.Remove(tempPath)
+		result.Error = "无法确定当前程序路径：" + executableErr.Error()
+		return result
+	}
+	installScript := fmt.Sprintf("$oldPid=%d; while (Get-Process -Id $oldPid -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 200 }; Start-Process -FilePath %s -ArgumentList '/S' -Wait; Start-Process -FilePath %s; Remove-Item -LiteralPath %s -Force -ErrorAction SilentlyContinue", os.Getpid(), powershellQuote(tempPath), powershellQuote(currentExecutable), powershellQuote(tempPath))
+	command := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", installScript)
+	command.Stdin = nil
+	if err := command.Start(); err != nil {
+		_ = os.Remove(tempPath)
+		result.Error = "启动更新安装程序失败：" + err.Error()
+		return result
+	}
+	result.Success = true
+	result.DownloadURL = update.DownloadURL
+	result.Message = "更新包已下载，应用将关闭并自动安装最新版"
+	if a.ctx != nil {
+		wailsRuntime.Quit(a.ctx)
+	}
+	return result
+}
+
+func validateUpdateDownloadURL(raw string) error {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || strings.ToLower(parsed.Scheme) != "https" {
+		return errors.New("更新下载地址不是 HTTPS")
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host != "github.com" && host != "objects.githubusercontent.com" && host != "api.ciyuanshen.top" && host != "ciyuanshen.top" {
+		return errors.New("更新下载地址不是受信任的官方地址")
+	}
+	return nil
+}
+
+func normaliseSHA256(value string) string {
+	value = strings.TrimSpace(strings.TrimPrefix(strings.ToLower(value), "sha256:"))
+	if len(value) != sha256.Size*2 {
+		return ""
+	}
+	if _, err := hex.DecodeString(value); err != nil {
+		return ""
+	}
+	return value
+}
+
+func fileSHA256(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func powershellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
+
 func (a *App) OpenExternalURL(url string) error {
 	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(url)), "https://") {
 		return errors.New("只允许打开 HTTPS 地址")
@@ -252,6 +409,6 @@ func (a *App) OpenExternalURL(url string) error {
 	if a.ctx == nil {
 		return errors.New("应用尚未初始化")
 	}
-	runtime.BrowserOpenURL(a.ctx, strings.TrimSpace(url))
+	wailsRuntime.BrowserOpenURL(a.ctx, strings.TrimSpace(url))
 	return nil
 }

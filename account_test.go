@@ -266,6 +266,49 @@ func TestCreateToolKeyAcceptsSuccessfulResponseWithoutID(t *testing.T) {
 	}
 }
 
+func TestCreateToolKeyRecoversWhenCreateResponseReportsFailureAfterCommit(t *testing.T) {
+	app := NewApp()
+	app.account = dashboardSession{AccessToken: "dashboard-session", ExpiresAt: time.Now().Add(time.Hour)}
+	var listCalls int
+	app.client = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/api/user/self/groups":
+			return testDashboardResponse(request, map[string]any{"gpt": map[string]any{"desc": "GPT", "ratio": 1}}), nil
+		case request.Method == http.MethodGet && request.URL.Path == "/api/user/models":
+			return testDashboardResponse(request, []string{"gpt-5.6-terra"}), nil
+		case request.Method == http.MethodGet && request.URL.Path == "/api/token/":
+			listCalls++
+			items := []dashboardToken(nil)
+			if listCalls > 1 {
+				items = []dashboardToken{{ID: 654, Name: automaticToolKeyName, Status: 1, ExpiredTime: -1, UnlimitedQuota: true, CreatedTime: time.Now().Unix()}}
+			}
+			return testDashboardResponse(request, map[string]any{"page": 1, "page_size": 100, "total": len(items), "items": items}), nil
+		case request.Method == http.MethodPost && request.URL.Path == "/api/token/":
+			return testDashboardResponse(request, map[string]any{"message": "网关超时"}), fmt.Errorf("simulated timeout after commit")
+		case request.Method == http.MethodPost && request.URL.Path == "/api/token/654/key":
+			return testDashboardResponse(request, map[string]string{"key": "secret-recovered"}), nil
+		case request.Method == http.MethodGet && request.URL.Path == "/v1/models":
+			return testRawJSONResponse(request, `{"data":[{"id":"gpt-5.6-terra"}]}`), nil
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", request.Method, request.URL.String())
+		}
+	})}
+
+	result, err := app.CreateToolKey(ToolKeyRequest{ClientID: "codex", Group: "gpt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ProvisionID == "" || result.Name != automaticToolKeyName {
+		t.Fatalf("unexpected recovered result: %#v", result)
+	}
+	app.provisionMu.Lock()
+	provision := app.provisions[result.ProvisionID]
+	app.provisionMu.Unlock()
+	if provision.Key != "secret-recovered" {
+		t.Fatalf("recovered key was not retained: %q", provision.Key)
+	}
+}
+
 func TestGetAccountToolOptionsRecommendsExistingKeyWithoutLeakingIt(t *testing.T) {
 	app := NewApp()
 	app.account = dashboardSession{AccessToken: "dashboard-session", ExpiresAt: time.Now().Add(time.Hour)}
