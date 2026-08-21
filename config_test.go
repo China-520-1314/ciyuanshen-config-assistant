@@ -338,6 +338,65 @@ requires_openai_auth = true
 	}
 }
 
+func TestPatchCodexConfigUnifiesAnyProviderName(t *testing.T) {
+	existing := `model_provider = "foo"
+[model_providers.legacy]
+name = "foo"
+base_url = "https://foo.example/v1"
+wire_api = "responses"
+requires_openai_auth = true
+legacy_value = "keep"
+
+[model_providers.other]
+name = "other"
+base_url = "https://other.example/v1"
+wire_api = "responses"
+requires_openai_auth = true
+`
+	patched := patchCodexConfig(existing, "")
+	for _, expected := range []string{
+		`model_provider = "foo"`,
+		`[model_providers.foo]`,
+		`name = "foo"`,
+		`base_url = "https://foo.example/v1"`,
+		`legacy_value = "keep"`,
+		`[model_providers.other]`,
+		`name = "other"`,
+		`base_url = "https://other.example/v1"`,
+	} {
+		if !strings.Contains(patched, expected) {
+			t.Fatalf("arbitrary provider configuration is missing %q:\n%s", expected, patched)
+		}
+	}
+	if strings.Contains(patched, "[model_providers.legacy]") || strings.Count(patched, "[model_providers.foo]") != 1 {
+		t.Fatalf("provider table was not renamed and unified:\n%s", patched)
+	}
+}
+
+func TestPatchCodexConfigMigratesSingleMismatchedProviderForAnyName(t *testing.T) {
+	existing := `model_provider = "foo"
+[model_providers.custom]
+name = "custom"
+base_url = "https://custom.example/v1"
+wire_api = "responses"
+requires_openai_auth = true
+`
+	patched := patchCodexConfig(existing, "")
+	for _, expected := range []string{
+		`model_provider = "foo"`,
+		`[model_providers.foo]`,
+		`name = "foo"`,
+		`base_url = "https://custom.example/v1"`,
+	} {
+		if !strings.Contains(patched, expected) {
+			t.Fatalf("single arbitrary provider was not migrated (%q):\n%s", expected, patched)
+		}
+	}
+	if strings.Contains(patched, "[model_providers.custom]") || strings.Contains(patched, `name = "custom"`) {
+		t.Fatalf("stale provider name remained:\n%s", patched)
+	}
+}
+
 func TestConfigureAllSupportedClientsFromEmptyFiles(t *testing.T) {
 	home := isolateHome(t)
 	targets := []string{"claude", "codex", "gemini", "grok", "opencode", "openclaw", "hermes"}

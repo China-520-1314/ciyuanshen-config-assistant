@@ -182,9 +182,9 @@ type codexTableBlock struct {
 }
 
 // patchCodexConfig edits TOML text in place. The provider name is taken from
-// the existing top-level model_provider, or inferred from the first provider
-// table when the top-level field is missing. This keeps custom providers
-// custom while repairing stale custom/ciyuanshen duplicates from older runs.
+// the existing top-level model_provider, or inferred from an existing provider
+// table when the top-level field is missing. All three provider references are
+// then kept in sync without discarding unrelated provider tables.
 func patchCodexConfig(existing, selectedModel string) string {
 	lines := []string(nil)
 	if existing != "" {
@@ -201,9 +201,10 @@ func patchCodexConfig(existing, selectedModel string) string {
 
 	prefix := append([]string(nil), lines[:firstTable]...)
 	blocks := codexTableBlocks(lines[firstTable:])
+	explicitProviderName := codexTopLevelProviderName(prefix)
 	providerName := codexProviderName(prefix, blocks)
 	prefix = patchCodexTopLevel(prefix, providerName, selectedModel)
-	blocks, providerIndex := patchCodexProviderBlocks(blocks, providerName)
+	blocks, providerIndex := patchCodexProviderBlocks(blocks, providerName, explicitProviderName != "")
 	if providerIndex < 0 {
 		blocks = append(blocks, codexTableBlock{
 			Name:  codexProviderTableName(providerName),
@@ -244,13 +245,8 @@ func codexTableBlocks(lines []string) []codexTableBlock {
 }
 
 func codexProviderName(prefix []string, blocks []codexTableBlock) string {
-	for _, line := range prefix {
-		key, value, ok := codexAssignment(line)
-		if key == "model_provider" && ok {
-			if name := validCodexProviderName(value); name != "" {
-				return name
-			}
-		}
+	if name := codexTopLevelProviderName(prefix); name != "" {
+		return name
 	}
 	for _, block := range blocks {
 		if !strings.HasPrefix(block.Name, "model_providers.") {
@@ -264,11 +260,31 @@ func codexProviderName(prefix []string, blocks []codexTableBlock) string {
 			}
 			return shortName
 		}
-		if blockName == shortName && (codexHasAssignment(block.Lines, "wire_api") || codexHasAssignment(block.Lines, "requires_openai_auth")) {
+		if blockName == shortName {
+			return blockName
+		}
+	}
+	for _, block := range blocks {
+		if !strings.HasPrefix(block.Name, "model_providers.") {
+			continue
+		}
+		if blockName := validCodexProviderName(codexBlockAssignmentValue(block.Lines, "name")); blockName != "" {
 			return blockName
 		}
 	}
 	return managedProviderName
+}
+
+func codexTopLevelProviderName(prefix []string) string {
+	for _, line := range prefix {
+		key, value, ok := codexAssignment(line)
+		if key == "model_provider" && ok {
+			if name := validCodexProviderName(value); name != "" {
+				return name
+			}
+		}
+	}
+	return ""
 }
 
 func patchCodexTopLevel(lines []string, providerName, selectedModel string) []string {
@@ -314,7 +330,7 @@ func patchCodexTopLevel(lines []string, providerName, selectedModel string) []st
 	return insertCodexBeforeTrailingBlankLines(patched, missing)
 }
 
-func patchCodexProviderBlocks(blocks []codexTableBlock, providerName string) ([]codexTableBlock, int) {
+func patchCodexProviderBlocks(blocks []codexTableBlock, providerName string, hasExplicitProvider bool) ([]codexTableBlock, int) {
 	targetName := codexProviderTableName(providerName)
 	targetIndex := -1
 	for index, block := range blocks {
@@ -325,14 +341,23 @@ func patchCodexProviderBlocks(blocks []codexTableBlock, providerName string) ([]
 	}
 	if targetIndex < 0 {
 		candidate := -1
+		providerIndices := make([]int, 0)
 		for index, block := range blocks {
 			if !strings.HasPrefix(block.Name, "model_providers.") {
 				continue
 			}
-			shortName := strings.TrimPrefix(block.Name, "model_providers.")
-			if shortName == "custom" || shortName == managedProviderName {
+			providerIndices = append(providerIndices, index)
+			blockName := validCodexProviderName(codexBlockAssignmentValue(block.Lines, "name"))
+			if blockName == providerName {
 				candidate = index
 				break
+			}
+		}
+		if candidate < 0 && len(providerIndices) == 1 {
+			onlyBlock := blocks[providerIndices[0]]
+			blockName := validCodexProviderName(codexBlockAssignmentValue(onlyBlock.Lines, "name"))
+			if hasExplicitProvider || blockName != "" {
+				candidate = providerIndices[0]
 			}
 		}
 		if candidate >= 0 {
@@ -380,7 +405,14 @@ func codexStaleProviderBlock(block codexTableBlock, providerName string) bool {
 	if shortName == providerName {
 		return false
 	}
-	return shortName == "custom" || shortName == managedProviderName
+	if blockName := validCodexProviderName(codexBlockAssignmentValue(block.Lines, "name")); blockName == providerName {
+		return true
+	}
+	// Older releases could leave both the managed provider and custom provider
+	// behind. They are only interchangeable when one of those names is the
+	// active provider; a custom table must remain untouched for other providers.
+	return (providerName == managedProviderName || providerName == "custom") &&
+		(shortName == "custom" || shortName == managedProviderName)
 }
 
 func mergeCodexProviderLines(target, source []string) []string {
