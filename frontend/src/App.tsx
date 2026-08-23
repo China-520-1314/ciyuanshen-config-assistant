@@ -91,13 +91,15 @@ import {
   ValidateToolKey,
   VerifyAccountTwoFactor,
 } from '../wailsjs/go/main/App';
-import { Quit, WindowMinimise, WindowToggleMaximise } from '../wailsjs/runtime/runtime';
+import { EventsOn, Quit, WindowMinimise, WindowToggleMaximise } from '../wailsjs/runtime/runtime';
 
 type ClientId = 'claude' | 'claude-desktop' | 'codex' | 'gemini' | 'grok' | 'opencode' | 'openclaw' | 'hermes';
 type TabId = 'overview' | 'groups' | 'backups' | 'updates' | 'appearance';
 type ThemeId = 'ciyuan' | 'anime' | 'sakura' | 'mountain' | 'city' | 'ikun' | 'china' | 'anime-boy' | 'anime-girl' | 'custom';
 type ThemeMode = 'system' | 'light' | 'dark';
 type ResolvedThemeMode = Exclude<ThemeMode, 'system'>;
+type ThemeTransparency = { skin: number; content: number };
+type ThemeTransparencyByTheme = Partial<Record<ThemeId, ThemeTransparency>>;
 type NoticeTone = 'success' | 'error' | 'neutral';
 
 type ClientStatus = {
@@ -115,7 +117,7 @@ type ClientStatus = {
 
 type EnvironmentReport = { os: string; home: string; scannedAt: string; clients: ClientStatus[] };
 type Model = { id: string; object?: string; owned_by?: string };
-type AppInfo = { name: string; version: string; updateManifestUrl: string; gatewayUrl: string };
+type AppInfo = { name: string; version: string; platform?: string; updateManifestUrl: string; gatewayUrl: string };
 type AccountState = { signedIn: boolean; username: string; balance?: string; quota?: number; balanceUpdatedAt?: string; expiresAt?: string };
 type AccountLoginResult = { signedIn: boolean; requiresTwoFactor: boolean; flowToken: string; username: string; expiresAt?: string };
 type SavedAccountLogin = { username: string; password: string };
@@ -139,6 +141,7 @@ type UpdateInfo = {
   error?: string;
 };
 type InstallUpdateResult = { success: boolean; message?: string; error?: string; downloadUrl?: string };
+type UpdateProgress = { stage: string; message: string; downloadedBytes: number; totalBytes: number; percent: number };
 type ClientConnectionResult = {
   id: ClientId;
   name: string;
@@ -221,6 +224,9 @@ type ThemeDefinition = {
 const themeStorageKey = 'ciyuanshen-config-assistant.theme';
 const themeModeStorageKey = 'ciyuanshen-config-assistant.theme-mode';
 const customWallpaperStorageKey = 'ciyuanshen-config-assistant.custom-wallpaper';
+const themeTransparencyStorageKey = 'ciyuanshen-config-assistant.theme-transparency';
+const updateProgressEvent = 'ciyuanshen:update-progress';
+const defaultThemeTransparency: ThemeTransparency = { skin: 100, content: 100 };
 const themeDefinitions: ThemeDefinition[] = [
   { id: 'ciyuan', name: '词元神青', subtitle: '清爽工作台', source: '词元神', swatches: ['#173735', '#0c766d', '#f4f7f7', '#e4f3f0'] },
   { id: 'anime', name: '冬日人物', subtitle: '动漫人物 · 柔和青', source: 'FrenzyExists/wallpapers', sourceURL: 'https://github.com/FrenzyExists/wallpapers', wallpaper: animeWallpaper, swatches: ['#406b70', '#d97c9f', '#e9f2ef', '#b9e4de'] },
@@ -264,8 +270,57 @@ function readStoredThemeMode(): ThemeMode {
   return 'system';
 }
 
+function clampTransparency(value: unknown, fallback: number, minimum: number) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  return Math.round(Math.min(100, Math.max(minimum, value)));
+}
+
+function readStoredThemeTransparency(): ThemeTransparencyByTheme {
+  try {
+    const stored = window.localStorage.getItem(themeTransparencyStorageKey);
+    if (!stored) return {};
+    const parsed: unknown = JSON.parse(stored);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const saved = parsed as Record<string, unknown>;
+    const settings: ThemeTransparencyByTheme = {};
+    for (const item of themeDefinitions) {
+      const value = saved[item.id];
+      if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+      const transparency = value as Record<string, unknown>;
+      settings[item.id] = {
+        skin: clampTransparency(transparency.skin, defaultThemeTransparency.skin, 0),
+        content: clampTransparency(transparency.content, defaultThemeTransparency.content, 15),
+      };
+    }
+    return settings;
+  } catch {
+    return {};
+  }
+}
+
+function getThemeTransparency(settings: ThemeTransparencyByTheme, theme: ThemeId): ThemeTransparency {
+  const saved = settings[theme];
+  return {
+    skin: clampTransparency(saved?.skin, defaultThemeTransparency.skin, 0),
+    content: clampTransparency(saved?.content, defaultThemeTransparency.content, 15),
+  };
+}
+
 function getSystemThemeMode(): ResolvedThemeMode {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function readUpdateProgress(value: unknown): UpdateProgress | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const progress = value as Record<string, unknown>;
+  if (typeof progress.stage !== 'string' || typeof progress.message !== 'string') return null;
+  return {
+    stage: progress.stage,
+    message: progress.message,
+    downloadedBytes: typeof progress.downloadedBytes === 'number' && Number.isFinite(progress.downloadedBytes) ? Math.max(0, progress.downloadedBytes) : 0,
+    totalBytes: typeof progress.totalBytes === 'number' && Number.isFinite(progress.totalBytes) ? Math.max(0, progress.totalBytes) : 0,
+    percent: typeof progress.percent === 'number' && Number.isFinite(progress.percent) ? Math.min(100, Math.max(0, Math.round(progress.percent))) : 0,
+  };
 }
 
 const tabTitles: Record<TabId, string> = {
@@ -311,6 +366,18 @@ function formatRatio(value: number) {
   return `${value.toFixed(4).replace(/0+$/, '').replace(/\.$/, '')}x`;
 }
 
+function formatFileSize(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`;
+}
+
 function defaultModel(clientId: ClientId, models: Model[], current?: string) {
   if (current && models.some((model) => model.id === current)) return current;
   if (models.some((model) => model.id === recommendedModels[clientId])) return recommendedModels[clientId];
@@ -321,10 +388,11 @@ function App() {
   const [tab, setTab] = useState<TabId>('overview');
   const [theme, setTheme] = useState<ThemeId>(readStoredTheme);
   const [themeMode, setThemeMode] = useState<ThemeMode>(readStoredThemeMode);
+  const [themeTransparency, setThemeTransparency] = useState<ThemeTransparencyByTheme>(readStoredThemeTransparency);
   const [systemThemeMode, setSystemThemeMode] = useState<ResolvedThemeMode>(getSystemThemeMode);
   const [customWallpaper, setCustomWallpaper] = useState(readStoredWallpaper);
   const [environment, setEnvironment] = useState<EnvironmentReport>(mockEnvironment);
-  const [appInfo, setAppInfo] = useState<AppInfo>({ name: '词元神配置助手', version: '0.2.11', updateManifestUrl: '', gatewayUrl: 'https://api.ciyuanshen.top/v1' });
+  const [appInfo, setAppInfo] = useState<AppInfo>({ name: '词元神配置助手', version: '0.2.12', platform: '', updateManifestUrl: '', gatewayUrl: 'https://api.ciyuanshen.top/v1' });
   const [account, setAccount] = useState<AccountState>({ signedIn: false, username: '' });
   const [accountRefreshing, setAccountRefreshing] = useState(false);
   const [toolModels, setToolModels] = useState<Partial<Record<ClientId, Model[]>>>({});
@@ -346,6 +414,7 @@ function App() {
   const [backups, setBackups] = useState<Backup[]>([]);
   const [backupRoot, setBackupRoot] = useState('');
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [updateProgress, setUpdateProgress] = useState<UpdateProgress | null>(null);
   const [groupReport, setGroupReport] = useState<GroupRatioReport | null>(null);
   const [setup, setSetup] = useState<SetupState | null>(null);
   const [toolOptions, setToolOptions] = useState<ToolOptionsResponse | null>(null);
@@ -375,6 +444,7 @@ function App() {
   const availableThemes = themeDefinitions;
   const activeTheme = availableThemes.find((item) => item.id === theme) || themeDefinitions[0];
   const wallpaper = theme === 'custom' ? customWallpaper : activeTheme.wallpaper || '';
+  const activeThemeTransparency = getThemeTransparency(themeTransparency, theme);
   const resolvedThemeMode: ResolvedThemeMode = themeMode === 'system' ? systemThemeMode : themeMode;
 
   const clientMap = useMemo(() => new Map(environment.clients.map((client) => [client.id, client])), [environment.clients]);
@@ -406,13 +476,22 @@ function App() {
     try {
       window.localStorage.setItem(themeStorageKey, theme);
       window.localStorage.setItem(themeModeStorageKey, themeMode);
+      window.localStorage.setItem(themeTransparencyStorageKey, JSON.stringify(themeTransparency));
       if (customWallpaper) window.localStorage.setItem(customWallpaperStorageKey, customWallpaper);
       else window.localStorage.removeItem(customWallpaperStorageKey);
     } catch {
       // Theme remains active for this session when persistence is unavailable.
     }
     if (theme === 'custom' && !customWallpaper) setTheme('ciyuan');
-  }, [theme, themeMode, resolvedThemeMode, customWallpaper]);
+  }, [theme, themeMode, resolvedThemeMode, customWallpaper, themeTransparency]);
+
+  useEffect(() => {
+    if (!inWails()) return;
+    return EventsOn(updateProgressEvent, (payload: unknown) => {
+      const next = readUpdateProgress(payload);
+      if (next) setUpdateProgress(next);
+    });
+  }, []);
 
   function showFeedback(next: { tone: NoticeTone; text: string }, dismissAfter = 0) {
     if (feedbackTimer.current !== undefined) window.clearTimeout(feedbackTimer.current);
@@ -1068,6 +1147,7 @@ function App() {
   }
 
   async function checkUpdate(promptToInstall = false) {
+    setUpdateProgress(null);
     setBusy('update');
     try {
       const result = inWails()
@@ -1092,9 +1172,17 @@ function App() {
     }
     if (confirmInstall && !window.confirm(`将下载并安装 v${currentUpdate.latestVersion}，应用会自动关闭。是否继续？`)) return;
     setBusy('install-update');
+    setUpdateProgress({ stage: 'checking', message: '正在检查可用更新', downloadedBytes: 0, totalBytes: 0, percent: 0 });
     try {
       if (!inWails()) {
         await openExternal(currentUpdate.downloadUrl);
+        setUpdateProgress(null);
+        return;
+      }
+      if (appInfo.platform === 'darwin') {
+        await openExternal(currentUpdate.downloadUrl);
+        setUpdateProgress(null);
+        showFeedback({ tone: 'success', text: '已打开 macOS 安装包下载，请将应用拖入“应用程序”文件夹完成更新' }, 4200);
         return;
       }
       const result = await InstallLatestUpdate() as InstallUpdateResult;
@@ -1102,6 +1190,7 @@ function App() {
       showFeedback({ tone: 'success', text: result.message || '正在安装更新' });
     } catch (error) {
       const message = error instanceof Error ? error.message : '自动更新失败';
+      setUpdateProgress({ stage: 'failed', message, downloadedBytes: 0, totalBytes: 0, percent: 0 });
       showFeedback({ tone: 'error', text: `${message}，可在版本更新页手动下载` }, 4600);
     } finally {
       setBusy('');
@@ -1124,6 +1213,16 @@ function App() {
     setTheme(wallpaper ? 'custom' : 'ciyuan');
   }
 
+  function applyThemeTransparency(next: ThemeTransparency) {
+    setThemeTransparency((current) => ({
+      ...current,
+      [theme]: {
+        skin: clampTransparency(next.skin, defaultThemeTransparency.skin, 0),
+        content: clampTransparency(next.content, defaultThemeTransparency.content, 15),
+      },
+    }));
+  }
+
   function selectTab(nextTab: TabId) {
     setTab(nextTab);
     if (nextTab === 'groups') void fetchGroupRatios();
@@ -1131,7 +1230,7 @@ function App() {
   }
 
   return (
-    <div className="window-frame" data-theme={theme} data-theme-mode={resolvedThemeMode} data-theme-mode-preference={themeMode} data-has-wallpaper={wallpaper ? 'true' : 'false'} style={{ '--theme-wallpaper': wallpaper ? `url(${wallpaper})` : 'none' } as CSSProperties}>
+    <div className="window-frame" data-theme={theme} data-theme-mode={resolvedThemeMode} data-theme-mode-preference={themeMode} data-has-wallpaper={wallpaper ? 'true' : 'false'} style={{ '--theme-wallpaper': wallpaper ? `url(${wallpaper})` : 'none', '--skin-opacity': `${activeThemeTransparency.skin}%`, '--content-opacity': `${activeThemeTransparency.content}%` } as CSSProperties}>
       {inWails() && <WindowTitlebar />}
       <div className="app-shell">
         <aside className="sidebar">
@@ -1172,8 +1271,8 @@ function App() {
           {tab === 'overview' && <Overview environment={environment} clientMap={clientMap} toolModels={toolModels} modelByClient={modelByClient} modelsLoading={modelsLoading} modelErrors={modelErrors} keyValidationResults={keyValidationResults} setClientModel={(clientId, model, anchor) => void applyExistingModel(clientId, model, anchor)} connectionResults={connectionResults} checkingClient={checkingClient} applyingModelClient={applyingModelClient} lifecycleByClient={lifecycleByClient} lifecycleBusyClient={lifecycleBusyClient} onCheck={checkClient} onConfigure={openToolSetup} onViewConfiguration={openClientConfiguration} onLifecycleCheck={checkToolLifecycle} onLifecycleAction={runToolLifecycleAction} />}
           {tab === 'groups' && <GroupRatios report={groupReport} busy={busy} refresh={() => void fetchGroupRatios()} />}
           {tab === 'backups' && <Backups backups={backups} backupRoot={backupRoot} busy={busy} restore={restore} remove={deleteBackup} refresh={() => void refreshBackups()} />}
-          {tab === 'updates' && <Updates update={update} busy={busy} check={() => void checkUpdate(false)} install={() => void installUpdate()} openDownload={() => update?.downloadUrl && void openExternal(update.downloadUrl)} />}
-          {tab === 'appearance' && <ThemeGallery theme={theme} themeMode={themeMode} themes={availableThemes} customWallpaper={customWallpaper} onThemeChange={setTheme} onThemeModeChange={setThemeMode} onCustomWallpaperChange={applyCustomWallpaper} onOpenSource={(url) => void openExternal(url)} />}
+          {tab === 'updates' && <Updates update={update} progress={updateProgress} platform={appInfo.platform} busy={busy} check={() => void checkUpdate(false)} install={() => void installUpdate()} openDownload={() => update?.downloadUrl && void openExternal(update.downloadUrl)} />}
+          {tab === 'appearance' && <ThemeGallery theme={theme} themeMode={themeMode} themes={availableThemes} customWallpaper={customWallpaper} transparency={activeThemeTransparency} onThemeChange={setTheme} onThemeModeChange={setThemeMode} onTransparencyChange={applyThemeTransparency} onCustomWallpaperChange={applyCustomWallpaper} onOpenSource={(url) => void openExternal(url)} />}
         </main>
       </div>
 
@@ -1450,7 +1549,18 @@ function readCropSource(file: File): Promise<CropSource> {
   });
 }
 
-function ThemeGallery({ theme, themeMode, themes, customWallpaper, onThemeChange, onThemeModeChange, onCustomWallpaperChange, onOpenSource }: { theme: ThemeId; themeMode: ThemeMode; themes: ThemeDefinition[]; customWallpaper: string; onThemeChange: (theme: ThemeId) => void; onThemeModeChange: (mode: ThemeMode) => void; onCustomWallpaperChange: (wallpaper: string) => void; onOpenSource: (url: string) => void }) {
+function ThemeGallery({ theme, themeMode, themes, customWallpaper, transparency, onThemeChange, onThemeModeChange, onTransparencyChange, onCustomWallpaperChange, onOpenSource }: {
+  theme: ThemeId;
+  themeMode: ThemeMode;
+  themes: ThemeDefinition[];
+  customWallpaper: string;
+  transparency: ThemeTransparency;
+  onThemeChange: (theme: ThemeId) => void;
+  onThemeModeChange: (mode: ThemeMode) => void;
+  onTransparencyChange: (transparency: ThemeTransparency) => void;
+  onCustomWallpaperChange: (wallpaper: string) => void;
+  onOpenSource: (url: string) => void;
+}) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
   const [cropSource, setCropSource] = useState<CropSource | null>(null);
@@ -1535,6 +1645,10 @@ function ThemeGallery({ theme, themeMode, themes, customWallpaper, onThemeChange
     onCustomWallpaperChange('');
   }
 
+  function changeTransparency(setting: keyof ThemeTransparency, value: number) {
+    onTransparencyChange({ ...transparency, [setting]: value });
+  }
+
   return <>
     <div className="content-stack narrow-stack">
       <section className="page-intro">
@@ -1549,6 +1663,10 @@ function ThemeGallery({ theme, themeMode, themes, customWallpaper, onThemeChange
             <button type="button" className={themeMode === 'dark' ? 'active' : ''} aria-pressed={themeMode === 'dark'} onClick={() => onThemeModeChange('dark')}>深色</button>
           </div>
           <p>如果你有好看的皮肤想让他人看到，可以进群联系管理，审核成功后下个版本会看到你的界面皮肤</p>
+        </div>
+        <div className="theme-transparency-controls">
+          <label className="range-field theme-transparency-field"><span>皮肤透明度 <b>{transparency.skin}%</b></span><input type="range" min="0" max="100" step="1" value={transparency.skin} aria-label="皮肤透明度" onChange={(event) => changeTransparency('skin', Number(event.target.value))} /></label>
+          <label className="range-field theme-transparency-field"><span>工具框透明度 <b>{transparency.content}%</b></span><input type="range" min="15" max="100" step="1" value={transparency.content} aria-label="工具框透明度" onChange={(event) => changeTransparency('content', Number(event.target.value))} /></label>
         </div>
         <div className="theme-grid">
           {cards.map((item) => {
@@ -1581,8 +1699,24 @@ function Backups({ backups, backupRoot, busy, restore, remove, refresh }: { back
   return <div className="content-stack narrow-stack"><section className="page-intro backup-intro"><div className="section-icon amber"><RotateCcw size={20} /></div><div><p className="eyebrow">RECOVERY</p><h2>配置备份</h2><p className="backup-root"><FolderArchive size={13} /><code>{backupRoot || '正在读取备份目录'}</code></p></div><button className="icon-button inline" title="刷新备份" aria-label="刷新备份" onClick={refresh}><RefreshCw size={17} /></button></section><section className="backup-list">{backups.length === 0 ? <EmptyState icon={<RotateCcw size={22} />} title="暂无备份" text="完成一次配置后，备份会显示在这里。" /> : backups.map((backup) => <article className="backup-entry" key={backup.id}><div className="backup-row"><div className="backup-icon"><FileCheck2 size={18} /></div><div className="backup-details"><strong>{formatTime(backup.createdAt)}</strong><span>{backup.files.length} 个文件 · {backup.path}</span></div><button className="icon-button compact-icon" title={expanded === backup.id ? '收起备份文件' : '查看备份文件'} aria-label={expanded === backup.id ? '收起备份文件' : '查看备份文件'} onClick={() => setExpanded(expanded === backup.id ? null : backup.id)}>{expanded === backup.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button><button className="secondary-button compact" onClick={() => restore(backup.id)} disabled={busy === 'restore' || busy === 'delete'}><RotateCcw size={15} />恢复</button><button className="icon-button compact-icon danger-button" title="删除备份" aria-label="删除备份" onClick={() => remove(backup.id)} disabled={busy === 'restore' || busy === 'delete'}><Trash2 size={16} /></button></div>{expanded === backup.id && <div className="backup-files">{backup.files.map((file) => <div key={`${file.clientId}-${file.originalPath}`}><strong>{clientCopy[file.clientId as ClientId]?.short || file.clientId}</strong><span>{file.originalPath}</span><code>{file.exists ? file.backupPath : '原文件当时不存在'}</code></div>)}</div>}</article>)}</section></div>;
 }
 
-function Updates({ update, busy, check, install, openDownload }: { update: UpdateInfo | null; busy: string; check: () => void; install: () => void; openDownload: () => void }) {
-  return <div className="content-stack narrow-stack"><section className="page-intro"><div className="section-icon blue"><Download size={20} /></div><div><p className="eyebrow">RELEASE CHANNEL</p><h2>版本更新</h2><p>检测到新版本后可自动下载、校验并安装。</p></div><button className="primary-button" onClick={check} disabled={busy === 'update' || busy === 'install-update'}><RefreshCw size={16} className={busy === 'update' ? 'spin' : ''} />检查更新</button></section><section className="update-panel">{!update ? <EmptyState icon={<CircleDashed size={22} />} title="尚未检查" text="正在启动检测，或点击检查更新获取当前版本状态。" /> : update.error ? <div className="update-state error"><AlertTriangle size={22} /><div><strong>检查失败</strong><span>{update.error}</span></div></div> : update.updateAvailable ? <div className="update-state ready"><div className="update-state-icon"><Download size={20} /></div><div><strong>发现新版本 v{update.latestVersion}</strong><span>当前版本 v{update.currentVersion}{update.publishedAt ? ` · ${update.publishedAt}` : ''}</span></div><button className="primary-button" onClick={install} disabled={busy === 'install-update'}>{busy === 'install-update' ? <RefreshCw size={16} className="spin" /> : <HardDriveDownload size={16} />}{busy === 'install-update' ? '准备更新' : '立即更新'}</button><button className="secondary-button compact" onClick={openDownload}><ArrowUpRight size={15} />手动下载</button></div> : <div className="update-state"><div className="update-state-icon"><CheckCircle2 size={20} /></div><div><strong>已经是最新版本</strong><span>当前版本 v{update.currentVersion} · 最新版本 v{update.latestVersion || update.currentVersion} · 检查于 {formatTime(update.checkedAt)}</span></div></div>}{update?.releaseNotes && <div className="release-notes">{update.releaseNotes}</div>}</section></div>;
+function Updates({ update, progress, platform, busy, check, install, openDownload }: { update: UpdateInfo | null; progress: UpdateProgress | null; platform?: string; busy: string; check: () => void; install: () => void; openDownload: () => void }) {
+  const installing = busy === 'install-update';
+  const completedStage = progress?.stage === 'verifying' || progress?.stage === 'installing';
+  const determinate = (progress?.totalBytes ?? 0) > 0 || completedStage;
+  const percent = completedStage ? 100 : progress?.percent || 0;
+  const indeterminate = Boolean(progress) && !determinate && progress?.stage !== 'failed';
+  const showProgress = Boolean(progress) && (installing || progress?.stage === 'failed');
+  const progressDetail = !progress
+    ? ''
+    : progress.totalBytes > 0
+      ? `${formatFileSize(progress.downloadedBytes)} / ${formatFileSize(progress.totalBytes)} · ${percent}%`
+      : progress.downloadedBytes > 0
+        ? `已下载 ${formatFileSize(progress.downloadedBytes)}`
+        : completedStage
+          ? '更新包已准备完成'
+          : '正在连接更新服务';
+
+  return <div className="content-stack narrow-stack"><section className="page-intro"><div className="section-icon blue"><Download size={20} /></div><div><p className="eyebrow">RELEASE CHANNEL</p><h2>版本更新</h2><p>检测到新版本后可自动下载、校验并安装。</p></div><button className="primary-button" onClick={check} disabled={busy === 'update' || installing}><RefreshCw size={16} className={busy === 'update' ? 'spin' : ''} />检查更新</button></section><section className="update-panel">{!update ? <EmptyState icon={<CircleDashed size={22} />} title="尚未检查" text="正在启动检测，或点击检查更新获取当前版本状态。" /> : update.error ? <div className="update-state error"><AlertTriangle size={22} /><div><strong>检查失败</strong><span>{update.error}</span></div></div> : update.updateAvailable ? <div className="update-state ready"><div className="update-state-icon"><Download size={20} /></div><div><strong>发现新版本 v{update.latestVersion}</strong><span>当前版本 v{update.currentVersion}{update.publishedAt ? ` · ${update.publishedAt}` : ''}</span></div><button className="primary-button" onClick={install} disabled={installing}>{installing ? <RefreshCw size={16} className="spin" /> : <HardDriveDownload size={16} />}{installing ? progress?.stage === 'downloading' ? '下载中' : '准备更新' : platform === 'darwin' ? '打开安装包' : '立即更新'}</button><button className="secondary-button compact" onClick={openDownload} disabled={installing}><ArrowUpRight size={15} />手动下载</button></div> : <div className="update-state"><div className="update-state-icon"><CheckCircle2 size={20} /></div><div><strong>已经是最新版本</strong><span>当前版本 v{update.currentVersion} · 最新版本 v{update.latestVersion || update.currentVersion} · 检查于 {formatTime(update.checkedAt)}</span></div></div>}{showProgress && progress && <div className={`update-progress ${progress.stage === 'failed' ? 'error' : ''}`} aria-live="polite"><div className="update-progress-copy"><strong>{progress.message}</strong><span>{progressDetail}</span></div><div className={`update-progress-track ${indeterminate ? 'indeterminate' : ''}`} role="progressbar" aria-label="更新进度" aria-valuemin={0} aria-valuemax={determinate ? 100 : undefined} aria-valuenow={determinate ? percent : undefined} aria-valuetext={progressDetail}><span className="update-progress-fill" style={determinate ? { width: `${percent}%` } : undefined} /></div></div>}{update?.releaseNotes && <div className="release-notes">{update.releaseNotes}</div>}</section></div>;
 }
 
 function Feedback({ tone, text, onClose }: { tone: NoticeTone; text: string; onClose: () => void }) {

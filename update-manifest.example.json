@@ -1,7 +1,8 @@
 {
-  "version": "0.2.11",
-  "downloadUrl": "https://github.com/China-520-1314/ciyuanshen-config-assistant/releases/download/v0.2.11/ciyuanshen-config-assistant-amd64-installer.exe",
-  "releaseNotes": "保留 Codex 其他 provider 配置",
-  "publishedAt": "2026-08-21",
+  "version": "0.2.12",
+  "downloadUrl": "https://github.com/China-520-1314/ciyuanshen-config-assistant/releases/download/v0.2.12/ciyuanshen-config-assistant-amd64-installer.exe",
+  "macDownloadUrl": "https://github.com/China-520-1314/ciyuanshen-config-assistant/releases/download/v0.2.12/ciyuanshen-config-assistant-macos-universal.dmg",
+  "releaseNotes": "增加更新进度显示、皮肤与工具框透明度，并发布 macOS 安装包",
+  "publishedAt": "2026-08-23",
   "sha256": ""
 }

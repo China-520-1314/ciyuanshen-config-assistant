@@ -126,6 +126,7 @@ export namespace main {
 	export class AppInfo {
 	    name: string;
 	    version: string;
+	    platform: string;
 	    updateManifestUrl: string;
 	    gatewayUrl: string;
 
@@ -137,6 +138,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
 	        this.version = source["version"];
+	        this.platform = source["platform"];
 	        this.updateManifestUrl = source["updateManifestUrl"];
 	        this.gatewayUrl = source["gatewayUrl"];
 	    }

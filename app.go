@@ -31,17 +31,29 @@ const (
 	// Update installers can be several megabytes and GitHub may take longer
 	// than routine API calls to begin or finish a download.
 	updateDownloadTimeout = 10 * time.Minute
+	updateProgressEvent   = "ciyuanshen:update-progress"
 )
 
 // appVersion is a variable so release builds can inject their tag with
 // -ldflags "-X main.appVersion=..." while local builds keep a useful default.
-var appVersion = "0.2.11"
+var appVersion = "0.2.12"
 
 type InstallUpdateResult struct {
 	Success     bool   `json:"success"`
 	Message     string `json:"message,omitempty"`
 	Error       string `json:"error,omitempty"`
 	DownloadURL string `json:"downloadUrl,omitempty"`
+}
+
+// UpdateProgress is emitted while an installer is being downloaded, verified,
+// and handed off to NSIS. TotalBytes is zero when the download server does not
+// provide a content length.
+type UpdateProgress struct {
+	Stage           string `json:"stage"`
+	Message         string `json:"message"`
+	DownloadedBytes int64  `json:"downloadedBytes,omitempty"`
+	TotalBytes      int64  `json:"totalBytes,omitempty"`
+	Percent         int    `json:"percent,omitempty"`
 }
 
 // App is the bridge exposed to the Wails frontend. It never persists the API
@@ -61,6 +73,7 @@ type App struct {
 type AppInfo struct {
 	Name              string `json:"name"`
 	Version           string `json:"version"`
+	Platform          string `json:"platform"`
 	UpdateManifestURL string `json:"updateManifestUrl"`
 	GatewayURL        string `json:"gatewayUrl"`
 }
@@ -142,6 +155,7 @@ func (a *App) GetAppInfo() AppInfo {
 	return AppInfo{
 		Name:              "词元神配置助手",
 		Version:           appVersion,
+		Platform:          runtime.GOOS,
 		UpdateManifestURL: updateManifestURL,
 		GatewayURL:        defaultGatewayURL,
 	}
@@ -265,11 +279,18 @@ func (a *App) CheckForUpdates() UpdateInfo {
 
 // InstallLatestUpdate downloads and verifies the latest Windows installer,
 // then hands off to a detached PowerShell process so the current executable
-// can exit before NSIS replaces it.
-func (a *App) InstallLatestUpdate() InstallUpdateResult {
-	result := InstallUpdateResult{}
+// can exit before NSIS replaces it. macOS publishes a DMG/ZIP for manual
+// installation because replacing a running signed app bundle is not handled
+// by this Windows-specific handoff.
+func (a *App) InstallLatestUpdate() (result InstallUpdateResult) {
+	defer func() {
+		if !result.Success && result.Error != "" {
+			a.emitUpdateProgress(UpdateProgress{Stage: "failed", Message: result.Error})
+		}
+	}()
+	a.emitUpdateProgress(UpdateProgress{Stage: "checking", Message: "正在检查可用更新"})
 	if runtime.GOOS != "windows" {
-		result.Error = "自动安装更新目前仅支持 Windows"
+		result.Error = "当前平台请在版本更新页下载官方安装包后手动安装"
 		return result
 	}
 	update := a.CheckForUpdates()
@@ -313,18 +334,30 @@ func (a *App) InstallLatestUpdate() InstallUpdateResult {
 		result.Error = fmt.Sprintf("更新下载服务返回 HTTP %d", response.StatusCode)
 		return result
 	}
-	if _, err := io.Copy(tempFile, io.LimitReader(response.Body, 300*1024*1024)); err != nil {
+	totalBytes := response.ContentLength
+	if totalBytes < 0 {
+		totalBytes = 0
+	}
+	a.emitUpdateProgress(UpdateProgress{
+		Stage:      "downloading",
+		Message:    "正在下载更新包",
+		TotalBytes: totalBytes,
+	})
+	progressWriter := newUpdateProgressWriter(tempFile, totalBytes, a.emitUpdateProgress)
+	if _, err := io.Copy(progressWriter, io.LimitReader(response.Body, 300*1024*1024)); err != nil {
 		response.Body.Close()
 		_ = os.Remove(tempPath)
 		result.Error = "保存更新包失败：" + err.Error()
 		return result
 	}
 	response.Body.Close()
+	progressWriter.emit(true)
 	if err := tempFile.Close(); err != nil {
 		_ = os.Remove(tempPath)
 		result.Error = "关闭更新文件失败：" + err.Error()
 		return result
 	}
+	a.emitUpdateProgress(UpdateProgress{Stage: "verifying", Message: "正在校验更新包", DownloadedBytes: progressWriter.downloaded, TotalBytes: totalBytes, Percent: 100})
 	expected := normaliseSHA256(update.SHA256)
 	if expected == "" {
 		_ = os.Remove(tempPath)
@@ -353,6 +386,7 @@ func (a *App) InstallLatestUpdate() InstallUpdateResult {
 	installScript := buildUpdateInstallScript(os.Getpid(), processName, currentExecutable, tempPath)
 	command := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", installScript)
 	command.Stdin = nil
+	a.emitUpdateProgress(UpdateProgress{Stage: "installing", Message: "正在启动安装程序", DownloadedBytes: progressWriter.downloaded, TotalBytes: totalBytes, Percent: 100})
 	if err := command.Start(); err != nil {
 		_ = os.Remove(tempPath)
 		result.Error = "启动更新安装程序失败：" + err.Error()
@@ -365,6 +399,61 @@ func (a *App) InstallLatestUpdate() InstallUpdateResult {
 		wailsRuntime.Quit(a.ctx)
 	}
 	return result
+}
+
+func (a *App) emitUpdateProgress(progress UpdateProgress) {
+	if a.ctx != nil {
+		wailsRuntime.EventsEmit(a.ctx, updateProgressEvent, progress)
+	}
+}
+
+type updateProgressWriter struct {
+	writer      io.Writer
+	total       int64
+	downloaded  int64
+	lastBytes   int64
+	lastPercent int
+	report      func(UpdateProgress)
+}
+
+func newUpdateProgressWriter(writer io.Writer, total int64, report func(UpdateProgress)) *updateProgressWriter {
+	return &updateProgressWriter{writer: writer, total: total, lastPercent: -1, report: report}
+}
+
+func (writer *updateProgressWriter) Write(data []byte) (int, error) {
+	written, err := writer.writer.Write(data)
+	if written > 0 {
+		writer.downloaded += int64(written)
+		writer.emit(false)
+	}
+	return written, err
+}
+
+func (writer *updateProgressWriter) emit(force bool) {
+	if writer.report == nil {
+		return
+	}
+	percent := 0
+	if writer.total > 0 {
+		percent = int(writer.downloaded * 100 / writer.total)
+		if percent > 100 {
+			percent = 100
+		}
+		if !force && percent == writer.lastPercent {
+			return
+		}
+	} else if !force && writer.downloaded-writer.lastBytes < 512*1024 {
+		return
+	}
+	writer.lastPercent = percent
+	writer.lastBytes = writer.downloaded
+	writer.report(UpdateProgress{
+		Stage:           "downloading",
+		Message:         "正在下载更新包",
+		DownloadedBytes: writer.downloaded,
+		TotalBytes:      writer.total,
+		Percent:         percent,
+	})
 }
 
 // newUpdateDownloadHTTPClient keeps the normal client transport settings while

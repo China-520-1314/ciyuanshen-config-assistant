@@ -1,4 +1,4 @@
-name: Windows package
+name: Release packages
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  build-windows:
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -70,7 +70,7 @@ jobs:
           $version = $env:RELEASE_TAG
           $isRelease = $version -match "^v\d+\.\d+\.\d+$"
           if (-not $isRelease) {
-            $version = "0.2.11-dev"
+            $version = "0.2.12-dev"
           } else {
             $version = $version.Substring(1)
             $project = Get-Content wails.json -Raw | ConvertFrom-Json
@@ -79,7 +79,7 @@ jobs:
           }
           go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build --platform windows/amd64 --nsis --clean --ldflags "-X main.appVersion=$version"
 
-      - name: Create update manifest
+      - name: Create Windows update manifest
         shell: pwsh
         env:
           RELEASE_TAG: ${{ github.ref_name }}
@@ -88,7 +88,7 @@ jobs:
           if ($version -match "^v\d+\.\d+\.\d+$") {
             $version = $version.Substring(1)
           } else {
-            $version = "0.2.11-dev"
+            $version = "0.2.12-dev"
           }
           $installer = Get-ChildItem -Path build/bin -Filter "*installer.exe" | Select-Object -First 1
           if ($null -eq $installer) {
@@ -98,17 +98,111 @@ jobs:
           $manifest = [ordered]@{
             version = $version
             downloadUrl = "https://github.com/China-520-1314/ciyuanshen-config-assistant/releases/download/v$version/$($installer.Name)"
+            macDownloadUrl = "https://github.com/China-520-1314/ciyuanshen-config-assistant/releases/download/v$version/ciyuanshen-config-assistant-macos-universal.dmg"
             releaseNotes = "请查看本次 GitHub Release 说明"
             publishedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
             sha256 = $hash
           }
           $manifest | ConvertTo-Json | Set-Content -Path build/bin/update.json -Encoding utf8
 
-      - name: Upload release assets
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Upload Windows package artifact
+        uses: actions/upload-artifact@v4
         with:
-          generate_release_notes: true
-          files: |
+          name: windows-package
+          path: |
             build/bin/*-installer.exe
             build/bin/update.json
+          if-no-files-found: error
+
+  build-macos:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Build macOS universal app
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            version="${RELEASE_TAG#v}"
+          else
+            version="0.2.12-dev"
+          fi
+          VERSION="$version" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path("wails.json")
+          project = json.loads(path.read_text())
+          project["info"]["productVersion"] = os.environ["VERSION"]
+          path.write_text(json.dumps(project, ensure_ascii=False, indent=2) + "\n")
+          PY
+          go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build --platform darwin/universal --clean --ldflags "-X main.appVersion=$version"
+
+      - name: Package macOS installers
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_path="$(find build/bin -maxdepth 1 -type d -name '*.app' -print -quit)"
+          if [[ -z "$app_path" ]]; then
+            echo "Wails did not produce a macOS app bundle" >&2
+            exit 1
+          fi
+          zip_path="build/bin/ciyuanshen-config-assistant-macos-universal.zip"
+          dmg_path="build/bin/ciyuanshen-config-assistant-macos-universal.dmg"
+          ditto -c -k --sequesterRsrc --keepParent "$app_path" "$zip_path"
+          staging="$(mktemp -d)"
+          trap 'rm -rf "$staging"' EXIT
+          cp -R "$app_path" "$staging/"
+          ln -s /Applications "$staging/Applications"
+          hdiutil create -volname "词元神配置助手" -srcfolder "$staging" -ov -format UDZO "$dmg_path"
+          shasum -a 256 "$zip_path" "$dmg_path"
+
+      - name: Upload macOS package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-package
+          path: |
+            build/bin/*-macos-universal.dmg
+            build/bin/*-macos-universal.zip
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs:
+      - build-windows
+      - build-macos
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: Show release files
+        run: find release -maxdepth 2 -type f -printf '%f %s bytes\n' | sort
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: release/*

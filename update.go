@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -22,11 +23,12 @@ type UpdateInfo struct {
 }
 
 type updateManifest struct {
-	Version      string `json:"version"`
-	DownloadURL  string `json:"downloadUrl"`
-	ReleaseNotes string `json:"releaseNotes"`
-	PublishedAt  string `json:"publishedAt"`
-	SHA256       string `json:"sha256"`
+	Version        string `json:"version"`
+	DownloadURL    string `json:"downloadUrl"`
+	MacDownloadURL string `json:"macDownloadUrl"`
+	ReleaseNotes   string `json:"releaseNotes"`
+	PublishedAt    string `json:"publishedAt"`
+	SHA256         string `json:"sha256"`
 }
 
 type githubRelease struct {
@@ -85,7 +87,7 @@ func checkGitHubRelease(client *http.Client, current, releaseURL string) UpdateI
 	result.PublishedAt = release.PublishedAt
 	result.UpdateAvailable = compareVersions(version, current) > 0
 
-	asset := selectWindowsInstaller(release.Assets)
+	asset := selectReleaseAsset(release.Assets, runtime.GOOS)
 	if asset.BrowserDownloadURL != "" {
 		if !strings.HasPrefix(strings.ToLower(asset.BrowserDownloadURL), "https://") {
 			result.Error = "GitHub 安装包地址不是 HTTPS"
@@ -95,9 +97,16 @@ func checkGitHubRelease(client *http.Client, current, releaseURL string) UpdateI
 		result.SHA256 = strings.TrimPrefix(strings.TrimSpace(asset.Digest), "sha256:")
 	}
 	if result.UpdateAvailable && result.DownloadURL == "" {
-		result.Error = "GitHub Release 未包含 Windows 安装包"
+		result.Error = releaseAssetMissingMessage(runtime.GOOS)
 	}
 	return result
+}
+
+func selectReleaseAsset(assets []githubReleaseAsset, goos string) githubReleaseAsset {
+	if strings.EqualFold(strings.TrimSpace(goos), "darwin") {
+		return selectMacInstaller(assets)
+	}
+	return selectWindowsInstaller(assets)
 }
 
 func selectWindowsInstaller(assets []githubReleaseAsset) githubReleaseAsset {
@@ -108,6 +117,31 @@ func selectWindowsInstaller(assets []githubReleaseAsset) githubReleaseAsset {
 		}
 	}
 	return githubReleaseAsset{}
+}
+
+func selectMacInstaller(assets []githubReleaseAsset) githubReleaseAsset {
+	// Prefer a DMG for normal Finder installation, then fall back to the
+	// zipped app for users who cannot mount disk images.
+	for _, asset := range assets {
+		name := strings.ToLower(asset.Name)
+		if strings.HasSuffix(name, ".dmg") && (strings.Contains(name, "darwin") || strings.Contains(name, "mac") || strings.Contains(name, "universal")) {
+			return asset
+		}
+	}
+	for _, asset := range assets {
+		name := strings.ToLower(asset.Name)
+		if strings.HasSuffix(name, ".zip") && (strings.Contains(name, "darwin") || strings.Contains(name, "mac") || strings.Contains(name, "universal")) {
+			return asset
+		}
+	}
+	return githubReleaseAsset{}
+}
+
+func releaseAssetMissingMessage(goos string) string {
+	if strings.EqualFold(strings.TrimSpace(goos), "darwin") {
+		return "GitHub Release 未包含 macOS 安装包"
+	}
+	return "GitHub Release 未包含 Windows 安装包"
 }
 
 func checkForUpdates(client *http.Client, current, manifestURL string) UpdateInfo {
@@ -140,12 +174,16 @@ func checkForUpdates(client *http.Client, current, manifestURL string) UpdateInf
 		result.Error = "更新清单缺少版本号"
 		return result
 	}
-	if manifest.DownloadURL != "" && !strings.HasPrefix(strings.ToLower(manifest.DownloadURL), "https://") {
+	downloadURL := manifest.DownloadURL
+	if runtime.GOOS == "darwin" && manifest.MacDownloadURL != "" {
+		downloadURL = manifest.MacDownloadURL
+	}
+	if downloadURL != "" && !strings.HasPrefix(strings.ToLower(downloadURL), "https://") {
 		result.Error = "更新下载地址不是 HTTPS"
 		return result
 	}
 	result.LatestVersion = manifest.Version
-	result.DownloadURL = manifest.DownloadURL
+	result.DownloadURL = downloadURL
 	result.ReleaseNotes = manifest.ReleaseNotes
 	result.PublishedAt = manifest.PublishedAt
 	result.SHA256 = manifest.SHA256

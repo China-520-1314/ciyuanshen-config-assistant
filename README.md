@@ -1,6 +1,6 @@
 # 词元神一键配置助手
 
-这是一个 Wails v2 + Go + React/TypeScript 桌面工具，面向 Windows 用户自动检测本机 AI 客户端，并把词元神网关写入对应配置文件。用户可以登录词元神账号后选择分组并创建受限 API Key，也可以使用已有 API Key；选择工具和模型后，确认备份即可写入最新配置。
+这是一个 Wails v2 + Go + React/TypeScript 桌面工具，面向 Windows 和 macOS 用户自动检测本机 AI 客户端，并把词元神网关写入对应配置文件。用户可以登录词元神账号后选择分组并创建受限 API Key，也可以使用已有 API Key；选择工具和模型后，确认备份即可写入最新配置。
 
 ## 支持的客户端
 
@@ -47,7 +47,7 @@ Gemini 的 Base URL 不能直接写成 `https://api.ciyuanshen.top/v1`，因为 
 
 ## 更新检查
 
-应用会优先通过 GitHub Releases API 检查最新版本，并打开对应 Windows 安装包；无需额外部署下载站。
+应用会优先通过 GitHub Releases API 检查最新版本，并按当前系统选择对应安装包：Windows 选择 NSIS 安装包，macOS 选择 Universal DMG。无需额外部署下载站。Windows 支持下载后自动关闭旧进程并安装；macOS 会提供官方 DMG/ZIP 下载地址，首次安装仍需用户在 Finder 中确认打开。
 
 如果 GitHub 更新服务暂时不可用，应用会回退读取以下 HTTPS 更新清单：
 
@@ -90,15 +90,32 @@ go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 dev
 go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build
 ```
 
-## Windows `.exe` 打包
+## Windows 与 macOS 打包
 
-仓库中的 [`.github/workflows/windows.yml`](.github/workflows/windows.yml) 会在推送 `v*` 标签时使用 Windows runner 构建 amd64 NSIS 安装包，并上传到 GitHub Release。Release 只提供可安装的 `*-installer.exe` 和 `update.json`，避免用户误下载便携版。GitHub Release 是默认下载和更新来源；若需要自建下载站，可将同一安装包和更新清单部署到上述固定 URL。构建支持通过标签注入版本号，例如：
+仓库中的 [`.github/workflows/windows.yml`](.github/workflows/windows.yml) 是统一的跨平台 Release 流程。推送 `v*` 标签后，它会并行构建 Windows amd64 NSIS 安装包和 macOS Universal 应用，并在两端构建成功后一次性上传 GitHub Release。Release 会包含：
+
+- Windows：`*-installer.exe` 和 Windows 专用 `update.json`。
+- macOS：`*-macos-universal.dmg`（推荐）和 `*-macos-universal.zip`（备用）。Universal 包同时支持 Intel 与 Apple Silicon Mac。
+
+macOS 构建必须在 macOS runner 上执行，不能在 Linux/Windows 主机上交叉打包 Wails 的 Cocoa WebView。工作流使用 `macos-14` runner、Wails `darwin/universal` 目标和系统 `hdiutil` 制作 DMG；应用没有 Apple Developer 签名或公证时，用户首次打开需要在 Finder 中右键应用选择“打开”，或在“系统设置 → 隐私与安全性”中允许。
+
+GitHub Release 是默认下载和更新来源；若需要自建下载站，可将同一安装包和更新清单部署到上述固定 URL。Windows 本地构建示例：
 
 ```bash
 go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build \
   -platform windows/amd64 -nsis \
-  -ldflags "-X main.appVersion=0.2.11"
+  -ldflags "-X main.appVersion=0.2.12"
 ```
+
+macOS 本地构建示例（需要 macOS、Xcode Command Line Tools 和 `hdiutil`）：
+
+```bash
+go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build \
+  -platform darwin/universal \
+  -ldflags "-X main.appVersion=0.2.12"
+```
+
+Wails 会先生成 `build/bin/ciyuanshen-config-assistant.app`；发布流程再将它打成 DMG 和 ZIP。Release 标签、`wails.json` 的产品版本和应用内版本号必须保持一致。
 
 ## 设计边界
 

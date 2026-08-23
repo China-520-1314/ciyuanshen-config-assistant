@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -108,6 +109,26 @@ func TestCheckGitHubReleaseRejectsMissingInstallerForNewVersion(t *testing.T) {
 	}
 }
 
+func TestSelectMacInstallerPrefersUniversalDMG(t *testing.T) {
+	assets := []githubReleaseAsset{
+		{Name: "ciyuanshen-config-assistant-macos-universal.zip", BrowserDownloadURL: "https://github.com/example/app.zip"},
+		{Name: "ciyuanshen-config-assistant-macos-universal.dmg", BrowserDownloadURL: "https://github.com/example/app.dmg"},
+		{Name: "ciyuanshen-config-assistant-amd64-installer.exe", BrowserDownloadURL: "https://github.com/example/app.exe"},
+	}
+	asset := selectReleaseAsset(assets, "darwin")
+	if asset.Name != "ciyuanshen-config-assistant-macos-universal.dmg" {
+		t.Fatalf("macOS asset = %q, want universal DMG", asset.Name)
+	}
+}
+
+func TestSelectMacInstallerFallsBackToUniversalZIP(t *testing.T) {
+	assets := []githubReleaseAsset{{Name: "ciyuanshen-config-assistant-macos-universal.zip", BrowserDownloadURL: "https://github.com/example/app.zip"}}
+	asset := selectReleaseAsset(assets, "darwin")
+	if asset.Name != "ciyuanshen-config-assistant-macos-universal.zip" {
+		t.Fatalf("macOS fallback asset = %q, want universal ZIP", asset.Name)
+	}
+}
+
 func TestBuildUpdateInstallScriptStopsAllExistingInstances(t *testing.T) {
 	script := buildUpdateInstallScript(42, "ciyuanshen-config-assistant", `C:\Program Files\ciyuanshen\ciyuanshen-config-assistant.exe`, `C:\Users\Public\update.exe`)
 	for _, expected := range []string{
@@ -138,5 +159,31 @@ func TestNewUpdateDownloadHTTPClientUsesDedicatedTimeout(t *testing.T) {
 	defaultClient := newUpdateDownloadHTTPClient(nil)
 	if defaultClient.Timeout != updateDownloadTimeout {
 		t.Fatalf("default download timeout = %s, want %s", defaultClient.Timeout, updateDownloadTimeout)
+	}
+}
+
+func TestUpdateProgressWriterReportsActualDownloadProgress(t *testing.T) {
+	var destination bytes.Buffer
+	var progress []UpdateProgress
+	writer := newUpdateProgressWriter(&destination, 10, func(next UpdateProgress) {
+		progress = append(progress, next)
+	})
+
+	for _, chunk := range []string{"abc", "defgh", "ij"} {
+		if _, err := writer.Write([]byte(chunk)); err != nil {
+			t.Fatalf("write progress chunk: %v", err)
+		}
+	}
+	writer.emit(true)
+
+	if destination.String() != "abcdefghij" {
+		t.Fatalf("downloaded content = %q", destination.String())
+	}
+	if len(progress) < 3 {
+		t.Fatalf("received %d progress events, want at least 3", len(progress))
+	}
+	last := progress[len(progress)-1]
+	if last.Stage != "downloading" || last.DownloadedBytes != 10 || last.TotalBytes != 10 || last.Percent != 100 {
+		t.Fatalf("unexpected final progress: %#v", last)
 	}
 }

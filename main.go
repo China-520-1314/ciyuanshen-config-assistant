@@ -6,6 +6,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/mac"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
 
@@ -30,6 +31,14 @@ func main() {
 		BackgroundColour: &options.RGBA{R: 244, G: 246, B: 248, A: 1},
 		Windows: &windows.Options{
 			DisableFramelessWindowDecorations: false,
+		},
+		Mac: &mac.Options{
+			// The frontend provides a consistent title bar and window controls on
+			// both desktop platforms, so keep the native macOS title bar hidden.
+			TitleBar:             &mac.TitleBar{HideTitleBar: true, HideTitle: true, FullSizeContent: true},
+			Appearance:           mac.DefaultAppearance,
+			WebviewIsTransparent: false,
+			WindowIsTranslucent:  false,
 		},
 		OnStartup: app.startup,
 		Bind: []interface{}{
