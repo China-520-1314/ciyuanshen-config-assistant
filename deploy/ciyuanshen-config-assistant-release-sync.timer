@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodically sync CiyuanShen Config Assistant releases
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

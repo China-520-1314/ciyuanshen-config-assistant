@@ -66,6 +66,29 @@ func TestCheckForUpdates(t *testing.T) {
 	}
 }
 
+func TestPreferUpdateSourceUsesHealthyMirrorBeforeGitHub(t *testing.T) {
+	mirror := UpdateInfo{CurrentVersion: "0.2.13", LatestVersion: "0.2.14", UpdateAvailable: true, DownloadURL: "https://api.ciyuanshen.top/downloads/installer.exe"}
+	github := UpdateInfo{CurrentVersion: "0.2.13", LatestVersion: "0.2.14", UpdateAvailable: true, DownloadURL: "https://github.com/example/installer.exe"}
+	if got := preferUpdateSource(mirror, github); got.DownloadURL != mirror.DownloadURL {
+		t.Fatalf("selected download URL = %q, want mirror URL %q", got.DownloadURL, mirror.DownloadURL)
+	}
+}
+
+func TestPreferUpdateSourceFallsBackToGitHub(t *testing.T) {
+	mirror := UpdateInfo{Error: "更新清单格式无效"}
+	github := UpdateInfo{CurrentVersion: "0.2.13", LatestVersion: "0.2.14", UpdateAvailable: true, DownloadURL: "https://github.com/example/installer.exe"}
+	if got := preferUpdateSource(mirror, github); got.DownloadURL != github.DownloadURL {
+		t.Fatalf("selected download URL = %q, want GitHub fallback URL %q", got.DownloadURL, github.DownloadURL)
+	}
+}
+
+func TestPreferUpdateSourceReportsBothFailures(t *testing.T) {
+	result := preferUpdateSource(UpdateInfo{Error: "镜像失败"}, UpdateInfo{Error: "GitHub 失败"})
+	if result.Error != "镜像失败；GitHub 失败" {
+		t.Fatalf("combined error = %q", result.Error)
+	}
+}
+
 func TestCheckGitHubReleasePrefersTheInstaller(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("Accept") != "application/vnd.github+json" {

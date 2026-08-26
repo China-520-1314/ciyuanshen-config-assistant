@@ -70,7 +70,7 @@ jobs:
           $version = $env:RELEASE_TAG
           $isRelease = $version -match "^v\d+\.\d+\.\d+$"
           if (-not $isRelease) {
-            $version = "0.2.13-dev"
+            $version = "0.2.14-dev"
           } else {
             $version = $version.Substring(1)
             $project = Get-Content wails.json -Raw | ConvertFrom-Json
@@ -88,17 +88,18 @@ jobs:
           if ($version -match "^v\d+\.\d+\.\d+$") {
             $version = $version.Substring(1)
           } else {
-            $version = "0.2.13-dev"
+            $version = "0.2.14-dev"
           }
           $installer = Get-ChildItem -Path build/bin -Filter "*installer.exe" | Select-Object -First 1
           if ($null -eq $installer) {
             throw "NSIS installer was not produced"
           }
           $hash = (Get-FileHash -Algorithm SHA256 $installer.FullName).Hash.ToLowerInvariant()
+          $downloadBase = "https://api.ciyuanshen.top/downloads/ciyuanshen-config-assistant/releases/v$version"
           $manifest = [ordered]@{
             version = $version
-            downloadUrl = "https://github.com/China-520-1314/ciyuanshen-config-assistant/releases/download/v$version/$($installer.Name)"
-            macDownloadUrl = "https://github.com/China-520-1314/ciyuanshen-config-assistant/releases/download/v$version/ciyuanshen-config-assistant-macos-universal.dmg"
+            downloadUrl = "$downloadBase/$($installer.Name)"
+            macDownloadUrl = "$downloadBase/ciyuanshen-config-assistant-macos-universal.dmg"
             releaseNotes = "请查看本次 GitHub Release 说明"
             publishedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
             sha256 = $hash
@@ -143,7 +144,7 @@ jobs:
           if [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             version="${RELEASE_TAG#v}"
           else
-            version="0.2.13-dev"
+            version="0.2.14-dev"
           fi
           VERSION="$version" python3 - <<'PY'
           import json

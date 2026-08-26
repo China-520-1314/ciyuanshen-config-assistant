@@ -48,13 +48,13 @@ Gemini 的 Base URL 不能直接写成 `https://api.ciyuanshen.top/v1`，因为 
 
 ## 更新检查
 
-应用启动时会自动检查 GitHub Releases；检测到新版本会询问用户是否更新，并按当前系统选择对应安装包：Windows 选择 NSIS 安装包，macOS 选择 Universal DMG。无需额外部署下载站。Windows 支持下载后自动关闭旧进程并安装；macOS 会提供官方 DMG/ZIP 下载地址，首次安装仍需用户在 Finder 中确认打开。
+应用启动时会优先读取词元神自建更新源；检测到新版本会询问用户是否更新，并按当前系统选择对应安装包：Windows 选择 NSIS 安装包，macOS 选择 Universal DMG。Windows 支持下载后自动关闭旧进程并安装；macOS 会提供官方 DMG/ZIP 下载地址，首次安装仍需用户在 Finder 中确认打开。
 
-如果 GitHub 更新服务暂时不可用，应用会回退读取以下 HTTPS 更新清单：
+默认更新清单为：
 
 `https://api.ciyuanshen.top/downloads/ciyuanshen-config-assistant/update.json`
 
-清单格式见 [`update-manifest.example.json`](update-manifest.example.json)。`downloadUrl` 必须是 HTTPS 地址；应用只负责检查版本并打开下载地址，不会静默替换用户的可执行文件。
+静态镜像同步失败或更新清单不可用时，应用才会回退 GitHub Releases。清单格式见 [`update-manifest.example.json`](update-manifest.example.json)。`downloadUrl` 必须是 HTTPS 地址；应用只负责检查版本并打开下载地址，不会静默替换用户的可执行文件。
 
 ## 外观皮肤
 
@@ -100,12 +100,12 @@ go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build
 
 macOS 构建必须在 macOS runner 上执行，不能在 Linux/Windows 主机上交叉打包 Wails 的 Cocoa WebView。工作流使用 `macos-14` runner、Wails `darwin/universal` 目标和系统 `hdiutil` 制作 DMG；应用没有 Apple Developer 签名或公证时，用户首次打开需要在 Finder 中右键应用选择“打开”，或在“系统设置 → 隐私与安全性”中允许。
 
-GitHub Release 是默认下载和更新来源；若需要自建下载站，可将同一安装包和更新清单部署到上述固定 URL。Windows 本地构建示例：
+GitHub Release 用于构建产物归档和更新源故障回退。部署在更新服务器上的 `ciyuanshen-config-assistant-release-sync.timer` 会以低优先级镜像最新 Release 到 `api.ciyuanshen.top`，客户端优先从该静态源下载。Windows 本地构建示例：
 
 ```bash
 go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build \
   -platform windows/amd64 -nsis \
-  -ldflags "-X main.appVersion=0.2.13"
+  -ldflags "-X main.appVersion=0.2.14"
 ```
 
 macOS 本地构建示例（需要 macOS、Xcode Command Line Tools 和 `hdiutil`）：
@@ -113,7 +113,7 @@ macOS 本地构建示例（需要 macOS、Xcode Command Line Tools 和 `hdiutil`
 ```bash
 go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build \
   -platform darwin/universal \
-  -ldflags "-X main.appVersion=0.2.13"
+  -ldflags "-X main.appVersion=0.2.14"
 ```
 
 Wails 会先生成 `build/bin/ciyuanshen-config-assistant.app`；发布流程再将它打成 DMG 和 ZIP。Release 标签、`wails.json` 的产品版本和应用内版本号必须保持一致。

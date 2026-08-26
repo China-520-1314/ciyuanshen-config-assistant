@@ -139,9 +139,9 @@ func selectMacInstaller(assets []githubReleaseAsset) githubReleaseAsset {
 
 func releaseAssetMissingMessage(goos string) string {
 	if strings.EqualFold(strings.TrimSpace(goos), "darwin") {
-		return "GitHub Release 未包含 macOS 安装包"
+		return "更新源未包含 macOS 安装包"
 	}
-	return "GitHub Release 未包含 Windows 安装包"
+	return "更新源未包含 Windows 安装包"
 }
 
 func checkForUpdates(client *http.Client, current, manifestURL string) UpdateInfo {
@@ -174,9 +174,9 @@ func checkForUpdates(client *http.Client, current, manifestURL string) UpdateInf
 		result.Error = "更新清单缺少版本号"
 		return result
 	}
-	downloadURL := manifest.DownloadURL
-	if runtime.GOOS == "darwin" && manifest.MacDownloadURL != "" {
-		downloadURL = manifest.MacDownloadURL
+	downloadURL := strings.TrimSpace(manifest.DownloadURL)
+	if runtime.GOOS == "darwin" {
+		downloadURL = strings.TrimSpace(manifest.MacDownloadURL)
 	}
 	if downloadURL != "" && !strings.HasPrefix(strings.ToLower(downloadURL), "https://") {
 		result.Error = "更新下载地址不是 HTTPS"
@@ -188,6 +188,9 @@ func checkForUpdates(client *http.Client, current, manifestURL string) UpdateInf
 	result.PublishedAt = manifest.PublishedAt
 	result.SHA256 = manifest.SHA256
 	result.UpdateAvailable = compareVersions(manifest.Version, current) > 0
+	if result.UpdateAvailable && result.DownloadURL == "" {
+		result.Error = releaseAssetMissingMessage(runtime.GOOS)
+	}
 	return result
 }
 

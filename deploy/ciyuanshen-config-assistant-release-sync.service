@@ -1,0 +1,12 @@
+[Unit]
+Description=Mirror CiyuanShen Config Assistant releases to the local download origin
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/apps/ciyuanshen-config-assistant/deploy/sync-release.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+CPUQuota=66%

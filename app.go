@@ -21,13 +21,14 @@ import (
 )
 
 const (
-	updateManifestURL   = "https://api.ciyuanshen.top/downloads/ciyuanshen-config-assistant/update.json"
-	githubReleaseAPIURL = "https://api.github.com/repos/China-520-1314/ciyuanshen-config-assistant/releases/latest"
-	defaultGatewayURL   = "https://api.ciyuanshen.top/v1"
-	claudeGatewayURL    = "https://api.ciyuanshen.top"
-	geminiGatewayURL    = "https://api.ciyuanshen.top"
-	geminiAPIVersion    = "v1"
-	managedProviderName = "ciyuanshen"
+	updateDownloadBaseURL = "https://api.ciyuanshen.top/downloads/ciyuanshen-config-assistant"
+	updateManifestURL     = updateDownloadBaseURL + "/update.json"
+	githubReleaseAPIURL   = "https://api.github.com/repos/China-520-1314/ciyuanshen-config-assistant/releases/latest"
+	defaultGatewayURL     = "https://api.ciyuanshen.top/v1"
+	claudeGatewayURL      = "https://api.ciyuanshen.top"
+	geminiGatewayURL      = "https://api.ciyuanshen.top"
+	geminiAPIVersion      = "v1"
+	managedProviderName   = "ciyuanshen"
 	// Update installers can be several megabytes and GitHub may take longer
 	// than routine API calls to begin or finish a download.
 	updateDownloadTimeout = 10 * time.Minute
@@ -36,7 +37,7 @@ const (
 
 // appVersion is a variable so release builds can inject their tag with
 // -ldflags "-X main.appVersion=..." while local builds keep a useful default.
-var appVersion = "0.2.13"
+var appVersion = "0.2.14"
 
 type InstallUpdateResult struct {
 	Success     bool   `json:"success"`
@@ -271,16 +272,25 @@ func (a *App) DeleteBackup(id string) error {
 }
 
 func (a *App) CheckForUpdates() UpdateInfo {
-	githubUpdate := checkGitHubRelease(a.client, appVersion, githubReleaseAPIURL)
-	if githubUpdate.Error == "" {
-		return githubUpdate
-	}
 	manifestUpdate := checkForUpdates(a.client, appVersion, updateManifestURL)
 	if manifestUpdate.Error == "" {
 		return manifestUpdate
 	}
-	githubUpdate.Error = githubUpdate.Error + "；" + manifestUpdate.Error
-	return githubUpdate
+	githubUpdate := checkGitHubRelease(a.client, appVersion, githubReleaseAPIURL)
+	return preferUpdateSource(manifestUpdate, githubUpdate)
+}
+
+// preferUpdateSource keeps mainland users on the self-hosted release mirror
+// whenever it is healthy. GitHub remains the fallback for mirror outages.
+func preferUpdateSource(primary, fallback UpdateInfo) UpdateInfo {
+	if primary.Error == "" {
+		return primary
+	}
+	if fallback.Error == "" {
+		return fallback
+	}
+	primary.Error = primary.Error + "；" + fallback.Error
+	return primary
 }
 
 // InstallLatestUpdate downloads and verifies the latest Windows installer,

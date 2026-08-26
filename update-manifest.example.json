@@ -1,8 +1,8 @@
 {
-  "version": "0.2.13",
-  "downloadUrl": "https://github.com/China-520-1314/ciyuanshen-config-assistant/releases/download/v0.2.13/ciyuanshen-config-assistant-amd64-installer.exe",
-  "macDownloadUrl": "https://github.com/China-520-1314/ciyuanshen-config-assistant/releases/download/v0.2.13/ciyuanshen-config-assistant-macos-universal.dmg",
-  "releaseNotes": "一键配置后自动重启可定位桌面应用，并在启动时提示可用更新",
+  "version": "0.2.14",
+  "downloadUrl": "https://api.ciyuanshen.top/downloads/ciyuanshen-config-assistant/releases/v0.2.14/ciyuanshen-config-assistant-amd64-installer.exe",
+  "macDownloadUrl": "https://api.ciyuanshen.top/downloads/ciyuanshen-config-assistant/releases/v0.2.14/ciyuanshen-config-assistant-macos-universal.dmg",
+  "releaseNotes": "更新优先使用词元神国内更新源，GitHub 作为备用下载源",
   "publishedAt": "2026-08-26",
   "sha256": ""
 }
