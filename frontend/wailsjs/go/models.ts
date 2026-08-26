@@ -398,6 +398,7 @@ export namespace main {
 	    warnings: string[];
 	    error?: string;
 	    configured: string[];
+	    restarts?: ToolRestartResult[];
 	    // Go type: time
 	    finishedAt: any;
 
@@ -413,6 +414,7 @@ export namespace main {
 	        this.warnings = source["warnings"];
 	        this.error = source["error"];
 	        this.configured = source["configured"];
+	        this.restarts = this.convertValues(source["restarts"], ToolRestartResult);
 	        this.finishedAt = this.convertValues(source["finishedAt"], null);
 	    }
 
@@ -433,6 +435,26 @@ export namespace main {
 		    }
 		    return a;
 		}
+	}
+	export class ToolRestartResult {
+	    clientId: string;
+	    attempted: boolean;
+	    restarted: boolean;
+	    manualRestartRequired: boolean;
+	    message: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ToolRestartResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.clientId = source["clientId"];
+	        this.attempted = source["attempted"];
+	        this.restarted = source["restarted"];
+	        this.manualRestartRequired = source["manualRestartRequired"];
+	        this.message = source["message"];
+	    }
 	}
 	export class ConnectionCheckReport {
 	    results: ClientConnectionResult[];

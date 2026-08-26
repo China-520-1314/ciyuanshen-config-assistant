@@ -36,7 +36,7 @@ const (
 
 // appVersion is a variable so release builds can inject their tag with
 // -ldflags "-X main.appVersion=..." while local builds keep a useful default.
-var appVersion = "0.2.12"
+var appVersion = "0.2.13"
 
 type InstallUpdateResult struct {
 	Success     bool   `json:"success"`
@@ -68,7 +68,10 @@ type App struct {
 	account     dashboardSession
 	provisionMu sync.Mutex
 	provisions  map[string]provisionedToolKey
+	restartTool toolRestartFunc
 }
+
+type toolRestartFunc func(string) ToolRestartResult
 
 type AppInfo struct {
 	Name              string `json:"name"`
@@ -130,20 +133,22 @@ type ConfigurationPreview struct {
 }
 
 type ConfigureResult struct {
-	Success    bool          `json:"success"`
-	Backup     *BackupInfo   `json:"backup,omitempty"`
-	Files      []FilePreview `json:"files"`
-	Warnings   []string      `json:"warnings"`
-	Error      string        `json:"error,omitempty"`
-	Configured []string      `json:"configured"`
-	FinishedAt time.Time     `json:"finishedAt"`
+	Success    bool                `json:"success"`
+	Backup     *BackupInfo         `json:"backup,omitempty"`
+	Files      []FilePreview       `json:"files"`
+	Warnings   []string            `json:"warnings"`
+	Error      string              `json:"error,omitempty"`
+	Configured []string            `json:"configured"`
+	Restarts   []ToolRestartResult `json:"restarts,omitempty"`
+	FinishedAt time.Time           `json:"finishedAt"`
 }
 
 // NewApp creates the application service.
 func NewApp() *App {
 	return &App{
-		client:     &http.Client{Timeout: 15 * time.Second},
-		provisions: map[string]provisionedToolKey{},
+		client:      &http.Client{Timeout: 15 * time.Second},
+		provisions:  map[string]provisionedToolKey{},
+		restartTool: restartConfiguredTool,
 	}
 }
 
@@ -241,6 +246,7 @@ func (a *App) Configure(request ConfigurationRequest) ConfigureResult {
 		seenTargets[normalized] = true
 		result.Configured = append(result.Configured, normalized)
 	}
+	result.Restarts = a.restartConfiguredTools(result.Configured)
 	return result
 }
 

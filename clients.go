@@ -20,17 +20,18 @@ type clientDefinition struct {
 	Supported       func() bool
 	NPMPackage      string
 	DownloadURL     string
+	RestartMode     toolRestartMode
 }
 
 func clientDefinitions() []clientDefinition {
 	return []clientDefinition{
-		{ID: "codex", Name: "ChatGPT/Codex Cli/Codex插件", Commands: []string{"codex"}, Kind: configTOML, NPMPackage: "@openai/codex", DownloadURL: "https://developers.openai.com/codex/cli/", Paths: func(home string) []string {
+		{ID: "codex", Name: "ChatGPT/Codex CLI/Codex插件", Commands: []string{"codex"}, Kind: configTOML, NPMPackage: "@openai/codex", DownloadURL: "https://developers.openai.com/codex/cli/", Paths: func(home string) []string {
 			return []string{filepath.Join(home, ".codex", "config.toml")}
 		}},
-		{ID: "claude", Name: "Claude Code终端", Commands: []string{"claude"}, Kind: configJSON, NPMPackage: "@anthropic-ai/claude-code", DownloadURL: "https://docs.anthropic.com/en/docs/claude-code/setup", Paths: func(home string) []string {
+		{ID: "claude", Name: "Claude Code CLI/插件", Commands: []string{"claude"}, Kind: configJSON, NPMPackage: "@anthropic-ai/claude-code", DownloadURL: "https://docs.anthropic.com/en/docs/claude-code/setup", Paths: func(home string) []string {
 			return []string{filepath.Join(home, ".claude", "settings.json"), filepath.Join(home, ".claude", "claude.json")}
 		}},
-		{ID: "claude-desktop", Name: "Claude Code客户端", ExecutablePaths: claudeDesktopExecutablePaths, Kind: configJSON, Paths: claudeDesktopConfigPaths, Supported: claudeDesktopSupported, DownloadURL: "https://claude.com/download"},
+		{ID: "claude-desktop", Name: "Claude Code客户端", ExecutablePaths: claudeDesktopExecutablePaths, Kind: configJSON, Paths: claudeDesktopConfigPaths, Supported: claudeDesktopSupported, DownloadURL: "https://claude.com/download", RestartMode: toolRestartDesktopApplication},
 		{ID: "gemini", Name: "Gemini CLI", Commands: []string{"gemini"}, Kind: configEnv, NPMPackage: "@google/gemini-cli", DownloadURL: "https://github.com/google-gemini/gemini-cli", Paths: func(home string) []string {
 			return []string{filepath.Join(home, ".gemini", ".env")}
 		}},

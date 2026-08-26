@@ -125,7 +125,8 @@ type ToolGroupOption = { name: string; description: string; ratio: string; model
 type ToolOptionsResponse = { clientId: ClientId; groups: ToolGroupOption[]; existingKeys?: ToolKeyResult[] };
 type ToolKeyResult = { provisionId: string; clientId: ClientId; group: string; name?: string; existing?: boolean; models: Model[]; status: number; endpoint: string };
 type ToolKeyValidationResult = { clientId: ClientId; models: Model[]; selectedModel?: string; status: number; endpoint: string };
-type ConfigureResult = { success: boolean; error?: string; configured: string[]; finishedAt: string };
+type ToolRestartResult = { clientId: ClientId; attempted: boolean; restarted: boolean; manualRestartRequired: boolean; message: string };
+type ConfigureResult = { success: boolean; error?: string; configured: string[]; restarts?: ToolRestartResult[]; finishedAt: string };
 type GroupRatio = { name: string; description: string; ratio: number };
 type GroupRatioReport = { groups: GroupRatio[]; endpoint: string; fetchedAt: string };
 type BackupFile = { clientId: string; originalPath: string; backupPath: string; exists: boolean };
@@ -179,12 +180,12 @@ const walletURL = 'https://ciyuanshen.top/wallet';
 const signUpURL = 'https://ciyuanshen.top/sign-up';
 const forgotPasswordURL = 'https://ciyuanshen.top/forgot-password';
 const qqGroupURL = 'https://qm.qq.com/q/rmwfirFNp8';
-const desktopOnlyMessage = '浏览器预览无法读取本机配置，请下载并运行 Windows 安装版。';
+const desktopOnlyMessage = '浏览器预览无法读取本机配置，请下载并运行桌面安装版。';
 const clientOrder: ClientId[] = ['codex', 'claude', 'claude-desktop', 'gemini', 'grok', 'opencode', 'openclaw', 'hermes'];
 const clientCopy: Record<ClientId, { short: string; badge: string }> = {
-  claude: { short: 'Claude Code终端', badge: 'Anthropic CLI' },
+  claude: { short: 'Claude Code CLI/插件', badge: 'Anthropic CLI' },
   'claude-desktop': { short: 'Claude Code客户端', badge: 'Anthropic Desktop' },
-  codex: { short: 'ChatGPT/Codex Cli/Codex插件', badge: 'Responses' },
+  codex: { short: 'ChatGPT/Codex CLI/Codex插件', badge: 'Responses' },
   gemini: { short: 'Gemini CLI', badge: 'Gemini API' },
   grok: { short: 'Grok Build', badge: 'Responses' },
   opencode: { short: 'OpenCode', badge: 'OpenAI compatible' },
@@ -378,6 +379,12 @@ function formatFileSize(bytes: number) {
   return `${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`;
 }
 
+function configurationRestartNotice(result: ConfigureResult, clientId: ClientId): { tone: NoticeTone; text: string } {
+  const restart = result.restarts?.find((item) => item.clientId === clientId);
+  if (!restart?.message) return { tone: 'success', text: `${clientCopy[clientId].short} 一键配置完成` };
+  return { tone: restart.manualRestartRequired ? 'neutral' : 'success', text: restart.message };
+}
+
 function defaultModel(clientId: ClientId, models: Model[], current?: string) {
   if (current && models.some((model) => model.id === current)) return current;
   if (models.some((model) => model.id === recommendedModels[clientId])) return recommendedModels[clientId];
@@ -392,7 +399,7 @@ function App() {
   const [systemThemeMode, setSystemThemeMode] = useState<ResolvedThemeMode>(getSystemThemeMode);
   const [customWallpaper, setCustomWallpaper] = useState(readStoredWallpaper);
   const [environment, setEnvironment] = useState<EnvironmentReport>(mockEnvironment);
-  const [appInfo, setAppInfo] = useState<AppInfo>({ name: '词元神配置助手', version: '0.2.12', platform: '', updateManifestUrl: '', gatewayUrl: 'https://api.ciyuanshen.top/v1' });
+  const [appInfo, setAppInfo] = useState<AppInfo>({ name: '词元神配置助手', version: '0.2.13', platform: '', updateManifestUrl: '', gatewayUrl: 'https://api.ciyuanshen.top/v1' });
   const [account, setAccount] = useState<AccountState>({ signedIn: false, username: '' });
   const [accountRefreshing, setAccountRefreshing] = useState(false);
   const [toolModels, setToolModels] = useState<Partial<Record<ClientId, Model[]>>>({});
@@ -522,7 +529,8 @@ function App() {
     try {
       if (inWails()) {
         const [info, report, root, accountState] = await Promise.all([GetAppInfo(), ScanEnvironment(), GetBackupRoot(), GetAccountState()]);
-        setAppInfo(info as AppInfo);
+        const nextInfo = info as AppInfo;
+        setAppInfo(nextInfo);
         setEnvironment(report as EnvironmentReport);
         setBackupRoot(root as string);
         const nextAccount = accountState as AccountState;
@@ -539,8 +547,8 @@ function App() {
           // Some Linux installations have no Secret Service provider. Login
           // remains available; remembering credentials is simply disabled.
         }
+        void checkUpdate(true, nextInfo.version);
         await Promise.all([refreshConfiguredModels(report as EnvironmentReport), refreshToolLifecycles()]);
-        void checkUpdate(true);
       } else {
         setEnvironment(mockEnvironment);
         setBackupRoot('~/.config/CiyuanShen/Config Assistant/backups');
@@ -839,7 +847,7 @@ function App() {
       return;
     }
     if (!inWails()) {
-      showActionNotice(anchor, { tone: 'error', text: '浏览器预览无法安装或更新本机工具，请运行 Windows 安装版。' });
+      showActionNotice(anchor, { tone: 'error', text: '浏览器预览无法安装或更新本机工具，请运行桌面安装版。' });
       return;
     }
     const verb = action === 'install' ? '安装' : '更新';
@@ -932,8 +940,8 @@ function App() {
     }
     const hasExistingKeys = Boolean(toolOptions?.existingKeys?.length);
     const prompt = hasExistingKeys
-      ? `账号中已有可用 Key。仍将创建名为“自动配置创建”的新 Key，并使用推荐模型完成一键配置。是否继续？`
-      : `当前账号没有检测到适合 ${clientCopy[setup.clientId].short} 的已有 Key。将创建名为“自动配置创建”的 Key，并使用推荐模型完成一键配置。是否继续？`;
+      ? `账号中已有可用 Key。仍将创建名为“自动配置创建”的新 Key，并使用推荐模型完成一键配置。配置完成后会尝试自动重启该工具；无法重启时会提示你手动重启。是否继续？`
+      : `当前账号没有检测到适合 ${clientCopy[setup.clientId].short} 的已有 Key。将创建名为“自动配置创建”的 Key，并使用推荐模型完成一键配置。配置完成后会尝试自动重启该工具；无法重启时会提示你手动重启。是否继续？`;
     if (!window.confirm(prompt)) return;
     setSetupBusy('key');
     setSetupMessage(null);
@@ -954,9 +962,11 @@ function App() {
       const configuredResult = configured as ConfigureResult;
       if (!configuredResult.success) throw new Error(configuredResult.error || 'Key 已创建，但自动配置失败');
       const configuredClient = setup.clientId;
+      const completionNotice = configurationRestartNotice(configuredResult, configuredClient);
       setModelByClient((current) => ({ ...current, [configuredClient]: selectedModel }));
       setSetup(null);
       resetSetup();
+      showFeedback(completionNotice, completionNotice.tone === 'neutral' ? 6200 : 3600);
       await Promise.all([refreshBackups(), refreshEnvironment(false)]);
       await checkClient(configuredClient, configureAnchor.current);
     } catch (error) {
@@ -995,7 +1005,7 @@ function App() {
       setSetupMessage({ tone: 'error', text: '请先检测 Key 并选择默认模型' });
       return;
     }
-    if (!window.confirm(`将备份 ${clientCopy[setup.clientId].short} 当前配置，并写入新配置。是否继续？`)) return;
+    if (!window.confirm(`将备份 ${clientCopy[setup.clientId].short} 当前配置，并写入新配置。配置完成后会尝试自动重启该工具；无法重启时会提示你手动重启。是否继续？`)) return;
     setSetupBusy('configure');
     setSetupMessage(null);
     try {
@@ -1009,9 +1019,11 @@ function App() {
       const configured = result as ConfigureResult;
       if (!configured.success) throw new Error(configured.error || '配置失败');
       const configuredClient = setup.clientId;
+      const completionNotice = configurationRestartNotice(configured, configuredClient);
       setModelByClient((current) => ({ ...current, [configuredClient]: setupModel }));
       setSetup(null);
       resetSetup();
+      showFeedback(completionNotice, completionNotice.tone === 'neutral' ? 6200 : 3600);
       await Promise.all([refreshBackups(), refreshEnvironment(false)]);
       await checkClient(configuredClient, configureAnchor.current);
     } catch (error) {
@@ -1146,20 +1158,20 @@ function App() {
     }
   }
 
-  async function checkUpdate(promptToInstall = false) {
+  async function checkUpdate(promptToInstall = false, currentVersion = appInfo.version) {
     setUpdateProgress(null);
     setBusy('update');
     try {
       const result = inWails()
         ? await CheckForUpdates()
-        : await fetchBrowserPreviewUpdate(appInfo.version);
+        : await fetchBrowserPreviewUpdate(currentVersion);
       const next = result as UpdateInfo;
       setUpdate(next);
       if (promptToInstall && next.updateAvailable && !next.error && window.confirm(`发现新版本 v${next.latestVersion}。是否更新到最新版？`)) {
         await installUpdate(next, false);
       }
     } catch (error) {
-      setUpdate({ currentVersion: appInfo.version, latestVersion: '', updateAvailable: false, checkedAt: new Date().toISOString(), error: error instanceof Error ? error.message : '暂时无法检查更新' });
+      setUpdate({ currentVersion, latestVersion: '', updateAvailable: false, checkedAt: new Date().toISOString(), error: error instanceof Error ? error.message : '暂时无法检查更新' });
     } finally {
       setBusy('');
     }
@@ -1806,7 +1818,7 @@ function browserPreviewLifecycleBase(clientId: ClientId): ToolLifecycleInfo {
     canInstall: false,
     canUpdate: false,
     checkedAt: new Date().toISOString(),
-    message: '浏览器预览仅查询官方最新版本；本机版本和安装状态请在 Windows 安装版中查看',
+    message: '浏览器预览仅查询官方最新版本；本机版本和安装状态请在桌面安装版中查看',
   };
 }
 
@@ -1830,7 +1842,7 @@ async function fetchBrowserPreviewToolLifecycle(clientId: ClientId): Promise<Too
       if (!latestVersion) throw new Error('GitHub 未返回有效版本号');
       return { ...base, latestVersion };
     }
-    return { ...base, downloadUrl: 'https://claude.com/download', message: 'Claude Code客户端由应用内更新；本机版本请在 Windows 安装版中查看' };
+    return { ...base, downloadUrl: 'https://claude.com/download', message: 'Claude Code客户端由应用内更新；本机版本请在桌面安装版中查看' };
   } catch (error) {
     return { ...base, error: error instanceof Error ? `暂时无法查询最新版本：${error.message}` : '暂时无法查询最新版本' };
   }

@@ -4,9 +4,9 @@
 
 ## 支持的客户端
 
-- Claude Code
+- Claude Code CLI/插件
 - Claude Desktop
-- Codex
+- ChatGPT/Codex CLI/Codex插件
 - Gemini CLI
 - Grok Build
 - OpenCode
@@ -26,6 +26,7 @@ Gemini 的 Base URL 不能直接写成 `https://api.ciyuanshen.top/v1`，因为 
 - 词元神账号模式：支持账号密码与两步验证登录，读取该账号已有的可用 API Key，并按目标工具检测模型后优先推荐；确认后可直接配置。没有合适的已有 Key 时，助手会创建名为“自动配置创建”的 Key，检测成功后自动完成配置。
 - 已有 API Key 模式：输入现有 Key 后，助手通过 `/v1/models` 检测该 Key 可用且与目标客户端兼容的模型，再允许完成配置。
 - 已配置的工具可以直接重新选择默认模型；助手会读取本机已有 Key 进行验证，无需再次把 Key 输入界面。
+- 一键配置在写入并校验成功后会尝试自动重启可安全定位的桌面应用。CLI 和编辑器插件不会被强制关闭，以免中断当前会话；无法安全自动重启时，界面会提示用户手动关闭并重新打开对应工具。
 
 ## 安全和恢复
 
@@ -47,7 +48,7 @@ Gemini 的 Base URL 不能直接写成 `https://api.ciyuanshen.top/v1`，因为 
 
 ## 更新检查
 
-应用会优先通过 GitHub Releases API 检查最新版本，并按当前系统选择对应安装包：Windows 选择 NSIS 安装包，macOS 选择 Universal DMG。无需额外部署下载站。Windows 支持下载后自动关闭旧进程并安装；macOS 会提供官方 DMG/ZIP 下载地址，首次安装仍需用户在 Finder 中确认打开。
+应用启动时会自动检查 GitHub Releases；检测到新版本会询问用户是否更新，并按当前系统选择对应安装包：Windows 选择 NSIS 安装包，macOS 选择 Universal DMG。无需额外部署下载站。Windows 支持下载后自动关闭旧进程并安装；macOS 会提供官方 DMG/ZIP 下载地址，首次安装仍需用户在 Finder 中确认打开。
 
 如果 GitHub 更新服务暂时不可用，应用会回退读取以下 HTTPS 更新清单：
 
@@ -104,7 +105,7 @@ GitHub Release 是默认下载和更新来源；若需要自建下载站，可�
 ```bash
 go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build \
   -platform windows/amd64 -nsis \
-  -ldflags "-X main.appVersion=0.2.12"
+  -ldflags "-X main.appVersion=0.2.13"
 ```
 
 macOS 本地构建示例（需要 macOS、Xcode Command Line Tools 和 `hdiutil`）：
@@ -112,7 +113,7 @@ macOS 本地构建示例（需要 macOS、Xcode Command Line Tools 和 `hdiutil`
 ```bash
 go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build \
   -platform darwin/universal \
-  -ldflags "-X main.appVersion=0.2.12"
+  -ldflags "-X main.appVersion=0.2.13"
 ```
 
 Wails 会先生成 `build/bin/ciyuanshen-config-assistant.app`；发布流程再将它打成 DMG 和 ZIP。Release 标签、`wails.json` 的产品版本和应用内版本号必须保持一致。
