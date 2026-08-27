@@ -176,6 +176,12 @@ var codexProviderTemplate = []codexTemplateField{
 	{Key: "requires_openai_auth", Value: "true"},
 }
 
+var codexDesktopTemplate = []codexTemplateField{
+	{Key: "followUpQueueMode", Value: `"queue"`},
+	{Key: "enabled-reasoning-efforts", Value: `[ "low", "medium", "high", "xhigh", "ultra", "max" ]`},
+	{Key: "localeOverride", Value: `"zh-CN"`},
+}
+
 type codexTableBlock struct {
 	Name  string
 	Lines []string
@@ -204,6 +210,7 @@ func patchCodexConfig(existing, selectedModel string) string {
 	explicitProviderName := codexTopLevelProviderName(prefix)
 	providerName := codexProviderName(prefix, blocks)
 	prefix = patchCodexTopLevel(prefix, providerName, selectedModel)
+	blocks = patchCodexDesktopBlocks(blocks)
 	blocks, providerIndex := patchCodexProviderBlocks(blocks, providerName, explicitProviderName != "")
 	if providerIndex < 0 {
 		blocks = append(blocks, codexTableBlock{
@@ -395,6 +402,58 @@ func patchCodexProviderBlocks(blocks []codexTableBlock, providerName string, has
 		}
 	}
 	return filtered, newIndex
+}
+
+// patchCodexDesktopBlocks keeps existing desktop preferences intact and only
+// fills the options needed by the desktop Codex experience.
+func patchCodexDesktopBlocks(blocks []codexTableBlock) []codexTableBlock {
+	for index := range blocks {
+		if blocks[index].Name != "desktop" {
+			continue
+		}
+		blocks[index].Lines = codexDesktopBlockLines(blocks[index].Lines)
+		return blocks
+	}
+
+	desktop := codexTableBlock{
+		Name:  "desktop",
+		Lines: codexDesktopBlockLines(nil),
+	}
+	return append([]codexTableBlock{desktop}, blocks...)
+}
+
+func codexDesktopBlockLines(existing []string) []string {
+	lines := existing
+	if len(lines) == 0 {
+		lines = []string{"[desktop]"}
+	}
+	managed := make(map[string]bool, len(codexDesktopTemplate))
+	for _, field := range codexDesktopTemplate {
+		managed[field.Key] = true
+	}
+	patched := make([]string, 0, len(lines)+len(codexDesktopTemplate))
+	present := make(map[string]bool, len(codexDesktopTemplate))
+	for index, line := range lines {
+		if index == 0 {
+			patched = append(patched, "[desktop]")
+			continue
+		}
+		key, _, ok := codexAssignment(line)
+		if ok && managed[key] {
+			if present[key] {
+				continue
+			}
+			present[key] = true
+		}
+		patched = append(patched, line)
+	}
+	missing := make([]string, 0, len(codexDesktopTemplate))
+	for _, field := range codexDesktopTemplate {
+		if !present[field.Key] {
+			missing = append(missing, field.Key+" = "+field.Value)
+		}
+	}
+	return insertCodexBeforeTrailingBlankLines(patched, missing)
 }
 
 func codexStaleProviderBlock(block codexTableBlock, providerName string) bool {

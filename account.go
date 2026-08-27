@@ -323,7 +323,7 @@ func (a *App) LogoutAccount() {
 func (a *App) LoginAccount(request AccountLoginRequest) (AccountLoginResult, error) {
 	username := strings.TrimSpace(request.Username)
 	if username == "" || strings.TrimSpace(request.Password) == "" {
-		return AccountLoginResult{}, errors.New("请输入词元神账号和密码")
+		return AccountLoginResult{}, errors.New("请输入词元神用户名或邮箱和密码")
 	}
 
 	altcha, err := a.requestAltchaToken()

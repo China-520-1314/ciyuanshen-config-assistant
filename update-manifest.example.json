@@ -1,8 +1,8 @@
 {
-  "version": "0.2.14",
-  "downloadUrl": "https://api.ciyuanshen.top/downloads/ciyuanshen-config-assistant/releases/v0.2.14/ciyuanshen-config-assistant-amd64-installer.exe",
-  "macDownloadUrl": "https://api.ciyuanshen.top/downloads/ciyuanshen-config-assistant/releases/v0.2.14/ciyuanshen-config-assistant-macos-universal.dmg",
-  "releaseNotes": "更新优先使用词元神国内更新源，GitHub 作为备用下载源",
-  "publishedAt": "2026-08-26",
+  "version": "0.2.15",
+  "downloadUrl": "https://api.ciyuanshen.top/downloads/ciyuanshen-config-assistant/releases/v0.2.15/ciyuanshen-config-assistant-amd64-installer.exe",
+  "macDownloadUrl": "https://api.ciyuanshen.top/downloads/ciyuanshen-config-assistant/releases/v0.2.15/ciyuanshen-config-assistant-macos-universal.dmg",
+  "releaseNotes": "支持 Codex 桌面配置补全、用户名或邮箱登录、居中确认弹窗和登录输入框右键复制粘贴",
+  "publishedAt": "2026-08-27",
   "sha256": ""
 }

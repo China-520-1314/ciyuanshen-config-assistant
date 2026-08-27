@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 func isolateHome(t *testing.T) string {
@@ -246,6 +248,69 @@ custom = true
 	}
 	if strings.Count(patched, `model_provider =`) != 1 || strings.Count(patched, `model = "user-model"`) != 1 {
 		t.Fatalf("existing top-level assignments were duplicated:\n%s", patched)
+	}
+}
+
+func TestPatchCodexConfigAddsDesktopDefaultsBeforeProviderTables(t *testing.T) {
+	existing := `model = "user-model"
+
+[model_providers.example]
+name = "example"
+base_url = "https://example.test/v1"
+`
+	patched := patchCodexConfig(existing, "")
+	for _, expected := range []string{
+		`[desktop]`,
+		`followUpQueueMode = "queue"`,
+		`enabled-reasoning-efforts = [ "low", "medium", "high", "xhigh", "ultra", "max" ]`,
+		`localeOverride = "zh-CN"`,
+	} {
+		if !strings.Contains(patched, expected) {
+			t.Fatalf("Codex desktop configuration is missing %q:\n%s", expected, patched)
+		}
+	}
+	if strings.Index(patched, "[desktop]") > strings.Index(patched, "[model_providers.") {
+		t.Fatalf("desktop configuration should be placed before provider tables:\n%s", patched)
+	}
+	var decoded map[string]any
+	if err := toml.Unmarshal([]byte(patched), &decoded); err != nil {
+		t.Fatalf("patched Codex configuration is not valid TOML: %v\n%s", err, patched)
+	}
+}
+
+func TestPatchCodexConfigCompletesDesktopDefaultsWithoutOverwritingExistingValues(t *testing.T) {
+	existing := `model_provider = "ciyuanshen"
+
+[desktop]
+followUpQueueMode = "immediate"
+enabled-reasoning-efforts = [ "low" ]
+custom_desktop_option = true
+
+[desktop.custom_file_handlers.editor]
+label = "Editor"
+
+[model_providers.ciyuanshen]
+name = "ciyuanshen"
+`
+	patched := patchCodexConfig(existing, "")
+	for _, expected := range []string{
+		`followUpQueueMode = "immediate"`,
+		`enabled-reasoning-efforts = [ "low" ]`,
+		`custom_desktop_option = true`,
+		`[desktop.custom_file_handlers.editor]`,
+		`label = "Editor"`,
+		`localeOverride = "zh-CN"`,
+	} {
+		if !strings.Contains(patched, expected) {
+			t.Fatalf("patched desktop configuration is missing %q:\n%s", expected, patched)
+		}
+	}
+	if strings.Count(patched, "followUpQueueMode =") != 1 || strings.Count(patched, "enabled-reasoning-efforts =") != 1 {
+		t.Fatalf("existing desktop value was duplicated:\n%s", patched)
+	}
+	var decoded map[string]any
+	if err := toml.Unmarshal([]byte(patched), &decoded); err != nil {
+		t.Fatalf("patched Codex configuration is not valid TOML: %v\n%s", err, patched)
 	}
 }
 

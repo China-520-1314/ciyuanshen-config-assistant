@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -91,7 +91,7 @@ import {
   ValidateToolKey,
   VerifyAccountTwoFactor,
 } from '../wailsjs/go/main/App';
-import { EventsOn, Quit, WindowMinimise, WindowToggleMaximise } from '../wailsjs/runtime/runtime';
+import { ClipboardGetText, ClipboardSetText, EventsOn, Quit, WindowMinimise, WindowToggleMaximise } from '../wailsjs/runtime/runtime';
 
 type ClientId = 'claude' | 'claude-desktop' | 'codex' | 'gemini' | 'grok' | 'opencode' | 'openclaw' | 'hermes';
 type TabId = 'overview' | 'groups' | 'backups' | 'updates' | 'appearance';
@@ -173,6 +173,17 @@ type ToolLifecycleInfo = {
   error?: string;
 };
 type ToolLifecycleResult = { success: boolean; manual: boolean; downloadUrl?: string; message?: string; error?: string; info: ToolLifecycleInfo };
+type ConfirmationTone = 'default' | 'danger';
+type ConfirmationRequest = {
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  tone?: ConfirmationTone;
+  resolve: (confirmed: boolean) => void;
+};
+type ConfirmationOptions = Omit<ConfirmationRequest, 'resolve'>;
+type LoginInputKind = 'username' | 'password';
+type LoginContextMenuState = { kind: LoginInputKind; left: number; top: number; start: number; end: number; hasSelection: boolean };
 
 const documentationURL = 'https://ocn4dgkicvdh.feishu.cn/docx/Y88FdkLNPo6g17xWIfHcQfgknrc';
 const officialWebsiteURL = 'https://ciyuanshen.top';
@@ -399,7 +410,7 @@ function App() {
   const [systemThemeMode, setSystemThemeMode] = useState<ResolvedThemeMode>(getSystemThemeMode);
   const [customWallpaper, setCustomWallpaper] = useState(readStoredWallpaper);
   const [environment, setEnvironment] = useState<EnvironmentReport>(mockEnvironment);
-  const [appInfo, setAppInfo] = useState<AppInfo>({ name: '词元神配置助手', version: '0.2.14', platform: '', updateManifestUrl: '', gatewayUrl: 'https://api.ciyuanshen.top/v1' });
+  const [appInfo, setAppInfo] = useState<AppInfo>({ name: '词元神配置助手', version: '0.2.15', platform: '', updateManifestUrl: '', gatewayUrl: 'https://api.ciyuanshen.top/v1' });
   const [account, setAccount] = useState<AccountState>({ signedIn: false, username: '' });
   const [accountRefreshing, setAccountRefreshing] = useState(false);
   const [toolModels, setToolModels] = useState<Partial<Record<ClientId, Model[]>>>({});
@@ -414,9 +425,11 @@ function App() {
   const [lifecycleByClient, setLifecycleByClient] = useState<Partial<Record<ClientId, ToolLifecycleInfo>>>({});
   const [lifecycleBusyClient, setLifecycleBusyClient] = useState<ClientId | null>(null);
   const [feedback, setFeedback] = useState<{ tone: NoticeTone; text: string } | null>(null);
+  const [confirmation, setConfirmation] = useState<ConfirmationRequest | null>(null);
   const [actionNotice, setActionNotice] = useState<{ tone: NoticeTone; text: string; left: number; top: number; below: boolean } | null>(null);
   const feedbackTimer = useRef<number | undefined>(undefined);
   const actionTimer = useRef<number | undefined>(undefined);
+  const pendingConfirmation = useRef<ConfirmationRequest | null>(null);
   const configureAnchor = useRef<HTMLElement | null>(null);
   const [backups, setBackups] = useState<Backup[]>([]);
   const [backupRoot, setBackupRoot] = useState('');
@@ -463,6 +476,9 @@ function App() {
   useEffect(() => () => {
     if (feedbackTimer.current !== undefined) window.clearTimeout(feedbackTimer.current);
     if (actionTimer.current !== undefined) window.clearTimeout(actionTimer.current);
+    const pending = pendingConfirmation.current;
+    pendingConfirmation.current = null;
+    pending?.resolve(false);
   }, []);
 
   useEffect(() => {
@@ -523,6 +539,24 @@ function App() {
       actionTimer.current = undefined;
       setActionNotice(null);
     }, 3200);
+  }
+
+  function confirmAction(options: ConfirmationOptions) {
+    const previous = pendingConfirmation.current;
+    if (previous) previous.resolve(false);
+    return new Promise<boolean>((resolve) => {
+      const request: ConfirmationRequest = { ...options, resolve };
+      pendingConfirmation.current = request;
+      setConfirmation(request);
+    });
+  }
+
+  function settleConfirmation(confirmed: boolean) {
+    const pending = pendingConfirmation.current;
+    if (!pending) return;
+    pendingConfirmation.current = null;
+    setConfirmation(null);
+    pending.resolve(confirmed);
   }
 
   async function loadInitialState() {
@@ -806,10 +840,10 @@ function App() {
     void loadClientConfiguration(clientId, false);
   }
 
-  function toggleConfigurationSecrets() {
+  async function toggleConfigurationSecrets() {
     if (!configurationClient) return;
     const nextReveal = !revealConfigurationSecrets;
-    if (nextReveal && !window.confirm('配置文件可能包含 API Key 或访问令牌。确认在本机界面中显示明文吗？')) return;
+    if (nextReveal && !(await confirmAction({ title: '显示敏感信息', message: '配置文件可能包含 API Key 或访问令牌。确认在本机界面中显示明文吗？', confirmLabel: '显示明文' }))) return;
     setRevealConfigurationSecrets(nextReveal);
     void loadClientConfiguration(configurationClient, nextReveal);
   }
@@ -851,7 +885,7 @@ function App() {
       return;
     }
     const verb = action === 'install' ? '安装' : '更新';
-    if (!window.confirm(`将通过官方 npm 包${verb} ${clientCopy[clientId].short}。是否继续？`)) return;
+    if (!(await confirmAction({ title: `${verb}工具`, message: `将通过官方 npm 包${verb} ${clientCopy[clientId].short}。是否继续？`, confirmLabel: `确认${verb}` }))) return;
     setLifecycleBusyClient(clientId);
     try {
       const result = await RunToolLifecycleAction({ clientId, action });
@@ -859,7 +893,7 @@ function App() {
       setLifecycleByClient((current) => ({ ...current, [clientId]: lifecycleResult.info }));
       if (lifecycleResult.manual) {
         const message = lifecycleResult.message || '该工具需要通过官方页面安装';
-        if (lifecycleResult.downloadUrl && window.confirm(`${message}\n\n现在打开官方下载页面吗？`)) {
+        if (lifecycleResult.downloadUrl && await confirmAction({ title: '打开官方下载页', message: `${message}\n\n现在打开官方下载页面吗？`, confirmLabel: '打开页面' })) {
           await openExternal(lifecycleResult.downloadUrl);
         }
         showActionNotice(anchor, { tone: 'neutral', text: message });
@@ -942,7 +976,7 @@ function App() {
     const prompt = hasExistingKeys
       ? `账号中已有可用 Key。仍将创建名为“自动配置创建”的新 Key，并使用推荐模型完成一键配置。配置完成后会尝试自动重启该工具；无法重启时会提示你手动重启。是否继续？`
       : `当前账号没有检测到适合 ${clientCopy[setup.clientId].short} 的已有 Key。将创建名为“自动配置创建”的 Key，并使用推荐模型完成一键配置。配置完成后会尝试自动重启该工具；无法重启时会提示你手动重启。是否继续？`;
-    if (!window.confirm(prompt)) return;
+    if (!(await confirmAction({ title: '创建并一键配置', message: prompt, confirmLabel: '创建并配置' }))) return;
     setSetupBusy('key');
     setSetupMessage(null);
     setProvision(null);
@@ -1005,7 +1039,7 @@ function App() {
       setSetupMessage({ tone: 'error', text: '请先检测 Key 并选择默认模型' });
       return;
     }
-    if (!window.confirm(`将备份 ${clientCopy[setup.clientId].short} 当前配置，并写入新配置。配置完成后会尝试自动重启该工具；无法重启时会提示你手动重启。是否继续？`)) return;
+    if (!(await confirmAction({ title: '确认一键配置', message: `将备份 ${clientCopy[setup.clientId].short} 当前配置，并写入新配置。配置完成后会尝试自动重启该工具；无法重启时会提示你手动重启。是否继续？`, confirmLabel: '确认配置' }))) return;
     setSetupBusy('configure');
     setSetupMessage(null);
     try {
@@ -1076,7 +1110,7 @@ function App() {
 
   async function submitLogin() {
     if (!loginUsername.trim() || !loginPassword) {
-      setLoginMessage('请输入账号和密码');
+      setLoginMessage('请输入用户名或邮箱和密码');
       return;
     }
     setLoginBusy(true);
@@ -1145,7 +1179,7 @@ function App() {
   }
 
   async function deleteBackup(id: string) {
-    if (!window.confirm('确定永久删除此配置备份吗？此操作不能撤销。')) return;
+    if (!(await confirmAction({ title: '删除配置备份', message: '确定永久删除此配置备份吗？此操作不能撤销。', confirmLabel: '确认删除', tone: 'danger' }))) return;
     setBusy('delete');
     try {
       if (inWails()) await DeleteBackup(id);
@@ -1167,7 +1201,7 @@ function App() {
         : await fetchBrowserPreviewUpdate(currentVersion);
       const next = result as UpdateInfo;
       setUpdate(next);
-      if (promptToInstall && next.updateAvailable && !next.error && window.confirm(`发现新版本 v${next.latestVersion}。是否更新到最新版？`)) {
+      if (promptToInstall && next.updateAvailable && !next.error && await confirmAction({ title: '发现新版本', message: `发现新版本 v${next.latestVersion}。是否更新到最新版？`, confirmLabel: '更新到最新版' })) {
         await installUpdate(next, false);
       }
     } catch (error) {
@@ -1182,7 +1216,7 @@ function App() {
       showFeedback({ tone: 'error', text: '未找到可用更新包，请稍后重新检查' }, 3200);
       return;
     }
-    if (confirmInstall && !window.confirm(`将下载并安装 v${currentUpdate.latestVersion}，应用会自动关闭。是否继续？`)) return;
+    if (confirmInstall && !(await confirmAction({ title: '安装更新', message: `将下载并安装 v${currentUpdate.latestVersion}，应用会自动关闭。是否继续？`, confirmLabel: '下载并安装' }))) return;
     setBusy('install-update');
     setUpdateProgress({ stage: 'checking', message: '正在检查可用更新', downloadedBytes: 0, totalBytes: 0, percent: 0 });
     try {
@@ -1284,7 +1318,7 @@ function App() {
           {tab === 'groups' && <GroupRatios report={groupReport} busy={busy} refresh={() => void fetchGroupRatios()} />}
           {tab === 'backups' && <Backups backups={backups} backupRoot={backupRoot} busy={busy} restore={restore} remove={deleteBackup} refresh={() => void refreshBackups()} />}
           {tab === 'updates' && <Updates update={update} progress={updateProgress} platform={appInfo.platform} busy={busy} check={() => void checkUpdate(false)} install={() => void installUpdate()} openDownload={() => update?.downloadUrl && void openExternal(update.downloadUrl)} />}
-          {tab === 'appearance' && <ThemeGallery theme={theme} themeMode={themeMode} themes={availableThemes} customWallpaper={customWallpaper} transparency={activeThemeTransparency} onThemeChange={setTheme} onThemeModeChange={setThemeMode} onTransparencyChange={applyThemeTransparency} onCustomWallpaperChange={applyCustomWallpaper} onOpenSource={(url) => void openExternal(url)} />}
+          {tab === 'appearance' && <ThemeGallery theme={theme} themeMode={themeMode} themes={availableThemes} customWallpaper={customWallpaper} transparency={activeThemeTransparency} onThemeChange={setTheme} onThemeModeChange={setThemeMode} onTransparencyChange={applyThemeTransparency} onCustomWallpaperChange={applyCustomWallpaper} onConfirm={confirmAction} onOpenSource={(url) => void openExternal(url)} />}
         </main>
       </div>
 
@@ -1292,6 +1326,7 @@ function App() {
       {setup && <ToolSetupModal setup={setup} account={account} options={toolOptions} group={setupGroup} keyValue={setupKey} showKey={showSetupKey} validation={setupValidation} provision={provision} model={setupModel} busy={setupBusy} message={setupMessage} onClose={() => { setSetup(null); resetSetup(); }} onModeChange={switchSetupMode} onGroupChange={(value) => { setSetupGroup(value); setSetupValidation(null); setProvision(null); setSetupModel(''); setSetupMessage(null); }} onKeyChange={(value) => { setSetupKey(value); setSetupValidation(null); setProvision(null); setSetupModel(''); setSetupMessage(null); }} onExistingKeyChange={chooseExistingAccountKey} onShowKey={() => setShowSetupKey((current) => !current)} onModelChange={setSetupModel} onCreateKey={() => void createAccountKey()} onValidateKey={() => void validateManualKey()} onConfigure={() => void configureSelectedTool()} onLogin={() => openLogin(setup.clientId)} onReloadGroups={() => void loadToolOptions(setup.clientId)} />}
       {configurationClient && <ConfigurationViewerModal clientId={configurationClient} view={configurationView} busy={configurationBusy} error={configurationError} revealSecrets={revealConfigurationSecrets} onClose={() => { setConfigurationClient(null); setConfigurationView(null); setConfigurationError(null); setRevealConfigurationSecrets(false); }} onReload={() => void loadClientConfiguration(configurationClient, revealConfigurationSecrets)} onToggleSecrets={toggleConfigurationSecrets} />}
       {loginOpen && <AccountLoginModal username={loginUsername} password={loginPassword} rememberLogin={rememberLogin} code={twoFactorCode} requiresTwoFactor={Boolean(twoFactorFlow)} showPassword={showLoginPassword} busy={loginBusy} message={loginMessage} onUsername={setLoginUsername} onPassword={setLoginPassword} onRememberLogin={setRememberLogin} onCode={setTwoFactorCode} onTogglePassword={() => setShowLoginPassword((current) => !current)} onClose={() => { setLoginOpen(false); setLoginMessage(null); setTwoFactorFlow(''); }} onSubmit={() => void (twoFactorFlow ? submitTwoFactor() : submitLogin())} onRegister={() => void openExternal(signUpURL)} onForgotPassword={() => void openExternal(forgotPasswordURL)} />}
+      {confirmation && <ConfirmModal title={confirmation.title} message={confirmation.message} confirmLabel={confirmation.confirmLabel} tone={confirmation.tone} onCancel={() => settleConfirmation(false)} onConfirm={() => settleConfirmation(true)} />}
     </div>
   );
 }
@@ -1306,6 +1341,35 @@ function WindowTitlebar() {
       <button className="window-control close" title="关闭" aria-label="关闭" onClick={Quit}><X size={17} /></button>
     </div>
   </header>;
+}
+
+function ConfirmModal({ title, message, confirmLabel = '继续', tone = 'default', onCancel, onConfirm }: {
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  tone?: ConfirmationTone;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const confirmButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCancel();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    const frame = window.requestAnimationFrame(() => confirmButton.current?.focus());
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [onCancel]);
+  return <div className="modal-backdrop confirm-modal-backdrop" role="presentation" onMouseDown={onCancel}>
+    <section className={`confirm-modal ${tone}`} role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message" onMouseDown={(event) => event.stopPropagation()}>
+      <div className={`confirm-modal-icon ${tone}`}>{tone === 'danger' ? <AlertTriangle size={20} /> : <ClipboardCheck size={20} />}</div>
+      <div className="confirm-modal-copy"><h2 id="confirm-title">{title}</h2><p id="confirm-message">{message}</p></div>
+      <div className="modal-actions confirm-modal-actions"><button type="button" className="secondary-button" onClick={onCancel}>取消</button><button ref={confirmButton} type="button" className={tone === 'danger' ? 'danger-confirm-button' : 'primary-button'} onClick={onConfirm}>{confirmLabel}</button></div>
+    </section>
+  </div>;
 }
 
 function NavButton({ active, icon, label, count, onClick, external = false }: { active: boolean; icon: ReactNode; label: string; count?: number; onClick: () => void; external?: boolean }) {
@@ -1474,6 +1538,34 @@ function configurationFileName(path: string) {
   return segments[segments.length - 1] || path;
 }
 
+async function writeClipboardText(value: string) {
+  if (inWails()) {
+    const copied = await ClipboardSetText(value);
+    if (!copied) throw new Error('无法写入系统剪贴板');
+    return;
+  }
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const textarea = document.createElement('textarea');
+  textarea.value = value;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand('copy');
+  document.body.removeChild(textarea);
+  if (!copied) throw new Error('无法写入系统剪贴板');
+}
+
+async function readClipboardText() {
+  if (inWails()) return ClipboardGetText();
+  if (navigator.clipboard?.readText) return navigator.clipboard.readText();
+  throw new Error('当前环境无法读取系统剪贴板');
+}
+
 function AccountLoginModal({ username, password, rememberLogin, code, requiresTwoFactor, showPassword, busy, message, onUsername, onPassword, onRememberLogin, onCode, onTogglePassword, onClose, onSubmit, onRegister, onForgotPassword }: {
   username: string;
   password: string;
@@ -1493,13 +1585,115 @@ function AccountLoginModal({ username, password, rememberLogin, code, requiresTw
   onRegister: () => void;
   onForgotPassword: () => void;
 }) {
+  const usernameInput = useRef<HTMLInputElement>(null);
+  const passwordInput = useRef<HTMLInputElement>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+  const [contextMenu, setContextMenu] = useState<LoginContextMenuState | null>(null);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const dismissMenu = (event: MouseEvent) => {
+      if (!contextMenuRef.current?.contains(event.target as Node)) setContextMenu(null);
+    };
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setContextMenu(null);
+    };
+    window.addEventListener('mousedown', dismissMenu);
+    window.addEventListener('keydown', dismissOnEscape);
+    return () => {
+      window.removeEventListener('mousedown', dismissMenu);
+      window.removeEventListener('keydown', dismissOnEscape);
+    };
+  }, [contextMenu]);
+
+  function inputValue(kind: LoginInputKind) {
+    return kind === 'username' ? username : password;
+  }
+
+  function inputRef(kind: LoginInputKind) {
+    return kind === 'username' ? usernameInput.current : passwordInput.current;
+  }
+
+  function replaceSelection(kind: LoginInputKind, start: number, end: number, replacement: string) {
+    const current = inputValue(kind);
+    const next = current.slice(0, start) + replacement + current.slice(end);
+    if (kind === 'username') onUsername(next);
+    else onPassword(next);
+    const caret = start + replacement.length;
+    window.requestAnimationFrame(() => {
+      const input = inputRef(kind);
+      input?.focus();
+      input?.setSelectionRange(caret, caret);
+    });
+  }
+
+  function openContextMenu(kind: LoginInputKind, event: ReactMouseEvent<HTMLInputElement>) {
+    event.preventDefault();
+    const input = event.currentTarget;
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? start;
+    const menuWidth = 148;
+    const menuHeight = 156;
+    setContextMenu({
+      kind,
+      left: Math.max(8, Math.min(window.innerWidth - menuWidth - 8, event.clientX)),
+      top: Math.max(8, Math.min(window.innerHeight - menuHeight - 8, event.clientY)),
+      start,
+      end,
+      hasSelection: start !== end,
+    });
+  }
+
+  async function copySelection() {
+    if (!contextMenu || !contextMenu.hasSelection) return;
+    try {
+      await writeClipboardText(inputValue(contextMenu.kind).slice(contextMenu.start, contextMenu.end));
+    } catch {
+      // Keep the login form usable when the host denies clipboard access.
+    } finally {
+      setContextMenu(null);
+    }
+  }
+
+  async function cutSelection() {
+    if (!contextMenu || !contextMenu.hasSelection) return;
+    try {
+      await writeClipboardText(inputValue(contextMenu.kind).slice(contextMenu.start, contextMenu.end));
+      replaceSelection(contextMenu.kind, contextMenu.start, contextMenu.end, '');
+    } catch {
+      // Do not alter the input unless copying the selected text succeeded.
+    } finally {
+      setContextMenu(null);
+    }
+  }
+
+  async function pasteClipboard() {
+    if (!contextMenu) return;
+    try {
+      const pasted = await readClipboardText();
+      replaceSelection(contextMenu.kind, contextMenu.start, contextMenu.end, pasted);
+    } catch {
+      // Keep the current input unchanged when clipboard access is unavailable.
+    } finally {
+      setContextMenu(null);
+    }
+  }
+
+  function selectAll() {
+    if (!contextMenu) return;
+    const input = inputRef(contextMenu.kind);
+    input?.focus();
+    input?.select();
+    setContextMenu(null);
+  }
+
   return <div className="modal-backdrop" role="presentation"><section className="login-modal" role="dialog" aria-modal="true" aria-labelledby="login-title">
     <div className="modal-heading"><div><p className="eyebrow">CIYUANSHEN ACCOUNT</p><h2 id="login-title">登录词元神</h2></div><button className="icon-button" title="关闭" aria-label="关闭" onClick={onClose}><X size={18} /></button></div>
-    {requiresTwoFactor ? <div className="login-fields"><div className="field-block"><label htmlFor="two-factor-code">两步验证代码</label><input id="two-factor-code" inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(event) => onCode(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onSubmit(); }} /></div></div> : <div className="login-fields"><div className="field-block"><label htmlFor="account-username">账号</label><input id="account-username" autoComplete="username" value={username} onChange={(event) => onUsername(event.target.value)} /></div><div className="field-block"><label htmlFor="account-password">密码</label><div className="key-input-wrap"><LockKeyhole size={17} /><input id="account-password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={(event) => onPassword(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onSubmit(); }} /><button className="input-action" title={showPassword ? '隐藏密码' : '显示密码'} aria-label={showPassword ? '隐藏密码' : '显示密码'} onClick={onTogglePassword}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></div></div></div>}
+    {requiresTwoFactor ? <div className="login-fields"><div className="field-block"><label htmlFor="two-factor-code">两步验证代码</label><input id="two-factor-code" inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(event) => onCode(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onSubmit(); }} /></div></div> : <div className="login-fields"><div className="field-block"><label htmlFor="account-username">用户名或邮箱</label><input ref={usernameInput} id="account-username" type="text" inputMode="email" autoComplete="username" placeholder="输入用户名或邮箱" value={username} onChange={(event) => onUsername(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onSubmit(); }} onContextMenu={(event) => openContextMenu('username', event)} /></div><div className="field-block"><label htmlFor="account-password">密码</label><div className="key-input-wrap"><LockKeyhole size={17} /><input ref={passwordInput} id="account-password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" placeholder="输入密码" value={password} onChange={(event) => onPassword(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onSubmit(); }} onContextMenu={(event) => openContextMenu('password', event)} /><button className="input-action" title={showPassword ? '隐藏密码' : '显示密码'} aria-label={showPassword ? '隐藏密码' : '显示密码'} onClick={onTogglePassword}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></div></div></div>}
     {!requiresTwoFactor && <><label className="remember-login"><input type="checkbox" checked={rememberLogin} onChange={(event) => onRememberLogin(event.target.checked)} />保存密码（仅保存在系统凭据管理器）</label><div className="login-links"><div className="login-register"><span>还没有注册？</span><button type="button" onClick={onRegister}>去注册</button></div><button className="login-link" type="button" onClick={onForgotPassword}>忘记密码</button></div></>}
     {message && <div className="setup-status neutral"><CircleDashed size={16} />{message}</div>}
     <div className="modal-actions"><button className="secondary-button" onClick={onClose}>取消</button><button className="primary-button" onClick={onSubmit} disabled={busy}><LogIn size={17} />{busy ? '登录中' : requiresTwoFactor ? '验证并登录' : '登录'}</button></div>
-  </section></div>;
+  </section>{contextMenu && <div ref={contextMenuRef} className="login-context-menu" role="menu" aria-label="登录输入操作" style={{ left: contextMenu.left, top: contextMenu.top }} onContextMenu={(event) => event.preventDefault()}><button type="button" role="menuitem" disabled={!contextMenu.hasSelection} onClick={() => void copySelection()}>复制</button><button type="button" role="menuitem" disabled={!contextMenu.hasSelection} onClick={() => void cutSelection()}>剪切</button><button type="button" role="menuitem" onClick={() => void pasteClipboard()}>粘贴</button><button type="button" role="menuitem" onClick={selectAll}>全选</button></div>}</div>;
 }
 
 function ActionNotice({ tone, text, left, top, below }: { tone: NoticeTone; text: string; left: number; top: number; below: boolean }) {
@@ -1561,7 +1755,7 @@ function readCropSource(file: File): Promise<CropSource> {
   });
 }
 
-function ThemeGallery({ theme, themeMode, themes, customWallpaper, transparency, onThemeChange, onThemeModeChange, onTransparencyChange, onCustomWallpaperChange, onOpenSource }: {
+function ThemeGallery({ theme, themeMode, themes, customWallpaper, transparency, onThemeChange, onThemeModeChange, onTransparencyChange, onCustomWallpaperChange, onConfirm, onOpenSource }: {
   theme: ThemeId;
   themeMode: ThemeMode;
   themes: ThemeDefinition[];
@@ -1571,6 +1765,7 @@ function ThemeGallery({ theme, themeMode, themes, customWallpaper, transparency,
   onThemeModeChange: (mode: ThemeMode) => void;
   onTransparencyChange: (transparency: ThemeTransparency) => void;
   onCustomWallpaperChange: (wallpaper: string) => void;
+  onConfirm: (options: ConfirmationOptions) => Promise<boolean>;
   onOpenSource: (url: string) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1652,8 +1847,8 @@ function ThemeGallery({ theme, themeMode, themes, customWallpaper, transparency,
     }
   }
 
-  function removeCustom() {
-    if (!window.confirm('删除已保存的自定义皮肤并恢复默认吗？')) return;
+  async function removeCustom() {
+    if (!(await onConfirm({ title: '删除自定义图片', message: '删除已保存的自定义皮肤并恢复默认吗？', confirmLabel: '确认删除', tone: 'danger' }))) return;
     onCustomWallpaperChange('');
   }
 
@@ -1694,7 +1889,7 @@ function ThemeGallery({ theme, themeMode, themes, customWallpaper, transparency,
           <button type="button" className="theme-upload-card" onClick={openPicker}><ImagePlus size={21} /><span><strong>上传新图片</strong><small>选择图片后可调整裁剪区域</small></span></button>
         </div>
         {cropError && !cropSource && <div className="theme-inline-error"><AlertTriangle size={15} />{cropError}</div>}
-        <div className="theme-panel-footer"><span>当前皮肤：<strong>{cards.find((item) => item.id === theme)?.name || '词元神青'}</strong></span><span>{customWallpaper ? <button type="button" className="theme-delete" onClick={removeCustom}><Trash2 size={13} />删除自定义图片</button> : '图片随安装包提供，离线也能使用'}</span></div>
+        <div className="theme-panel-footer"><span>当前皮肤：<strong>{cards.find((item) => item.id === theme)?.name || '词元神青'}</strong></span><span>{customWallpaper ? <button type="button" className="theme-delete" onClick={() => void removeCustom()}><Trash2 size={13} />删除自定义图片</button> : '图片随安装包提供，离线也能使用'}</span></div>
       </section>
     </div>
     <input ref={fileInputRef} className="theme-file-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void selectFile(event)} />
