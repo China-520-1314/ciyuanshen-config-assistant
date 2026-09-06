@@ -46,15 +46,23 @@ Gemini 的 Base URL 不能直接写成 `https://api.ciyuanshen.top/v1`，因为 
 
 选择 Codex 时会先备份 `~/.codex/config.toml` 和 `~/.codex/auth.json`。如果已有 `config.toml`，助手会保留用户原来的 provider 名称（可以是 `custom`、`ciyuanshen` 或其他名称），让 `model_provider`、`[model_providers.<名称>]` 和表内 `name` 三处保持一致；遇到旧版本留下的重复 provider 表会在能确认属于当前 provider 时合并，并清理重复字段，同时保留真正无关的 provider 表。对于 `ciyuanshen` provider，`base_url` 会统一修正为 `https://api.ciyuanshen.top/v1`；已有模型、推理强度、注释和其他表段保持不变，缺失字段才按模板补齐。新文件默认使用 `gpt-5.6-terra`、`model_reasoning_effort = "max"`、实时网络搜索和 `https://api.ciyuanshen.top/v1` Responses 服务商，认证文件写入选定 API Key。
 
+Codex 配置弹窗默认勾选三个可切换选项：
+
+- `context_management = { experimental_mode = true }`
+- `token_budget.enabled = true`
+- `token_budget.use_history_notes_extension = true`
+
+用户可在写入前取消任一选项。已有的内联配置、点号配置或 `[context_management]`、`[token_budget]` 表会就地补全和更新，不会产生重复 TOML 表。
+
 ## 更新检查
 
-应用启动时会优先读取词元神自建更新源；检测到新版本会询问用户是否更新，并按当前系统选择对应安装包：Windows 选择 NSIS 安装包，macOS 选择 Universal DMG。Windows 支持下载后自动关闭旧进程并安装；macOS 会提供官方 DMG/ZIP 下载地址，首次安装仍需用户在 Finder 中确认打开。
+应用启动时会优先读取词元神自建更新源；检测到新版本会在窗口中央询问用户是否更新，并按当前系统选择对应安装包：Windows 选择 NSIS 安装包，macOS 选择 Universal DMG。Windows 支持下载后自动关闭旧进程并安装；macOS 会提供官方 DMG/ZIP 下载地址，首次安装仍需用户在 Finder 中确认打开。
 
 默认更新清单为：
 
 `https://api.ciyuanshen.top/downloads/ciyuanshen-config-assistant/update.json`
 
-静态镜像同步失败或更新清单不可用时，应用才会回退 GitHub Releases。清单格式见 [`update-manifest.example.json`](update-manifest.example.json)。`downloadUrl` 必须是 HTTPS 地址；应用只负责检查版本并打开下载地址，不会静默替换用户的可执行文件。
+静态镜像同步失败或更新清单不可用时，应用会回退 GitHub Releases。用户确认更新后，客户端会优先下载并校验中国优化线路的安装包；连接、响应、读取、保存、大小或 SHA-256 校验失败时，会自动下载并校验同一版本的 GitHub Release 资产。清单格式见 [`update-manifest.example.json`](update-manifest.example.json)。`downloadUrl` 必须是 HTTPS 地址；Windows 只会在用户确认后交接给安装程序，不会在后台静默替换用户的可执行文件。
 
 ## 外观皮肤
 
@@ -105,7 +113,7 @@ GitHub Release 用于构建产物归档和更新源故障回退。部署在更�
 ```bash
 go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build \
   -platform windows/amd64 -nsis \
-  -ldflags "-X main.appVersion=0.2.15"
+  -ldflags "-X main.appVersion=0.2.16"
 ```
 
 macOS 本地构建示例（需要 macOS、Xcode Command Line Tools 和 `hdiutil`）：
@@ -113,7 +121,7 @@ macOS 本地构建示例（需要 macOS、Xcode Command Line Tools 和 `hdiutil`
 ```bash
 go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build \
   -platform darwin/universal \
-  -ldflags "-X main.appVersion=0.2.15"
+  -ldflags "-X main.appVersion=0.2.16"
 ```
 
 Wails 会先生成 `build/bin/ciyuanshen-config-assistant.app`；发布流程再将它打成 DMG 和 ZIP。Release 标签、`wails.json` 的产品版本和应用内版本号必须保持一致。

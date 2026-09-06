@@ -34,9 +34,9 @@ export function GetClientConfiguration(arg1:string,arg2:boolean):Promise<main.Cl
 
 export function GetConfiguredToolModels(arg1:string):Promise<main.ToolKeyValidationResult>;
 
-export function GetSavedAccountLogin():Promise<main.SavedAccountLogin>;
-
 export function GetPublicGroupRatios():Promise<main.GroupRatioReport>;
+
+export function GetSavedAccountLogin():Promise<main.SavedAccountLogin>;
 
 export function GetToolLifecycleInfo(arg1:string):Promise<main.ToolLifecycleInfo>;
 

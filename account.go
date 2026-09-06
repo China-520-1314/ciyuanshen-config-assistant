@@ -101,15 +101,17 @@ type ToolKeyValidationResult struct {
 }
 
 type ToolConfigurationRequest struct {
-	ClientID string `json:"clientId"`
-	APIKey   string `json:"apiKey"`
-	Model    string `json:"model"`
+	ClientID                  string                     `json:"clientId"`
+	APIKey                    string                     `json:"apiKey"`
+	Model                     string                     `json:"model"`
+	CodexExperimentalSettings *CodexExperimentalSettings `json:"codexExperimentalSettings,omitempty"`
 }
 
 type ProvisionedToolConfigurationRequest struct {
-	ProvisionID string `json:"provisionId"`
-	ClientID    string `json:"clientId"`
-	Model       string `json:"model"`
+	ProvisionID               string                     `json:"provisionId"`
+	ClientID                  string                     `json:"clientId"`
+	Model                     string                     `json:"model"`
+	CodexExperimentalSettings *CodexExperimentalSettings `json:"codexExperimentalSettings,omitempty"`
 }
 
 // ExistingToolConfigurationRequest applies a newly selected default model with
@@ -756,9 +758,10 @@ func (a *App) ConfigureTool(request ToolConfigurationRequest) ConfigureResult {
 		return ConfigureResult{FinishedAt: time.Now(), Error: "请选择该 Key 可用的默认模型"}
 	}
 	return a.Configure(ConfigurationRequest{
-		APIKey:  strings.TrimSpace(request.APIKey),
-		Targets: []string{clientID},
-		Models:  map[string]string{clientID: strings.TrimSpace(request.Model)},
+		APIKey:                    strings.TrimSpace(request.APIKey),
+		Targets:                   []string{clientID},
+		Models:                    map[string]string{clientID: strings.TrimSpace(request.Model)},
+		CodexExperimentalSettings: request.CodexExperimentalSettings,
 	})
 }
 
@@ -778,9 +781,10 @@ func (a *App) ConfigureProvisionedTool(request ProvisionedToolConfigurationReque
 		return ConfigureResult{FinishedAt: time.Now(), Error: "请选择新建 Key 可用的默认模型"}
 	}
 	result := a.Configure(ConfigurationRequest{
-		APIKey:  provision.Key,
-		Targets: []string{clientID},
-		Models:  map[string]string{clientID: strings.TrimSpace(request.Model)},
+		APIKey:                    provision.Key,
+		Targets:                   []string{clientID},
+		Models:                    map[string]string{clientID: strings.TrimSpace(request.Model)},
+		CodexExperimentalSettings: request.CodexExperimentalSettings,
 	})
 	if result.Success {
 		a.provisionMu.Lock()

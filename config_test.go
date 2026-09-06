@@ -170,6 +170,9 @@ func TestConfigureCodexAddsDefaultsAndPreservesExistingConfig(t *testing.T) {
 		`preferred_auth_method = "apikey"`,
 		`service_tier = "fast"`,
 		`web_search = "live"`,
+		`context_management = { experimental_mode = true }`,
+		`token_budget.enabled = true`,
+		`token_budget.use_history_notes_extension = true`,
 		`[model_providers.old]`,
 		`base_url = "https://old.example"`,
 		`custom = true`,
@@ -191,6 +194,119 @@ func TestConfigureCodexAddsDefaultsAndPreservesExistingConfig(t *testing.T) {
 	}
 	if len(auth) != 1 || auth["OPENAI_API_KEY"] != "new-key" {
 		t.Fatalf("auth.json was not updated: %#v", auth)
+	}
+}
+
+func TestPatchCodexConfigWithSettingsWritesSelectedExperimentalValues(t *testing.T) {
+	patched := patchCodexConfigWithSettings("", "", CodexExperimentalSettings{
+		ContextManagementExperimentalMode:   false,
+		TokenBudgetEnabled:                  false,
+		TokenBudgetUseHistoryNotesExtension: true,
+	})
+	for _, expected := range []string{
+		`context_management = { experimental_mode = false }`,
+		`token_budget.enabled = false`,
+		`token_budget.use_history_notes_extension = true`,
+	} {
+		if !strings.Contains(patched, expected) {
+			t.Fatalf("selected Codex setting is missing %q:\n%s", expected, patched)
+		}
+	}
+	var decoded map[string]any
+	if err := toml.Unmarshal([]byte(patched), &decoded); err != nil {
+		t.Fatalf("patched Codex configuration is not valid TOML: %v\n%s", err, patched)
+	}
+}
+
+func TestPatchCodexConfigWithSettingsUpdatesExistingTablesAndRemovesDuplicates(t *testing.T) {
+	existing := `context_management = { experimental_mode = true }
+token_budget.enabled = true
+token_budget.use_history_notes_extension = true
+
+[context_management]
+experimental_mode = true
+experimental_mode = true
+custom_context_option = "keep"
+
+[token_budget]
+enabled = true
+enabled = true
+use_history_notes_extension = true
+custom_budget_option = "keep"
+`
+	patched := patchCodexConfigWithSettings(existing, "", CodexExperimentalSettings{
+		ContextManagementExperimentalMode:   false,
+		TokenBudgetEnabled:                  false,
+		TokenBudgetUseHistoryNotesExtension: false,
+	})
+	for _, expected := range []string{
+		`[context_management]`,
+		`experimental_mode = false`,
+		`custom_context_option = "keep"`,
+		`[token_budget]`,
+		`enabled = false`,
+		`use_history_notes_extension = false`,
+		`custom_budget_option = "keep"`,
+	} {
+		if !strings.Contains(patched, expected) {
+			t.Fatalf("updated Codex table is missing %q:\n%s", expected, patched)
+		}
+	}
+	for _, key := range []string{"context_management =", "token_budget.enabled =", "token_budget.use_history_notes_extension ="} {
+		if strings.Contains(patched, key) {
+			t.Fatalf("top-level %s should be removed when the matching table exists:\n%s", key, patched)
+		}
+	}
+	if strings.Count(patched, "experimental_mode =") != 1 || strings.Count(patched, "enabled =") != 1 || strings.Count(patched, "use_history_notes_extension =") != 1 {
+		t.Fatalf("experimental settings were not de-duplicated:\n%s", patched)
+	}
+	var decoded map[string]any
+	if err := toml.Unmarshal([]byte(patched), &decoded); err != nil {
+		t.Fatalf("patched Codex configuration is not valid TOML: %v\n%s", err, patched)
+	}
+}
+
+func TestPatchCodexConfigWithSettingsPreservesInlineTableFields(t *testing.T) {
+	existing := `context_management = { experimental_mode = true, custom_context_option = "keep" }
+token_budget = { enabled = true, use_history_notes_extension = true, custom_budget_option = [1, 2, 3] }
+`
+	patched := patchCodexConfigWithSettings(existing, "", CodexExperimentalSettings{
+		ContextManagementExperimentalMode:   false,
+		TokenBudgetEnabled:                  false,
+		TokenBudgetUseHistoryNotesExtension: false,
+	})
+	for _, expected := range []string{
+		`context_management = { experimental_mode = false, custom_context_option = "keep" }`,
+		`token_budget = { enabled = false, use_history_notes_extension = false, custom_budget_option = [1, 2, 3] }`,
+	} {
+		if !strings.Contains(patched, expected) {
+			t.Fatalf("inline Codex fields were not preserved (%q):\n%s", expected, patched)
+		}
+	}
+	var decoded map[string]any
+	if err := toml.Unmarshal([]byte(patched), &decoded); err != nil {
+		t.Fatalf("patched inline Codex configuration is not valid TOML: %v\n%s", err, patched)
+	}
+}
+
+func TestPatchCodexConfigWithSettingsRemovesDuplicateInlineFields(t *testing.T) {
+	existing := `context_management = { experimental_mode = true, experimental_mode = true, custom = "keep" }
+token_budget = { enabled = true, enabled = true, use_history_notes_extension = true }
+`
+	patched := patchCodexConfigWithSettings(existing, "", CodexExperimentalSettings{
+		ContextManagementExperimentalMode:   false,
+		TokenBudgetEnabled:                  false,
+		TokenBudgetUseHistoryNotesExtension: false,
+	})
+	if strings.Count(patched, "experimental_mode =") != 1 || strings.Count(patched, "enabled =") != 1 || strings.Count(patched, "use_history_notes_extension =") != 1 {
+		t.Fatalf("duplicate inline Codex fields remain:\n%s", patched)
+	}
+	if !strings.Contains(patched, `custom = "keep"`) {
+		t.Fatalf("unmanaged inline field was lost:\n%s", patched)
+	}
+	var decoded map[string]any
+	if err := toml.Unmarshal([]byte(patched), &decoded); err != nil {
+		t.Fatalf("patched duplicate inline configuration is not valid TOML: %v\n%s", err, patched)
 	}
 }
 

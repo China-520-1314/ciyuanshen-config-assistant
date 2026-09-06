@@ -53,20 +53,6 @@ export namespace main {
 		    return a;
 		}
 	}
-	export class SavedAccountLogin {
-	    username: string;
-	    password: string;
-
-	    static createFrom(source: any = {}) {
-	        return new SavedAccountLogin(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.username = source["username"];
-	        this.password = source["password"];
-	    }
-	}
 	export class AccountState {
 	    signedIn: boolean;
 	    username: string;
@@ -325,6 +311,22 @@ export namespace main {
 	        this.detail = source["detail"];
 	    }
 	}
+	export class CodexExperimentalSettings {
+	    contextManagementExperimentalMode: boolean;
+	    tokenBudgetEnabled: boolean;
+	    tokenBudgetUseHistoryNotesExtension: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new CodexExperimentalSettings(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.contextManagementExperimentalMode = source["contextManagementExperimentalMode"];
+	        this.tokenBudgetEnabled = source["tokenBudgetEnabled"];
+	        this.tokenBudgetUseHistoryNotesExtension = source["tokenBudgetUseHistoryNotesExtension"];
+	    }
+	}
 	export class FilePreview {
 	    clientId: string;
 	    path: string;
@@ -379,6 +381,7 @@ export namespace main {
 	    apiKey: string;
 	    targets: string[];
 	    models: Record<string, string>;
+	    codexExperimentalSettings?: CodexExperimentalSettings;
 
 	    static createFrom(source: any = {}) {
 	        return new ConfigurationRequest(source);
@@ -389,6 +392,45 @@ export namespace main {
 	        this.apiKey = source["apiKey"];
 	        this.targets = source["targets"];
 	        this.models = source["models"];
+	        this.codexExperimentalSettings = this.convertValues(source["codexExperimentalSettings"], CodexExperimentalSettings);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ToolRestartResult {
+	    clientId: string;
+	    attempted: boolean;
+	    restarted: boolean;
+	    manualRestartRequired: boolean;
+	    message: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ToolRestartResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.clientId = source["clientId"];
+	        this.attempted = source["attempted"];
+	        this.restarted = source["restarted"];
+	        this.manualRestartRequired = source["manualRestartRequired"];
+	        this.message = source["message"];
 	    }
 	}
 	export class ConfigureResult {
@@ -435,26 +477,6 @@ export namespace main {
 		    }
 		    return a;
 		}
-	}
-	export class ToolRestartResult {
-	    clientId: string;
-	    attempted: boolean;
-	    restarted: boolean;
-	    manualRestartRequired: boolean;
-	    message: string;
-
-	    static createFrom(source: any = {}) {
-	        return new ToolRestartResult(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.clientId = source["clientId"];
-	        this.attempted = source["attempted"];
-	        this.restarted = source["restarted"];
-	        this.manualRestartRequired = source["manualRestartRequired"];
-	        this.message = source["message"];
-	    }
 	}
 	export class ConnectionCheckReport {
 	    results: ClientConnectionResult[];
@@ -604,6 +626,24 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class InstallUpdateResult {
+	    success: boolean;
+	    message?: string;
+	    error?: string;
+	    downloadUrl?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new InstallUpdateResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.message = source["message"];
+	        this.error = source["error"];
+	        this.downloadUrl = source["downloadUrl"];
+	    }
+	}
 	export class Model {
 	    id: string;
 	    object?: string;
@@ -660,6 +700,7 @@ export namespace main {
 	    provisionId: string;
 	    clientId: string;
 	    model: string;
+	    codexExperimentalSettings?: CodexExperimentalSettings;
 
 	    static createFrom(source: any = {}) {
 	        return new ProvisionedToolConfigurationRequest(source);
@@ -670,12 +711,46 @@ export namespace main {
 	        this.provisionId = source["provisionId"];
 	        this.clientId = source["clientId"];
 	        this.model = source["model"];
+	        this.codexExperimentalSettings = this.convertValues(source["codexExperimentalSettings"], CodexExperimentalSettings);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SavedAccountLogin {
+	    username: string;
+	    password: string;
+
+	    static createFrom(source: any = {}) {
+	        return new SavedAccountLogin(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.username = source["username"];
+	        this.password = source["password"];
 	    }
 	}
 	export class ToolConfigurationRequest {
 	    clientId: string;
 	    apiKey: string;
 	    model: string;
+	    codexExperimentalSettings?: CodexExperimentalSettings;
 
 	    static createFrom(source: any = {}) {
 	        return new ToolConfigurationRequest(source);
@@ -686,7 +761,26 @@ export namespace main {
 	        this.clientId = source["clientId"];
 	        this.apiKey = source["apiKey"];
 	        this.model = source["model"];
+	        this.codexExperimentalSettings = this.convertValues(source["codexExperimentalSettings"], CodexExperimentalSettings);
 	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ToolGroupOption {
 	    name: string;
@@ -742,8 +836,8 @@ export namespace main {
 	    provisionId: string;
 	    clientId: string;
 	    group: string;
-	    name: string;
-	    existing: boolean;
+	    name?: string;
+	    existing?: boolean;
 	    models: Model[];
 	    status: number;
 	    endpoint: string;
@@ -946,7 +1040,7 @@ export namespace main {
 	export class ToolOptionsResponse {
 	    clientId: string;
 	    groups: ToolGroupOption[];
-	    existingKeys: ToolKeyResult[];
+	    existingKeys?: ToolKeyResult[];
 
 	    static createFrom(source: any = {}) {
 	        return new ToolOptionsResponse(source);
@@ -977,6 +1071,7 @@ export namespace main {
 		    return a;
 		}
 	}
+
 	export class UpdateInfo {
 	    currentVersion: string;
 	    latestVersion: string;
@@ -1023,24 +1118,6 @@ export namespace main {
 		    }
 		    return a;
 		}
-	}
-	export class InstallUpdateResult {
-	    success: boolean;
-	    message?: string;
-	    error?: string;
-	    downloadUrl?: string;
-
-	    static createFrom(source: any = {}) {
-	        return new InstallUpdateResult(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.success = source["success"];
-	        this.message = source["message"];
-	        this.error = source["error"];
-	        this.downloadUrl = source["downloadUrl"];
-	    }
 	}
 
 }

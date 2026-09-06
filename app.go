@@ -31,13 +31,14 @@ const (
 	managedProviderName   = "ciyuanshen"
 	// Update installers can be several megabytes and GitHub may take longer
 	// than routine API calls to begin or finish a download.
-	updateDownloadTimeout = 10 * time.Minute
-	updateProgressEvent   = "ciyuanshen:update-progress"
+	updateDownloadTimeout  = 10 * time.Minute
+	maxUpdateInstallerSize = 300 * 1024 * 1024
+	updateProgressEvent    = "ciyuanshen:update-progress"
 )
 
 // appVersion is a variable so release builds can inject their tag with
 // -ldflags "-X main.appVersion=..." while local builds keep a useful default.
-var appVersion = "0.2.15"
+var appVersion = "0.2.16"
 
 type InstallUpdateResult struct {
 	Success     bool   `json:"success"`
@@ -116,9 +117,19 @@ type ModelResponse struct {
 }
 
 type ConfigurationRequest struct {
-	APIKey  string            `json:"apiKey"`
-	Targets []string          `json:"targets"`
-	Models  map[string]string `json:"models"`
+	APIKey                    string                     `json:"apiKey"`
+	Targets                   []string                   `json:"targets"`
+	Models                    map[string]string          `json:"models"`
+	CodexExperimentalSettings *CodexExperimentalSettings `json:"codexExperimentalSettings,omitempty"`
+}
+
+// CodexExperimentalSettings controls optional Codex capabilities exposed by
+// the one-click configuration dialog. A nil value keeps all options enabled
+// for callers from older app versions.
+type CodexExperimentalSettings struct {
+	ContextManagementExperimentalMode   bool `json:"contextManagementExperimentalMode"`
+	TokenBudgetEnabled                  bool `json:"tokenBudgetEnabled"`
+	TokenBudgetUseHistoryNotesExtension bool `json:"tokenBudgetUseHistoryNotesExtension"`
 }
 
 type FilePreview struct {
@@ -295,9 +306,11 @@ func preferUpdateSource(primary, fallback UpdateInfo) UpdateInfo {
 
 // InstallLatestUpdate downloads and verifies the latest Windows installer,
 // then hands off to a detached PowerShell process so the current executable
-// can exit before NSIS replaces it. macOS publishes a DMG/ZIP for manual
-// installation because replacing a running signed app bundle is not handled
-// by this Windows-specific handoff.
+// can exit before NSIS replaces it. A self-hosted Chinese-optimized source is
+// tried first; a matching GitHub release asset is used automatically if that
+// source cannot provide a verified installer. macOS publishes a DMG/ZIP for
+// manual installation because replacing a running signed app bundle is not
+// handled by this Windows-specific handoff.
 func (a *App) InstallLatestUpdate() (result InstallUpdateResult) {
 	defer func() {
 		if !result.Success && result.Error != "" {
@@ -318,80 +331,12 @@ func (a *App) InstallLatestUpdate() (result InstallUpdateResult) {
 		result.Error = "当前已经是最新版本"
 		return result
 	}
-	if err := validateUpdateDownloadURL(update.DownloadURL); err != nil {
+	downloaded, err := a.downloadLatestInstaller(update)
+	if err != nil {
 		result.Error = err.Error()
 		return result
 	}
-	tempFile, err := os.CreateTemp("", "ciyuanshen-config-assistant-update-*.exe")
-	if err != nil {
-		result.Error = "创建更新临时文件失败：" + err.Error()
-		return result
-	}
-	tempPath := tempFile.Name()
-	defer func() {
-		_ = tempFile.Close()
-	}()
-	request, err := http.NewRequest(http.MethodGet, update.DownloadURL, nil)
-	if err != nil {
-		_ = os.Remove(tempPath)
-		result.Error = "更新下载地址无效"
-		return result
-	}
-	request.Header.Set("User-Agent", "CiyuanShen-Config-Assistant/"+appVersion)
-	response, err := newUpdateDownloadHTTPClient(a.client).Do(request)
-	if err != nil {
-		_ = os.Remove(tempPath)
-		result.Error = "下载更新失败：" + err.Error()
-		return result
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		response.Body.Close()
-		_ = os.Remove(tempPath)
-		result.Error = fmt.Sprintf("更新下载服务返回 HTTP %d", response.StatusCode)
-		return result
-	}
-	totalBytes := response.ContentLength
-	if totalBytes < 0 {
-		totalBytes = 0
-	}
-	a.emitUpdateProgress(UpdateProgress{
-		Stage:      "downloading",
-		Message:    "正在下载更新包",
-		TotalBytes: totalBytes,
-	})
-	progressWriter := newUpdateProgressWriter(tempFile, totalBytes, a.emitUpdateProgress)
-	if _, err := io.Copy(progressWriter, io.LimitReader(response.Body, 300*1024*1024)); err != nil {
-		response.Body.Close()
-		_ = os.Remove(tempPath)
-		result.Error = "保存更新包失败：" + err.Error()
-		return result
-	}
-	response.Body.Close()
-	progressWriter.emit(true)
-	if err := tempFile.Close(); err != nil {
-		_ = os.Remove(tempPath)
-		result.Error = "关闭更新文件失败：" + err.Error()
-		return result
-	}
-	a.emitUpdateProgress(UpdateProgress{Stage: "verifying", Message: "正在校验更新包", DownloadedBytes: progressWriter.downloaded, TotalBytes: totalBytes, Percent: 100})
-	expected := normaliseSHA256(update.SHA256)
-	if expected == "" {
-		_ = os.Remove(tempPath)
-		result.Error = "更新清单缺少有效 SHA256，已取消安装"
-		return result
-	}
-	if expected != "" {
-		actual, hashErr := fileSHA256(tempPath)
-		if hashErr != nil || !strings.EqualFold(actual, expected) {
-			_ = os.Remove(tempPath)
-			if hashErr != nil {
-				result.Error = "校验更新包失败：" + hashErr.Error()
-			} else {
-				result.Error = "更新包校验失败，已取消安装"
-			}
-			return result
-		}
-	}
+	tempPath := downloaded.path
 	currentExecutable, executableErr := os.Executable()
 	if executableErr != nil {
 		_ = os.Remove(tempPath)
@@ -402,19 +347,166 @@ func (a *App) InstallLatestUpdate() (result InstallUpdateResult) {
 	installScript := buildUpdateInstallScript(os.Getpid(), processName, currentExecutable, tempPath)
 	command := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", installScript)
 	command.Stdin = nil
-	a.emitUpdateProgress(UpdateProgress{Stage: "installing", Message: "正在启动安装程序", DownloadedBytes: progressWriter.downloaded, TotalBytes: totalBytes, Percent: 100})
+	a.emitUpdateProgress(UpdateProgress{Stage: "installing", Message: "正在启动安装程序", DownloadedBytes: downloaded.downloadedBytes, TotalBytes: downloaded.totalBytes, Percent: 100})
 	if err := command.Start(); err != nil {
 		_ = os.Remove(tempPath)
 		result.Error = "启动更新安装程序失败：" + err.Error()
 		return result
 	}
 	result.Success = true
-	result.DownloadURL = update.DownloadURL
+	result.DownloadURL = downloaded.downloadURL
 	result.Message = "更新包已下载，应用将关闭并自动安装最新版"
 	if a.ctx != nil {
 		wailsRuntime.Quit(a.ctx)
 	}
 	return result
+}
+
+type downloadedUpdate struct {
+	path            string
+	downloadURL     string
+	downloadedBytes int64
+	totalBytes      int64
+}
+
+func (a *App) downloadLatestInstaller(update UpdateInfo) (downloadedUpdate, error) {
+	return downloadUpdateWithFallback(a.client, update, a.githubFallbackForUpdate, a.emitUpdateProgress)
+}
+
+// githubFallbackForUpdate only accepts the exact release version selected by
+// the mirror. The mirror SHA256 remains authoritative when GitHub does not
+// expose an asset digest, so a fallback cannot bypass integrity verification.
+func (a *App) githubFallbackForUpdate(primary UpdateInfo) (UpdateInfo, error) {
+	fallback := checkGitHubRelease(a.client, appVersion, githubReleaseAPIURL)
+	if fallback.Error != "" {
+		return UpdateInfo{}, errors.New(fallback.Error)
+	}
+	if !fallback.UpdateAvailable || compareVersions(fallback.LatestVersion, primary.LatestVersion) != 0 {
+		return UpdateInfo{}, fmt.Errorf("GitHub 最新版本与更新源不一致（更新源 v%s，GitHub v%s）", primary.LatestVersion, fallback.LatestVersion)
+	}
+	primarySHA := normaliseSHA256(primary.SHA256)
+	fallbackSHA := normaliseSHA256(fallback.SHA256)
+	if primarySHA != "" && fallbackSHA != "" && !strings.EqualFold(primarySHA, fallbackSHA) {
+		return UpdateInfo{}, errors.New("GitHub 安装包校验值与中国优化更新源不一致")
+	}
+	if primarySHA != "" {
+		fallback.SHA256 = primarySHA
+	}
+	if normaliseSHA256(fallback.SHA256) == "" {
+		return UpdateInfo{}, errors.New("GitHub 安装包缺少有效 SHA256，已取消备用下载")
+	}
+	return fallback, nil
+}
+
+// downloadUpdateWithFallback downloads from the self-hosted source first. A
+// failure while connecting, reading, saving, or verifying that installer
+// automatically retries the matching GitHub release asset.
+func downloadUpdateWithFallback(client *http.Client, primary UpdateInfo, fallback func(UpdateInfo) (UpdateInfo, error), report func(UpdateProgress)) (downloadedUpdate, error) {
+	if err := validateUpdateDownloadURL(primary.DownloadURL); err != nil {
+		return downloadedUpdate{}, err
+	}
+	primaryDownload, primaryErr := downloadAndVerifyUpdate(client, primary, "中国优化线路", report)
+	if primaryErr == nil {
+		return primaryDownload, nil
+	}
+	if !isSelfHostedUpdateURL(primary.DownloadURL) || fallback == nil {
+		return downloadedUpdate{}, primaryErr
+	}
+	if report != nil {
+		report(UpdateProgress{Stage: "fallback", Message: "中国优化线路下载失败，正在改用 GitHub 备用源"})
+	}
+	fallbackUpdate, fallbackLookupErr := fallback(primary)
+	if fallbackLookupErr != nil {
+		return downloadedUpdate{}, fmt.Errorf("中国优化线路下载失败：%v；GitHub 备用下载不可用：%w", primaryErr, fallbackLookupErr)
+	}
+	if err := validateUpdateDownloadURL(fallbackUpdate.DownloadURL); err != nil {
+		return downloadedUpdate{}, fmt.Errorf("中国优化线路下载失败：%v；GitHub 备用下载地址无效：%w", primaryErr, err)
+	}
+	fallbackDownload, fallbackErr := downloadAndVerifyUpdate(client, fallbackUpdate, "GitHub 备用源", report)
+	if fallbackErr != nil {
+		return downloadedUpdate{}, fmt.Errorf("中国优化线路下载失败：%v；GitHub 备用下载失败：%w", primaryErr, fallbackErr)
+	}
+	return fallbackDownload, nil
+}
+
+func downloadAndVerifyUpdate(baseClient *http.Client, update UpdateInfo, source string, report func(UpdateProgress)) (downloadedUpdate, error) {
+	expected := normaliseSHA256(update.SHA256)
+	if expected == "" {
+		return downloadedUpdate{}, errors.New("更新清单缺少有效 SHA256，已取消安装")
+	}
+	tempFile, err := os.CreateTemp("", "ciyuanshen-config-assistant-update-*.exe")
+	if err != nil {
+		return downloadedUpdate{}, fmt.Errorf("创建更新临时文件失败：%w", err)
+	}
+	tempPath := tempFile.Name()
+	completed := false
+	defer func() {
+		_ = tempFile.Close()
+		if !completed {
+			_ = os.Remove(tempPath)
+		}
+	}()
+
+	request, err := http.NewRequest(http.MethodGet, update.DownloadURL, nil)
+	if err != nil {
+		return downloadedUpdate{}, errors.New("更新下载地址无效")
+	}
+	request.Header.Set("User-Agent", "CiyuanShen-Config-Assistant/"+appVersion)
+	response, err := newUpdateDownloadHTTPClient(baseClient).Do(request)
+	if err != nil {
+		return downloadedUpdate{}, fmt.Errorf("下载更新失败：%w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return downloadedUpdate{}, fmt.Errorf("更新下载服务返回 HTTP %d", response.StatusCode)
+	}
+	if response.ContentLength > maxUpdateInstallerSize {
+		return downloadedUpdate{}, errors.New("更新包超过允许大小，已取消下载")
+	}
+	totalBytes := response.ContentLength
+	if totalBytes < 0 {
+		totalBytes = 0
+	}
+	message := "正在下载更新包"
+	if source != "" {
+		message = "正在通过" + source + "下载更新包"
+	}
+	if report != nil {
+		report(UpdateProgress{Stage: "downloading", Message: message, TotalBytes: totalBytes})
+	}
+	progressWriter := newUpdateProgressWriterWithMessage(tempFile, totalBytes, message, report)
+	limited := io.LimitReader(response.Body, maxUpdateInstallerSize+1)
+	if _, err := io.Copy(progressWriter, limited); err != nil {
+		return downloadedUpdate{}, fmt.Errorf("保存更新包失败：%w", err)
+	}
+	if progressWriter.downloaded > maxUpdateInstallerSize {
+		return downloadedUpdate{}, errors.New("更新包超过允许大小，已取消下载")
+	}
+	progressWriter.emit(true)
+	if err := tempFile.Close(); err != nil {
+		return downloadedUpdate{}, fmt.Errorf("关闭更新文件失败：%w", err)
+	}
+	if report != nil {
+		report(UpdateProgress{Stage: "verifying", Message: "正在校验更新包", DownloadedBytes: progressWriter.downloaded, TotalBytes: totalBytes, Percent: 100})
+	}
+	actual, hashErr := fileSHA256(tempPath)
+	if hashErr != nil {
+		return downloadedUpdate{}, fmt.Errorf("校验更新包失败：%w", hashErr)
+	}
+	if !strings.EqualFold(actual, expected) {
+		return downloadedUpdate{}, errors.New("更新包校验失败，已取消安装")
+	}
+	completed = true
+	return downloadedUpdate{path: tempPath, downloadURL: update.DownloadURL, downloadedBytes: progressWriter.downloaded, totalBytes: totalBytes}, nil
+}
+
+func isSelfHostedUpdateURL(raw string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	return host == "api.ciyuanshen.top" || host == "ciyuanshen.top"
 }
 
 func (a *App) emitUpdateProgress(progress UpdateProgress) {
@@ -426,6 +518,7 @@ func (a *App) emitUpdateProgress(progress UpdateProgress) {
 type updateProgressWriter struct {
 	writer      io.Writer
 	total       int64
+	message     string
 	downloaded  int64
 	lastBytes   int64
 	lastPercent int
@@ -433,7 +526,11 @@ type updateProgressWriter struct {
 }
 
 func newUpdateProgressWriter(writer io.Writer, total int64, report func(UpdateProgress)) *updateProgressWriter {
-	return &updateProgressWriter{writer: writer, total: total, lastPercent: -1, report: report}
+	return newUpdateProgressWriterWithMessage(writer, total, "正在下载更新包", report)
+}
+
+func newUpdateProgressWriterWithMessage(writer io.Writer, total int64, message string, report func(UpdateProgress)) *updateProgressWriter {
+	return &updateProgressWriter{writer: writer, total: total, message: message, lastPercent: -1, report: report}
 }
 
 func (writer *updateProgressWriter) Write(data []byte) (int, error) {
@@ -465,7 +562,7 @@ func (writer *updateProgressWriter) emit(force bool) {
 	writer.lastBytes = writer.downloaded
 	writer.report(UpdateProgress{
 		Stage:           "downloading",
-		Message:         "正在下载更新包",
+		Message:         writer.message,
 		DownloadedBytes: writer.downloaded,
 		TotalBytes:      writer.total,
 		Percent:         percent,

@@ -2,12 +2,22 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
 )
+
+type updateRoundTripper func(*http.Request) (*http.Response, error)
+
+func (roundTrip updateRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	return roundTrip(request)
+}
 
 func TestCompareVersions(t *testing.T) {
 	tests := []struct {
@@ -183,6 +193,98 @@ func TestNewUpdateDownloadHTTPClientUsesDedicatedTimeout(t *testing.T) {
 	if defaultClient.Timeout != updateDownloadTimeout {
 		t.Fatalf("default download timeout = %s, want %s", defaultClient.Timeout, updateDownloadTimeout)
 	}
+}
+
+func TestDownloadUpdateWithFallbackUsesGitHubAfterPrimaryHTTPFailure(t *testing.T) {
+	payload := []byte("verified GitHub installer")
+	hash := sha256.Sum256(payload)
+	primaryURL := "https://api.ciyuanshen.top/downloads/ciyuanshen-config-assistant/installer.exe"
+	fallbackURL := "https://github.com/China-520-1314/ciyuanshen-config-assistant/releases/download/v0.2.16/installer.exe"
+	var primaryRequests, fallbackRequests int
+	client := &http.Client{Transport: updateRoundTripper(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.String() {
+		case primaryURL:
+			primaryRequests++
+			return &http.Response{StatusCode: http.StatusServiceUnavailable, Status: "503 Service Unavailable", Header: make(http.Header), Body: io.NopCloser(strings.NewReader("mirror unavailable")), Request: request}, nil
+		case fallbackURL:
+			fallbackRequests++
+			return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header), ContentLength: int64(len(payload)), Body: io.NopCloser(bytes.NewReader(payload)), Request: request}, nil
+		default:
+			t.Fatalf("unexpected update URL: %s", request.URL)
+			return nil, nil
+		}
+	})}
+	var progress []UpdateProgress
+	downloaded, err := downloadUpdateWithFallback(client, UpdateInfo{DownloadURL: primaryURL, SHA256: hex.EncodeToString(hash[:])}, func(primary UpdateInfo) (UpdateInfo, error) {
+		if primary.DownloadURL != primaryURL {
+			t.Fatalf("fallback received the wrong primary update: %#v", primary)
+		}
+		return UpdateInfo{DownloadURL: fallbackURL, SHA256: hex.EncodeToString(hash[:])}, nil
+	}, func(next UpdateProgress) {
+		progress = append(progress, next)
+	})
+	if err != nil {
+		t.Fatalf("download with fallback failed: %v", err)
+	}
+	defer os.Remove(downloaded.path)
+	if primaryRequests != 1 || fallbackRequests != 1 {
+		t.Fatalf("primary requests = %d, fallback requests = %d; want one each", primaryRequests, fallbackRequests)
+	}
+	if downloaded.downloadURL != fallbackURL {
+		t.Fatalf("download URL = %q, want GitHub fallback URL %q", downloaded.downloadURL, fallbackURL)
+	}
+	content, err := os.ReadFile(downloaded.path)
+	if err != nil {
+		t.Fatalf("read fallback installer: %v", err)
+	}
+	if !bytes.Equal(content, payload) {
+		t.Fatalf("fallback installer = %q, want %q", content, payload)
+	}
+	if !containsUpdateProgressStage(progress, "fallback") {
+		t.Fatalf("fallback progress was not emitted: %#v", progress)
+	}
+}
+
+func TestDownloadUpdateWithFallbackRetriesGitHubAfterPrimaryChecksumFailure(t *testing.T) {
+	payload := []byte("verified GitHub installer")
+	hash := sha256.Sum256(payload)
+	primaryURL := "https://api.ciyuanshen.top/downloads/ciyuanshen-config-assistant/installer.exe"
+	fallbackURL := "https://github.com/China-520-1314/ciyuanshen-config-assistant/releases/download/v0.2.16/installer.exe"
+	var fallbackRequests int
+	client := &http.Client{Transport: updateRoundTripper(func(request *http.Request) (*http.Response, error) {
+		if request.URL.String() == primaryURL {
+			invalid := []byte("truncated mirror installer")
+			return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header), ContentLength: int64(len(invalid)), Body: io.NopCloser(bytes.NewReader(invalid)), Request: request}, nil
+		}
+		if request.URL.String() == fallbackURL {
+			fallbackRequests++
+			return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header), ContentLength: int64(len(payload)), Body: io.NopCloser(bytes.NewReader(payload)), Request: request}, nil
+		}
+		t.Fatalf("unexpected update URL: %s", request.URL)
+		return nil, nil
+	})}
+	downloaded, err := downloadUpdateWithFallback(client, UpdateInfo{DownloadURL: primaryURL, SHA256: hex.EncodeToString(hash[:])}, func(UpdateInfo) (UpdateInfo, error) {
+		return UpdateInfo{DownloadURL: fallbackURL, SHA256: hex.EncodeToString(hash[:])}, nil
+	}, nil)
+	if err != nil {
+		t.Fatalf("download with checksum fallback failed: %v", err)
+	}
+	defer os.Remove(downloaded.path)
+	if fallbackRequests != 1 {
+		t.Fatalf("fallback requests = %d, want 1", fallbackRequests)
+	}
+	if downloaded.downloadURL != fallbackURL {
+		t.Fatalf("download URL = %q, want fallback URL %q", downloaded.downloadURL, fallbackURL)
+	}
+}
+
+func containsUpdateProgressStage(progress []UpdateProgress, stage string) bool {
+	for _, item := range progress {
+		if item.Stage == stage {
+			return true
+		}
+	}
+	return false
 }
 
 func TestUpdateProgressWriterReportsActualDownloadProgress(t *testing.T) {

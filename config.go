@@ -51,6 +51,7 @@ func buildConfiguration(request ConfigurationRequest) ([]fileOperation, []string
 	if models == nil {
 		models = map[string]string{}
 	}
+	codexSettings := normaliseCodexExperimentalSettings(request.CodexExperimentalSettings)
 	seen := map[string]bool{}
 	operations := make([]fileOperation, 0, len(request.Targets)+2)
 	warnings := make([]string, 0)
@@ -75,7 +76,7 @@ func buildConfiguration(request ConfigurationRequest) ([]fileOperation, []string
 		case "claude-desktop":
 			targetOperations, err = configureClaudeDesktop(home, key, model)
 		case "codex":
-			targetOperations, err = configureCodex(home, key, model)
+			targetOperations, err = configureCodexWithSettings(home, key, model, codexSettings)
 		case "gemini":
 			targetOperations, err = configureGemini(home, key, model)
 		case "grok":
@@ -134,12 +135,16 @@ func configureClaude(home, key, model string) ([]fileOperation, error) {
 }
 
 func configureCodex(home, key, model string) ([]fileOperation, error) {
+	return configureCodexWithSettings(home, key, model, defaultCodexExperimentalSettings())
+}
+
+func configureCodexWithSettings(home, key, model string, settings CodexExperimentalSettings) ([]fileOperation, error) {
 	configPath := firstClientPath("codex", home)
 	existingConfig, err := readTextOrEmpty(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("读取 Codex 配置失败：%w", err)
 	}
-	configContent := []byte(patchCodexConfig(existingConfig, model))
+	configContent := []byte(patchCodexConfigWithSettings(existingConfig, model, settings))
 
 	authPath := filepath.Join(home, ".codex", "auth.json")
 	authContent, err := marshalJSON(map[string]string{"OPENAI_API_KEY": key})
@@ -153,6 +158,21 @@ func configureCodex(home, key, model string) ([]fileOperation, error) {
 }
 
 const codexDefaultModel = "gpt-5.6-terra"
+
+func defaultCodexExperimentalSettings() CodexExperimentalSettings {
+	return CodexExperimentalSettings{
+		ContextManagementExperimentalMode:   true,
+		TokenBudgetEnabled:                  true,
+		TokenBudgetUseHistoryNotesExtension: true,
+	}
+}
+
+func normaliseCodexExperimentalSettings(settings *CodexExperimentalSettings) CodexExperimentalSettings {
+	if settings == nil {
+		return defaultCodexExperimentalSettings()
+	}
+	return *settings
+}
 
 type codexTemplateField struct {
 	Key   string
@@ -192,6 +212,14 @@ type codexTableBlock struct {
 // table when the top-level field is missing. All three provider references are
 // then kept in sync without discarding unrelated provider tables.
 func patchCodexConfig(existing, selectedModel string) string {
+	return patchCodexConfigWithSettings(existing, selectedModel, defaultCodexExperimentalSettings())
+}
+
+// patchCodexConfigWithSettings edits the managed Codex settings without
+// reformatting unrelated TOML. The optional experimental settings use the
+// requested compact top-level form for new files, while existing TOML tables
+// are updated in place to avoid defining a table twice.
+func patchCodexConfigWithSettings(existing, selectedModel string, settings CodexExperimentalSettings) string {
 	lines := []string(nil)
 	if existing != "" {
 		lines = strings.Split(existing, "\n")
@@ -210,6 +238,8 @@ func patchCodexConfig(existing, selectedModel string) string {
 	explicitProviderName := codexTopLevelProviderName(prefix)
 	providerName := codexProviderName(prefix, blocks)
 	prefix = patchCodexTopLevel(prefix, providerName, selectedModel)
+	prefix = patchCodexExperimentalTopLevel(prefix, blocks, settings)
+	blocks = patchCodexExperimentalBlocks(blocks, settings)
 	blocks = patchCodexDesktopBlocks(blocks)
 	blocks, providerIndex := patchCodexProviderBlocks(blocks, providerName, explicitProviderName != "")
 	if providerIndex < 0 {
@@ -231,6 +261,138 @@ func patchCodexConfig(existing, selectedModel string) string {
 		result = strings.TrimRight(result, "\n") + "\n"
 	}
 	return result
+}
+
+func patchCodexExperimentalTopLevel(lines []string, blocks []codexTableBlock, settings CodexExperimentalSettings) []string {
+	hasContextTable := codexHasTable(blocks, "context_management")
+	hasTokenBudgetTable := codexHasTable(blocks, "token_budget")
+	hasInlineContext := codexHasAssignment(lines, "context_management")
+	hasInlineTokenBudget := codexHasAssignment(lines, "token_budget")
+
+	contextValue := strconv.FormatBool(settings.ContextManagementExperimentalMode)
+	tokenBudgetEnabled := strconv.FormatBool(settings.TokenBudgetEnabled)
+	historyNotes := strconv.FormatBool(settings.TokenBudgetUseHistoryNotesExtension)
+	patched := make([]string, 0, len(lines)+3)
+	present := map[string]bool{}
+	for _, line := range lines {
+		key, value, ok := codexAssignment(line)
+		if !ok {
+			patched = append(patched, line)
+			continue
+		}
+
+		switch key {
+		case "context_management":
+			if hasContextTable || present[key] {
+				continue
+			}
+			present[key] = true
+			patched = append(patched, "context_management = "+patchCodexInlineTable(value, map[string]string{"experimental_mode": contextValue}))
+		case "context_management.experimental_mode":
+			// An inline context_management value and a dotted child cannot
+			// coexist in TOML. New files use the compact inline form.
+			if hasContextTable || hasInlineContext || present[key] {
+				continue
+			}
+			present[key] = true
+			patched = append(patched, "context_management = { experimental_mode = "+contextValue+" }")
+		case "token_budget":
+			if hasTokenBudgetTable || present[key] {
+				continue
+			}
+			present[key] = true
+			patched = append(patched, "token_budget = "+patchCodexInlineTable(value, map[string]string{
+				"enabled":                     tokenBudgetEnabled,
+				"use_history_notes_extension": historyNotes,
+			}))
+		case "token_budget.enabled", "token_budget.use_history_notes_extension":
+			if hasTokenBudgetTable || hasInlineTokenBudget || present[key] {
+				continue
+			}
+			present[key] = true
+			if key == "token_budget.enabled" {
+				patched = append(patched, "token_budget.enabled = "+tokenBudgetEnabled)
+			} else {
+				patched = append(patched, "token_budget.use_history_notes_extension = "+historyNotes)
+			}
+		default:
+			patched = append(patched, line)
+		}
+	}
+
+	additions := make([]string, 0, 3)
+	if !hasContextTable && !present["context_management"] && !present["context_management.experimental_mode"] {
+		additions = append(additions, "context_management = { experimental_mode = "+contextValue+" }")
+	}
+	if !hasTokenBudgetTable && !hasInlineTokenBudget {
+		if !present["token_budget.enabled"] {
+			additions = append(additions, "token_budget.enabled = "+tokenBudgetEnabled)
+		}
+		if !present["token_budget.use_history_notes_extension"] {
+			additions = append(additions, "token_budget.use_history_notes_extension = "+historyNotes)
+		}
+	}
+	return insertCodexBeforeTrailingBlankLines(patched, additions)
+}
+
+func patchCodexExperimentalBlocks(blocks []codexTableBlock, settings CodexExperimentalSettings) []codexTableBlock {
+	for index := range blocks {
+		switch blocks[index].Name {
+		case "context_management":
+			blocks[index].Lines = patchCodexBooleanBlockLines(blocks[index].Lines, map[string]bool{
+				"experimental_mode": settings.ContextManagementExperimentalMode,
+			})
+		case "token_budget":
+			blocks[index].Lines = patchCodexBooleanBlockLines(blocks[index].Lines, map[string]bool{
+				"enabled":                     settings.TokenBudgetEnabled,
+				"use_history_notes_extension": settings.TokenBudgetUseHistoryNotesExtension,
+			})
+		}
+	}
+	return blocks
+}
+
+func patchCodexBooleanBlockLines(existing []string, values map[string]bool) []string {
+	if len(existing) == 0 {
+		return existing
+	}
+	patched := make([]string, 0, len(existing)+len(values))
+	present := make(map[string]bool, len(values))
+	for index, line := range existing {
+		if index == 0 {
+			patched = append(patched, line)
+			continue
+		}
+		key, _, ok := codexAssignment(line)
+		value, managed := values[key]
+		if !ok || !managed {
+			patched = append(patched, line)
+			continue
+		}
+		if present[key] {
+			continue
+		}
+		present[key] = true
+		patched = append(patched, key+" = "+strconv.FormatBool(value))
+	}
+
+	additions := make([]string, 0, len(values))
+	for _, key := range []string{"experimental_mode", "enabled", "use_history_notes_extension"} {
+		value, managed := values[key]
+		if managed && !present[key] {
+			additions = append(additions, key+" = "+strconv.FormatBool(value))
+		}
+	}
+	return insertCodexBeforeTrailingBlankLines(patched, additions)
+}
+
+func codexHasTable(blocks []codexTableBlock, name string) bool {
+	for _, block := range blocks {
+		if block.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func codexTableBlocks(lines []string) []codexTableBlock {
@@ -590,6 +752,94 @@ func codexHasAssignment(lines []string, wanted string) bool {
 		}
 	}
 	return false
+}
+
+// patchCodexInlineTable updates selected fields in a TOML inline table while
+// retaining unrelated fields. Codex configuration files commonly keep small
+// custom options in these tables, so replacing the whole value would discard
+// user settings.
+func patchCodexInlineTable(value string, updates map[string]string) string {
+	trimmed := strings.TrimSpace(value)
+	if len(trimmed) < 2 || trimmed[0] != '{' || trimmed[len(trimmed)-1] != '}' {
+		parts := make([]string, 0, len(updates))
+		for _, key := range []string{"experimental_mode", "enabled", "use_history_notes_extension"} {
+			if replacement, managed := updates[key]; managed {
+				parts = append(parts, key+" = "+replacement)
+			}
+		}
+		return "{ " + strings.Join(parts, ", ") + " }"
+	}
+	parts := splitCodexInlineTable(trimmed[1 : len(trimmed)-1])
+	present := make(map[string]bool, len(updates))
+	patched := make([]string, 0, len(parts)+len(updates))
+	for _, part := range parts {
+		trimmedPart := strings.TrimSpace(part)
+		if trimmedPart == "" {
+			continue
+		}
+		keyPart, _, _ := strings.Cut(trimmedPart, "=")
+		key := strings.Trim(strings.TrimSpace(keyPart), "\"'")
+		replacement, managed := updates[key]
+		if !managed {
+			patched = append(patched, trimmedPart)
+			continue
+		}
+		if present[key] {
+			continue
+		}
+		present[key] = true
+		patched = append(patched, strings.TrimSpace(keyPart)+" = "+replacement)
+	}
+	for _, key := range []string{"experimental_mode", "enabled", "use_history_notes_extension"} {
+		if replacement, managed := updates[key]; managed && !present[key] {
+			patched = append(patched, key+" = "+replacement)
+		}
+	}
+	return "{ " + strings.Join(patched, ", ") + " }"
+}
+
+// splitCodexInlineTable separates top-level comma-delimited fields while
+// respecting nested arrays/tables and quoted strings.
+func splitCodexInlineTable(value string) []string {
+	parts := make([]string, 0, 4)
+	start := 0
+	braceDepth, bracketDepth := 0, 0
+	inBasic, inLiteral, escaped := false, false, false
+	for index := 0; index < len(value); index++ {
+		char := value[index]
+		if char == '\\' && inBasic && !escaped {
+			escaped = true
+			continue
+		}
+		if char == '"' && !inLiteral && !escaped {
+			inBasic = !inBasic
+		} else if char == '\'' && !inBasic {
+			inLiteral = !inLiteral
+		} else if !inBasic && !inLiteral {
+			switch char {
+			case '{':
+				braceDepth++
+			case '}':
+				if braceDepth > 0 {
+					braceDepth--
+				}
+			case '[':
+				bracketDepth++
+			case ']':
+				if bracketDepth > 0 {
+					bracketDepth--
+				}
+			case ',':
+				if braceDepth == 0 && bracketDepth == 0 {
+					parts = append(parts, value[start:index])
+					start = index + 1
+				}
+			}
+		}
+		escaped = false
+	}
+	parts = append(parts, value[start:])
+	return parts
 }
 
 func codexProviderManagedField(key string) bool {

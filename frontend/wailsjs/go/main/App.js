@@ -66,12 +66,12 @@ export function GetConfiguredToolModels(arg1) {
   return window['go']['main']['App']['GetConfiguredToolModels'](arg1);
 }
 
-export function GetSavedAccountLogin() {
-  return window['go']['main']['App']['GetSavedAccountLogin']();
-}
-
 export function GetPublicGroupRatios() {
   return window['go']['main']['App']['GetPublicGroupRatios']();
+}
+
+export function GetSavedAccountLogin() {
+  return window['go']['main']['App']['GetSavedAccountLogin']();
 }
 
 export function GetToolLifecycleInfo(arg1) {
