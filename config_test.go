@@ -42,6 +42,40 @@ func operationFor(t *testing.T, operations []fileOperation, path string) fileOpe
 	return fileOperation{}
 }
 
+func assertGeminiCLIModelCompatibility(t *testing.T, settings map[string]any, models ...string) {
+	t.Helper()
+	experimental, ok := settings["experimental"].(map[string]any)
+	if !ok || experimental["dynamicModelConfiguration"] != true {
+		t.Fatalf("dynamic Gemini model configuration was not enabled: %#v", settings["experimental"])
+	}
+	modelConfigs, ok := settings["modelConfigs"].(map[string]any)
+	if !ok {
+		t.Fatalf("modelConfigs was not written: %#v", settings["modelConfigs"])
+	}
+	aliases, ok := modelConfigs["customAliases"].(map[string]any)
+	if !ok {
+		t.Fatalf("customAliases was not written: %#v", modelConfigs["customAliases"])
+	}
+	definitions, ok := modelConfigs["modelDefinitions"].(map[string]any)
+	if !ok {
+		t.Fatalf("modelDefinitions was not written: %#v", modelConfigs["modelDefinitions"])
+	}
+	for _, model := range models {
+		alias, ok := aliases[model].(map[string]any)
+		if !ok || alias["extends"] != "chat-base-3" {
+			t.Fatalf("model alias for %s is invalid: %#v", model, aliases[model])
+		}
+		modelConfig, ok := alias["modelConfig"].(map[string]any)
+		if !ok || modelConfig["model"] != model {
+			t.Fatalf("model config for %s is invalid: %#v", model, alias["modelConfig"])
+		}
+		definition, ok := definitions[model].(map[string]any)
+		if !ok || definition["isVisible"] != true || definition["tier"] != "flash" {
+			t.Fatalf("model definition for %s is invalid: %#v", model, definitions[model])
+		}
+	}
+}
+
 func TestConfigureClaudePreservesExistingSettings(t *testing.T) {
 	home := isolateHome(t)
 	path := filepath.Join(home, ".claude", "settings.json")
@@ -79,9 +113,9 @@ func TestConfigureGeminiUpdatesEnvWithoutDroppingComments(t *testing.T) {
 	envPath := filepath.Join(home, ".gemini", ".env")
 	settingsPath := filepath.Join(home, ".gemini", "settings.json")
 	writeFixture(t, envPath, "# keep this comment\nGEMINI_API_KEY=old\nOTHER=value\n")
-	writeFixture(t, settingsPath, `{"mcpServers":{"local":{"command":"demo"}}}`)
+	writeFixture(t, settingsPath, `{"mcpServers":{"local":{"command":"demo"}},"modelConfigs":{"customAliases":{"keep":{"modelConfig":{"model":"keep"}}}}}`)
 
-	operations, err := configureGemini(home, "key with space", "gemini-test")
+	operations, err := configureGemini(home, "key with space", "gemini-3.8-flash")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +124,7 @@ func TestConfigureGeminiUpdatesEnvWithoutDroppingComments(t *testing.T) {
 	for _, expected := range []string{
 		"# keep this comment",
 		`GEMINI_API_KEY="key with space"`,
-		"GEMINI_MODEL=gemini-test",
+		"GEMINI_MODEL=gemini-3.8-flash",
 		"GOOGLE_GEMINI_BASE_URL=" + geminiGatewayURL,
 		"GOOGLE_GENAI_API_VERSION=" + geminiAPIVersion,
 		"OTHER=value",
@@ -115,6 +149,12 @@ func TestConfigureGeminiUpdatesEnvWithoutDroppingComments(t *testing.T) {
 	}
 	if _, ok := settings["mcpServers"]; !ok {
 		t.Fatal("existing Gemini settings were dropped")
+	}
+	assertGeminiCLIModelCompatibility(t, settings, "gemini-3.7-flash", "gemini-3.8-flash")
+	modelConfigs := settings["modelConfigs"].(map[string]any)
+	aliases := modelConfigs["customAliases"].(map[string]any)
+	if _, ok := aliases["keep"]; !ok {
+		t.Fatal("existing Gemini model aliases were dropped")
 	}
 }
 

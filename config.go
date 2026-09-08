@@ -906,6 +906,80 @@ func codexStripComment(line string) string {
 	return line
 }
 
+var geminiCLIDynamicFlashModels = []string{
+	"gemini-3.7-flash",
+	"gemini-3.8-flash",
+}
+
+// Gemini CLI's legacy resolver rewrites unknown Flash model IDs to gemini-3.5-flash.
+func configureGeminiModelCompatibility(settings map[string]any, selectedModel string) {
+	experimental := ensureMap(settings, "experimental")
+	experimental["dynamicModelConfiguration"] = true
+
+	modelConfigs := ensureMap(settings, "modelConfigs")
+	aliases := ensureMap(modelConfigs, "customAliases")
+	definitions := ensureMap(modelConfigs, "modelDefinitions")
+	for _, model := range geminiCLICompatibleModels(selectedModel) {
+		alias := ensureMap(aliases, model)
+		alias["extends"] = "chat-base-3"
+		modelConfig := ensureMap(alias, "modelConfig")
+		modelConfig["model"] = model
+
+		definition := ensureMap(definitions, model)
+		definition["displayName"] = model
+		definition["tier"] = "flash"
+		definition["family"] = "gemini-3"
+		definition["isPreview"] = false
+		definition["isVisible"] = true
+		features := ensureMap(definition, "features")
+		features["thinking"] = true
+		features["multimodalToolUse"] = true
+	}
+}
+
+func geminiCLICompatibleModels(selectedModel string) []string {
+	models := append([]string{}, geminiCLIDynamicFlashModels...)
+	selectedModel = strings.TrimSpace(selectedModel)
+	if geminiCLIRequiresModelCompatibility(selectedModel) {
+		models = append(models, selectedModel)
+	}
+	return uniqueStrings(models)
+}
+
+func geminiCLIRequiresModelCompatibility(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	return strings.HasPrefix(model, "gemini-3.") && strings.HasSuffix(model, "-flash")
+}
+
+func geminiCLIModelCompatibilityConfigured(settings map[string]any, model string) bool {
+	experimental, ok := settings["experimental"].(map[string]any)
+	if !ok || experimental["dynamicModelConfiguration"] != true {
+		return false
+	}
+	modelConfigs, ok := settings["modelConfigs"].(map[string]any)
+	if !ok {
+		return false
+	}
+	aliases, ok := modelConfigs["customAliases"].(map[string]any)
+	if !ok {
+		return false
+	}
+	alias, ok := aliases[model].(map[string]any)
+	if !ok {
+		return false
+	}
+	modelConfig, ok := alias["modelConfig"].(map[string]any)
+	if !ok || modelConfig["model"] != model {
+		return false
+	}
+	definitions, ok := modelConfigs["modelDefinitions"].(map[string]any)
+	if !ok {
+		return false
+	}
+	definition, ok := definitions[model].(map[string]any)
+	return ok && definition["isVisible"] == true
+}
+
 func configureGemini(home, key, model string) ([]fileOperation, error) {
 	envPath := filepath.Join(home, ".gemini", ".env")
 	envContent, err := readTextOrEmpty(envPath)
@@ -927,6 +1001,7 @@ func configureGemini(home, key, model string) ([]fileOperation, error) {
 	security := ensureMap(settings, "security")
 	auth := ensureMap(security, "auth")
 	auth["selectedType"] = "gemini-api-key"
+	configureGeminiModelCompatibility(settings, model)
 	settingsContent, err := marshalJSON(settings)
 	if err != nil {
 		return nil, fmt.Errorf("生成 Gemini 设置失败：%w", err)

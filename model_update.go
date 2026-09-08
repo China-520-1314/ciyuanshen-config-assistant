@@ -14,7 +14,7 @@ import (
 // updateConfiguredClientModel changes only the target client's default model.
 // It deliberately bypasses the full configuration transaction: the caller has
 // already validated the stored API key and requested model, and this operation
-// must not create a backup for a one-field change.
+// must not create a backup for a small model update.
 func updateConfiguredClientModel(home, target, model string) error {
 	model = strings.TrimSpace(model)
 	if model == "" {
@@ -22,6 +22,7 @@ func updateConfiguredClientModel(home, target, model string) error {
 	}
 
 	var operation fileOperation
+	var operations []fileOperation
 	var err error
 	switch target {
 	case "claude":
@@ -66,13 +67,28 @@ func updateConfiguredClientModel(home, target, model string) error {
 		patched, err = patchCodexModel(string(content), model)
 		operation = newOperation(target, path, configTOML, []byte(patched))
 	case "gemini":
-		path := filepath.Join(home, ".gemini", ".env")
-		content, readErr := readTextOrEmpty(path)
+		envPath := filepath.Join(home, ".gemini", ".env")
+		content, readErr := readTextOrEmpty(envPath)
 		if readErr != nil {
 			err = readErr
 			break
 		}
-		operation = newOperation(target, path, configEnv, []byte(updateEnvFile(content, map[string]string{"GEMINI_MODEL": model})))
+		settingsPath := filepath.Join(home, ".gemini", "settings.json")
+		settings, readErr := readJSONMap(settingsPath)
+		if readErr != nil {
+			err = readErr
+			break
+		}
+		configureGeminiModelCompatibility(settings, model)
+		settingsContent, marshalErr := marshalJSON(settings)
+		if marshalErr != nil {
+			err = marshalErr
+			break
+		}
+		operations = []fileOperation{
+			newOperation(target, envPath, configEnv, []byte(updateEnvFile(content, map[string]string{"GEMINI_MODEL": model}))),
+			newOperation(target, settingsPath, configJSON, settingsContent),
+		}
 	case "grok":
 		path := firstClientPath("grok", home)
 		root, readErr := readTOMLMap(path)
@@ -153,25 +169,43 @@ func updateConfiguredClientModel(home, target, model string) error {
 	if err != nil {
 		return fmt.Errorf("读取 %s 默认模型失败：%w", clientDisplayName(target), err)
 	}
-	original, readErr := os.ReadFile(operation.Path)
-	originalExists := readErr == nil
-	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
-		return fmt.Errorf("读取 %s 当前配置失败：%w", clientDisplayName(target), readErr)
+	if operation.Path != "" {
+		operations = append(operations, operation)
 	}
-	restoreOriginal := func() {
-		if originalExists {
-			_ = atomicWrite(operation.Path, original)
-		} else {
-			_ = os.Remove(operation.Path)
+
+	type originalFile struct {
+		content []byte
+		exists  bool
+	}
+	originals := make(map[string]originalFile, len(operations))
+	for _, operation := range operations {
+		content, readErr := os.ReadFile(operation.Path)
+		if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+			return fmt.Errorf("读取 %s 当前配置失败：%w", clientDisplayName(target), readErr)
+		}
+		originals[operation.Path] = originalFile{content: content, exists: readErr == nil}
+	}
+	restoreOriginals := func() {
+		for _, operation := range operations {
+			original := originals[operation.Path]
+			if original.exists {
+				_ = atomicWrite(operation.Path, original.content)
+			} else {
+				_ = os.Remove(operation.Path)
+			}
 		}
 	}
-	if err := atomicWrite(operation.Path, operation.Content); err != nil {
-		restoreOriginal()
-		return fmt.Errorf("写入 %s 默认模型失败：%w", clientDisplayName(target), err)
+	for _, operation := range operations {
+		if err := atomicWrite(operation.Path, operation.Content); err != nil {
+			restoreOriginals()
+			return fmt.Errorf("写入 %s 默认模型失败：%w", clientDisplayName(target), err)
+		}
 	}
-	if err := validateWrittenConfig(operation); err != nil {
-		restoreOriginal()
-		return fmt.Errorf("校验 %s 默认模型失败：%w", clientDisplayName(target), err)
+	for _, operation := range operations {
+		if err := validateWrittenConfig(operation); err != nil {
+			restoreOriginals()
+			return fmt.Errorf("校验 %s 默认模型失败：%w", clientDisplayName(target), err)
+		}
 	}
 	return nil
 }

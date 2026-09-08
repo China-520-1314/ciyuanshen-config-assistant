@@ -589,6 +589,11 @@ func verifyGeminiConfiguration(home, key string) error {
 			return fmt.Errorf("%s 未正确配置", field)
 		}
 	}
+	model, ok := envFileValue(string(content), "GEMINI_MODEL")
+	if !ok || strings.TrimSpace(model) == "" {
+		return errors.New("GEMINI_MODEL 未正确配置")
+	}
+	model = strings.TrimSpace(model)
 
 	settingsPath := filepath.Join(home, ".gemini", "settings.json")
 	if err := requireConfigFile(settingsPath); err != nil {
@@ -606,7 +611,13 @@ func verifyGeminiConfiguration(home, key string) error {
 	if err != nil {
 		return err
 	}
-	return requiredString(auth, "selectedType", "gemini-api-key")
+	if err := requiredString(auth, "selectedType", "gemini-api-key"); err != nil {
+		return err
+	}
+	if geminiCLIRequiresModelCompatibility(model) && !geminiCLIModelCompatibilityConfigured(settings, model) {
+		return errors.New("Gemini CLI 新版 Flash 模型兼容设置未正确配置")
+	}
+	return nil
 }
 
 func verifyGrokConfiguration(home, key string) error {

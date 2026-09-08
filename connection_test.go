@@ -80,6 +80,29 @@ func TestEnvFileValue(t *testing.T) {
 	}
 }
 
+func TestVerifyGeminiConfigurationRequiresDynamicFlashCompatibility(t *testing.T) {
+	home := isolateHome(t)
+	operations, err := configureGemini(home, "test-key", "gemini-3.8-flash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, operation := range operations {
+		if err := atomicWrite(operation.Path, operation.Content); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := verifyManagedClientConfiguration(home, "gemini", "test-key"); err != nil {
+		t.Fatalf("configured Gemini client should verify: %v", err)
+	}
+
+	settingsPath := filepath.Join(home, ".gemini", "settings.json")
+	writeFixture(t, settingsPath, `{"security":{"auth":{"selectedType":"gemini-api-key"}}}`)
+	err = verifyManagedClientConfiguration(home, "gemini", "test-key")
+	if err == nil || !strings.Contains(err.Error(), "兼容设置") {
+		t.Fatalf("missing Gemini compatibility settings should fail verification, got %v", err)
+	}
+}
+
 func TestReadConfiguredClientAPIKeyForAllSupportedClients(t *testing.T) {
 	home := isolateHome(t)
 	targets := []string{"claude", "codex", "gemini", "grok", "opencode", "openclaw", "hermes"}
