@@ -836,6 +836,7 @@ export namespace main {
 	    provisionId: string;
 	    clientId: string;
 	    group: string;
+	    groupDescription?: string;
 	    name?: string;
 	    existing?: boolean;
 	    models: Model[];
@@ -851,6 +852,7 @@ export namespace main {
 	        this.provisionId = source["provisionId"];
 	        this.clientId = source["clientId"];
 	        this.group = source["group"];
+	        this.groupDescription = source["groupDescription"];
 	        this.name = source["name"];
 	        this.existing = source["existing"];
 	        this.models = this.convertValues(source["models"], Model);

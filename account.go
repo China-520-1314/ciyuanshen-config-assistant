@@ -77,14 +77,15 @@ type ToolKeyRequest struct {
 // generated key. The raw key remains in the Go process until it is written to
 // the selected local client configuration.
 type ToolKeyResult struct {
-	ProvisionID string  `json:"provisionId"`
-	ClientID    string  `json:"clientId"`
-	Group       string  `json:"group"`
-	Name        string  `json:"name,omitempty"`
-	Existing    bool    `json:"existing,omitempty"`
-	Models      []Model `json:"models"`
-	Status      int     `json:"status"`
-	Endpoint    string  `json:"endpoint"`
+	ProvisionID      string  `json:"provisionId"`
+	ClientID         string  `json:"clientId"`
+	Group            string  `json:"group"`
+	GroupDescription string  `json:"groupDescription,omitempty"`
+	Name             string  `json:"name,omitempty"`
+	Existing         bool    `json:"existing,omitempty"`
+	Models           []Model `json:"models"`
+	Status           int     `json:"status"`
+	Endpoint         string  `json:"endpoint"`
 }
 
 type ToolKeyValidationRequest struct {
@@ -381,7 +382,13 @@ func (a *App) accountToolOptions(clientID string, includeExisting bool) (ToolOpt
 	}
 
 	result := ToolOptionsResponse{ClientID: clientID, Groups: make([]ToolGroupOption, 0, len(groups))}
+	groupDescriptions := make(map[string]string, len(groups))
 	for groupName, group := range groups {
+		groupName = strings.TrimSpace(groupName)
+		description := strings.TrimSpace(group.Description)
+		if groupName != "" {
+			groupDescriptions[groupName] = description
+		}
 		if groupName == "" || groupName == "auto" {
 			continue
 		}
@@ -395,14 +402,14 @@ func (a *App) accountToolOptions(clientID string, includeExisting bool) (ToolOpt
 		}
 		result.Groups = append(result.Groups, ToolGroupOption{
 			Name:        groupName,
-			Description: group.Description,
+			Description: description,
 			Ratio:       formatDashboardRatio(group.Ratio),
 			Models:      models,
 		})
 	}
 	sort.Slice(result.Groups, func(i, j int) bool { return result.Groups[i].Name < result.Groups[j].Name })
 	if includeExisting {
-		candidates, candidatesErr := a.findExistingToolKeys(accessToken, clientID)
+		candidates, candidatesErr := a.findExistingToolKeys(accessToken, clientID, groupDescriptions)
 		if candidatesErr != nil {
 			return ToolOptionsResponse{}, fmt.Errorf("检测账号已有 Key 失败：%w", candidatesErr)
 		}
@@ -496,7 +503,7 @@ func (a *App) CreateToolKey(request ToolKeyRequest) (ToolKeyResult, error) {
 		return ToolKeyResult{}, fmt.Errorf("新建 API Key 检测失败，已自动删除：%w", validationErr)
 	}
 
-	return a.storeProvisionedToolKey(clientID, groupName, automaticToolKeyName, key, validated, false)
+	return a.storeProvisionedToolKey(clientID, groupName, selected.Description, automaticToolKeyName, key, validated, false)
 }
 
 func (a *App) fetchAccountTokens(accessToken string) ([]dashboardToken, error) {
@@ -636,7 +643,7 @@ func (a *App) findNewTokenID(accessToken string, knownIDs map[int]bool) (int, er
 	return 0, lastErr
 }
 
-func (a *App) findExistingToolKeys(accessToken, clientID string) ([]ToolKeyResult, error) {
+func (a *App) findExistingToolKeys(accessToken, clientID string, groupDescriptions map[string]string) ([]ToolKeyResult, error) {
 	tokens, err := a.fetchAccountTokens(accessToken)
 	if err != nil {
 		return nil, err
@@ -664,7 +671,8 @@ func (a *App) findExistingToolKeys(accessToken, clientID string) ([]ToolKeyResul
 		if validateErr != nil {
 			continue
 		}
-		result, provisionErr := a.storeProvisionedToolKey(clientID, strings.TrimSpace(token.Group), strings.TrimSpace(token.Name), key, validated, true)
+		groupName := strings.TrimSpace(token.Group)
+		result, provisionErr := a.storeProvisionedToolKey(clientID, groupName, groupDescriptions[groupName], strings.TrimSpace(token.Name), key, validated, true)
 		if provisionErr != nil {
 			return nil, provisionErr
 		}
@@ -684,7 +692,7 @@ func dashboardTokenAvailable(token dashboardToken) bool {
 	return token.UnlimitedQuota || token.RemainQuota > 0
 }
 
-func (a *App) storeProvisionedToolKey(clientID, group, name, key string, validated ToolKeyValidationResult, existing bool) (ToolKeyResult, error) {
+func (a *App) storeProvisionedToolKey(clientID, group, groupDescription, name, key string, validated ToolKeyValidationResult, existing bool) (ToolKeyResult, error) {
 	provisionID, err := createProvisionID()
 	if err != nil {
 		return ToolKeyResult{}, errors.New("生成本地配置会话失败")
@@ -703,14 +711,15 @@ func (a *App) storeProvisionedToolKey(clientID, group, name, key string, validat
 	a.provisionMu.Unlock()
 
 	return ToolKeyResult{
-		ProvisionID: provisionID,
-		ClientID:    clientID,
-		Group:       group,
-		Name:        name,
-		Existing:    existing,
-		Models:      validated.Models,
-		Status:      validated.Status,
-		Endpoint:    validated.Endpoint,
+		ProvisionID:      provisionID,
+		ClientID:         clientID,
+		Group:            group,
+		GroupDescription: strings.TrimSpace(groupDescription),
+		Name:             name,
+		Existing:         existing,
+		Models:           validated.Models,
+		Status:           validated.Status,
+		Endpoint:         validated.Endpoint,
 	}, nil
 }
 

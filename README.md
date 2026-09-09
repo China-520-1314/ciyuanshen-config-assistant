@@ -113,7 +113,7 @@ GitHub Release 用于构建产物归档和更新源故障回退。部署在更�
 ```bash
 go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build \
   -platform windows/amd64 -nsis \
-  -ldflags "-X main.appVersion=0.2.16"
+  -ldflags "-X main.appVersion=0.2.18"
 ```
 
 macOS 本地构建示例（需要 macOS、Xcode Command Line Tools 和 `hdiutil`）：
@@ -121,7 +121,7 @@ macOS 本地构建示例（需要 macOS、Xcode Command Line Tools 和 `hdiutil`
 ```bash
 go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build \
   -platform darwin/universal \
-  -ldflags "-X main.appVersion=0.2.16"
+  -ldflags "-X main.appVersion=0.2.18"
 ```
 
 Wails 会先生成 `build/bin/ciyuanshen-config-assistant.app`；发布流程再将它打成 DMG 和 ZIP。Release 标签、`wails.json` 的产品版本和应用内版本号必须保持一致。

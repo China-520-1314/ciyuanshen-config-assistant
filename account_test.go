@@ -242,6 +242,9 @@ func TestCreateToolKeyAcceptsSuccessfulResponseWithoutID(t *testing.T) {
 	if result.Name != automaticToolKeyName || result.Existing || result.ProvisionID == "" {
 		t.Fatalf("unexpected created result: %#v", result)
 	}
+	if result.GroupDescription != "GPT" {
+		t.Fatalf("group description = %q, want GPT", result.GroupDescription)
+	}
 	if createPayload["name"] != automaticToolKeyName {
 		t.Fatalf("create name = %#v, want %q", createPayload["name"], automaticToolKeyName)
 	}
@@ -336,7 +339,7 @@ func TestGetAccountToolOptionsRecommendsExistingKeyWithoutLeakingIt(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(options.ExistingKeys) != 1 || options.ExistingKeys[0].Name != "工作 Key" || !options.ExistingKeys[0].Existing {
+	if len(options.ExistingKeys) != 1 || options.ExistingKeys[0].Name != "工作 Key" || options.ExistingKeys[0].GroupDescription != "GPT" || !options.ExistingKeys[0].Existing {
 		t.Fatalf("unexpected existing key recommendation: %#v", options.ExistingKeys)
 	}
 	encoded, err := json.Marshal(options)
