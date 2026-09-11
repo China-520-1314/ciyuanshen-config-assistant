@@ -494,7 +494,7 @@ function App() {
   const [systemThemeMode, setSystemThemeMode] = useState<ResolvedThemeMode>(getSystemThemeMode);
   const [customWallpaper, setCustomWallpaper] = useState(readStoredWallpaper);
   const [environment, setEnvironment] = useState<EnvironmentReport>(mockEnvironment);
-  const [appInfo, setAppInfo] = useState<AppInfo>({ name: '词元神配置助手', version: '0.2.19', platform: '', updateManifestUrl: '', gatewayUrl: 'https://api.ciyuanshen.top/v1' });
+  const [appInfo, setAppInfo] = useState<AppInfo>({ name: '词元神配置助手', version: '0.2.21', platform: '', updateManifestUrl: '', gatewayUrl: 'https://api.ciyuanshen.top/v1' });
   const [account, setAccount] = useState<AccountState>({ signedIn: false, username: '' });
   const [accountRefreshing, setAccountRefreshing] = useState(false);
   const [toolModels, setToolModels] = useState<Partial<Record<ClientId, Model[]>>>({});
@@ -559,6 +559,12 @@ function App() {
   useEffect(() => {
     void loadInitialState();
   }, []);
+
+  useEffect(() => {
+    if (!inWails()) return;
+    const timer = window.setInterval(() => { void checkUpdate(false); }, 6 * 60 * 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, [appInfo.version]);
 
   useEffect(() => () => {
     if (feedbackTimer.current !== undefined) window.clearTimeout(feedbackTimer.current);
@@ -1039,6 +1045,15 @@ function App() {
     try {
       const result = inWails() ? await GetAccountToolOptions(clientId) : mockToolOptions(clientId);
       const options = result as ToolOptionsResponse;
+      if (inWails()) {
+        try {
+          const accountState = await GetAccountState() as AccountState;
+          setAccount(accountState);
+          if (accountState.signedIn) void refreshAccountState(false);
+        } catch {
+          // The options remain usable even when the account summary cannot be refreshed.
+        }
+      }
       setToolOptions(options);
       setSetupGroup(options.groups[0]?.name || '');
       const suggested = options.existingKeys?.[0];
@@ -1055,6 +1070,13 @@ function App() {
         setSetupModel('');
       }
     } catch (error) {
+      if (inWails()) {
+        try {
+          setAccount(await GetAccountState() as AccountState);
+        } catch {
+          // Keep the last known account summary when the bridge is unavailable.
+        }
+      }
       setSetupMessage({ tone: 'error', text: error instanceof Error ? error.message : '读取分组失败' });
     } finally {
       setSetupBusy('');
@@ -1627,6 +1649,9 @@ function ToolSetupModal({ setup, account, options, group, keyValue, showKey, val
   const hasExistingKeys = Boolean(options?.existingKeys?.length);
   const selectedExistingKey = accountKeySource === 'existing' ? provision?.existing ? provision : options?.existingKeys?.[0] : undefined;
   const keyReady = Boolean(validation && validation.models.length > 0);
+  const configurationStep = validation && validation.models.length > 0 ? <div className="model-step"><div className="field-block"><label htmlFor="default-model">默认模型</label><select id="default-model" value={model} onChange={(event) => onModelChange(event.target.value)}>{validation.models.map((option) => <option key={option.id} value={option.id}>{option.id}</option>)}</select></div><div className="model-step-footer"><span>{provision?.existing ? `使用账号已有 Key${provision.name ? `「${provision.name}」` : ''}` : provision ? '新建 Key 已限制为该工具可用模型' : '仅使用当前输入的 Key 完成本次配置'}</span><button className="primary-button" onClick={onConfigure} disabled={busy === 'configure' || !model}><ClipboardCheck size={17} />{busy === 'configure' ? '备份并配置中' : '确认并一键配置'}</button></div></div> : null;
+  const showExistingConfigurationStep = setup.mode === 'account' && accountKeySource === 'existing' && Boolean(provision?.existing);
+  const showNewConfigurationStep = setup.mode === 'account' && accountKeySource === 'new' && Boolean(provision && !provision.existing);
   return <div className="modal-backdrop" role="presentation"><section className="setup-modal" role="dialog" aria-modal="true" aria-labelledby="setup-title">
     <div className="modal-heading"><div><p className="eyebrow">{client.badge}</p><h2 id="setup-title">配置 {client.short}</h2></div><button className="icon-button" title="关闭" aria-label="关闭" onClick={onClose}><X size={18} /></button></div>
     <div className="mode-switch" role="tablist" aria-label="Key 来源">
@@ -1634,15 +1659,17 @@ function ToolSetupModal({ setup, account, options, group, keyValue, showKey, val
       <button className={setup.mode === 'manual' ? 'active' : ''} role="tab" aria-selected={setup.mode === 'manual'} onClick={() => onModeChange('manual')}><KeyRound size={15} />手动输入 Key</button>
     </div>
     {setup.mode === 'account' ? <div className="setup-flow account-setup-flow">
-      {!account.signedIn ? <div className="setup-empty"><UserRound size={21} /><strong>尚未登录词元神账号</strong><button className="secondary-button" onClick={onLogin}><LogIn size={16} />登录账号</button></div> : <>
+      {!account.signedIn ? busy === 'groups' ? <div className="setup-empty"><CircleDashed size={21} className="spin" /><strong>正在恢复登录状态</strong></div> : <div className="setup-empty"><UserRound size={21} /><strong>尚未登录词元神账号</strong><button className="secondary-button" onClick={onLogin}><LogIn size={16} />登录账号</button></div> : <>
         <section className={`account-key-path ${accountKeySource === 'existing' ? 'selected' : ''}`} aria-labelledby="existing-key-heading">
           <div className="account-key-path-heading"><div><h3 id="existing-key-heading">使用已创建的 Key</h3><p>选择已有 Key 后，直接在下方选择模型并确认配置。</p></div>{hasExistingKeys && <button className="path-select-button" type="button" onClick={() => onAccountKeySourceChange('existing')} disabled={busy === 'groups' || busy === 'key'}>{accountKeySource === 'existing' ? '当前选择' : '使用此方式'}</button>}</div>
           {hasExistingKeys ? <div className="field-block"><label htmlFor="existing-key-select">已创建的 Key</label><select id="existing-key-select" value={selectedExistingKey?.provisionId || ''} onChange={(event) => onExistingKeyChange(event.target.value)} disabled={busy === 'groups' || busy === 'key'}>{options?.existingKeys?.map((item) => <option key={item.provisionId} value={item.provisionId}>{item.name || '已有 Key'}{item.group ? ` · ${item.group}` : ''} · {item.models.length} 个可用模型</option>)}</select>{selectedExistingKey && <div className="existing-key-details"><span>分组：{selectedExistingKey.group || '未设置分组'}</span><span>分组说明：{selectedExistingKey.groupDescription || '暂无分组说明'}</span></div>}</div> : <p className="account-key-path-empty">当前账号没有适用于 {client.short} 的已创建 Key。</p>}
+          {showExistingConfigurationStep && configurationStep}
         </section>
         <section className={`account-key-path account-key-path-new ${accountKeySource === 'new' ? 'selected' : ''}`} aria-labelledby="new-key-heading">
           <div className="account-key-path-heading"><div><h3 id="new-key-heading">新建 Key</h3><p>按所选分组创建一个仅限该工具可用模型的新 Key。</p></div><button className="path-select-button" type="button" onClick={() => onAccountKeySourceChange('new')} disabled={busy === 'groups' || busy === 'key'}>{accountKeySource === 'new' ? '当前选择' : '使用此方式'}</button></div>
           <div className="field-block"><label htmlFor="group-select">新建 Key 分组</label><div className="select-row"><select id="group-select" value={group} onChange={(event) => onGroupChange(event.target.value)} disabled={busy === 'groups' || busy === 'key'}>{options?.groups.map((item) => <option key={item.name} value={item.name}>{item.name} · {item.ratio ? `${item.ratio}x` : '倍率待定'} · {item.models.length} 个模型</option>)}</select><button className="icon-button" title="刷新分组" aria-label="刷新分组" onClick={onReloadGroups} disabled={busy === 'groups' || busy === 'key'}><RefreshCw size={16} className={busy === 'groups' ? 'spin' : ''} /></button></div><span className="field-note">{selectedGroup?.description || '暂无分组说明'}</span></div>
           <button className="primary-button full-width" onClick={onCreateKey} disabled={busy === 'groups' || busy === 'key' || !group || accountKeySource !== 'new'}><ShieldCheck size={17} />{busy === 'key' ? '正在创建 Key' : '创建新的 Key'}</button>
+          {showNewConfigurationStep && configurationStep}
         </section>
       </>}
     </div> : <div className="setup-flow">
@@ -1651,7 +1678,7 @@ function ToolSetupModal({ setup, account, options, group, keyValue, showKey, val
     </div>}
     {setup.clientId === 'codex' && <CodexExperimentalSettingsPanel settings={codexExperimentalSettings} onChange={onCodexExperimentalSettingsChange} />}
     {message && <div className={`setup-status ${message.tone}`}><span>{message.tone === 'success' ? <CheckCircle2 size={16} /> : message.tone === 'error' ? <AlertTriangle size={16} /> : <CircleDashed size={16} />}</span>{message.text}</div>}
-    {validation && validation.models.length > 0 && <div className="model-step"><div className="field-block"><label htmlFor="default-model">默认模型</label><select id="default-model" value={model} onChange={(event) => onModelChange(event.target.value)}>{validation.models.map((option) => <option key={option.id} value={option.id}>{option.id}</option>)}</select></div><div className="model-step-footer"><span>{provision?.existing ? `使用账号已有 Key${provision.name ? `「${provision.name}」` : ''}` : provision ? '新建 Key 已限制为该工具可用模型' : '仅使用当前输入的 Key 完成本次配置'}</span><button className="primary-button" onClick={onConfigure} disabled={busy === 'configure' || !model}><ClipboardCheck size={17} />{busy === 'configure' ? '备份并配置中' : '确认并一键配置'}</button></div></div>}
+    {setup.mode === 'manual' && configurationStep}
   </section></div>;
 }
 
@@ -1841,7 +1868,7 @@ function AccountLoginModal({ username, password, rememberLogin, code, requiresTw
   return <div className="modal-backdrop" role="presentation"><section className="login-modal" role="dialog" aria-modal="true" aria-labelledby="login-title">
     <div className="modal-heading"><div><p className="eyebrow">CIYUANSHEN ACCOUNT</p><h2 id="login-title">登录词元神</h2></div><button className="icon-button" title="关闭" aria-label="关闭" onClick={onClose}><X size={18} /></button></div>
     {requiresTwoFactor ? <div className="login-fields"><div className="field-block"><label htmlFor="two-factor-code">两步验证代码</label><input id="two-factor-code" inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(event) => onCode(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onSubmit(); }} /></div></div> : <div className="login-fields"><div className="field-block"><label htmlFor="account-username">用户名或邮箱</label><input ref={usernameInput} id="account-username" type="text" inputMode="email" autoComplete="username" placeholder="输入用户名或邮箱" value={username} onChange={(event) => onUsername(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onSubmit(); }} onContextMenu={(event) => openContextMenu('username', event)} /></div><div className="field-block"><label htmlFor="account-password">密码</label><div className="key-input-wrap"><LockKeyhole size={17} /><input ref={passwordInput} id="account-password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" placeholder="输入密码" value={password} onChange={(event) => onPassword(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onSubmit(); }} onContextMenu={(event) => openContextMenu('password', event)} /><button className="input-action" title={showPassword ? '隐藏密码' : '显示密码'} aria-label={showPassword ? '隐藏密码' : '显示密码'} onClick={onTogglePassword}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></div></div></div>}
-    {!requiresTwoFactor && <><label className="remember-login"><input type="checkbox" checked={rememberLogin} onChange={(event) => onRememberLogin(event.target.checked)} />保存密码（仅保存在系统凭据管理器）</label><div className="login-links"><div className="login-register"><span>还没有注册？</span><button type="button" onClick={onRegister}>去注册</button></div><button className="login-link" type="button" onClick={onForgotPassword}>忘记密码</button></div></>}
+    {!requiresTwoFactor && <><label className="remember-login"><input type="checkbox" checked={rememberLogin} onChange={(event) => onRememberLogin(event.target.checked)} />保存密码并在会话过期时自动续期（仅保存在系统凭据管理器）</label><div className="login-links"><div className="login-register"><span>还没有注册？</span><button type="button" onClick={onRegister}>去注册</button></div><button className="login-link" type="button" onClick={onForgotPassword}>忘记密码</button></div></>}
     {message && <div className="setup-status neutral"><CircleDashed size={16} />{message}</div>}
     <div className="modal-actions"><button className="secondary-button" onClick={onClose}>取消</button><button className="primary-button" onClick={onSubmit} disabled={busy}><LogIn size={17} />{busy ? '登录中' : requiresTwoFactor ? '验证并登录' : '登录'}</button></div>
   </section>{contextMenu && <div ref={contextMenuRef} className="login-context-menu" role="menu" aria-label="登录输入操作" style={{ left: contextMenu.left, top: contextMenu.top }} onContextMenu={(event) => event.preventDefault()}><button type="button" role="menuitem" disabled={!contextMenu.hasSelection} onClick={() => void copySelection()}>复制</button><button type="button" role="menuitem" disabled={!contextMenu.hasSelection} onClick={() => void cutSelection()}>剪切</button><button type="button" role="menuitem" onClick={() => void pasteClipboard()}>粘贴</button><button type="button" role="menuitem" onClick={selectAll}>全选</button></div>}</div>;

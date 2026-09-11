@@ -38,7 +38,7 @@ const (
 
 // appVersion is a variable so release builds can inject their tag with
 // -ldflags "-X main.appVersion=..." while local builds keep a useful default.
-var appVersion = "0.2.19"
+var appVersion = "0.2.21"
 
 type InstallUpdateResult struct {
 	Success     bool   `json:"success"`
@@ -68,11 +68,15 @@ type App struct {
 	lifecycleMu sync.Mutex
 	accountMu   sync.RWMutex
 	account     dashboardSession
-	provisionMu sync.Mutex
-	provisions  map[string]provisionedToolKey
-	restartTool toolRestartFunc
-	routerMu    sync.Mutex
-	router      *modelRouter
+	// accountRenewMu makes an expired-session recovery a single login attempt
+	// even when the frontend starts several account requests at once.
+	accountRenewMu           sync.Mutex
+	accountAutoRenewDisabled bool
+	provisionMu              sync.Mutex
+	provisions               map[string]provisionedToolKey
+	restartTool              toolRestartFunc
+	routerMu                 sync.Mutex
+	router                   *modelRouter
 }
 
 type toolRestartFunc func(string) ToolRestartResult
