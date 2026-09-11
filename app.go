@@ -38,7 +38,7 @@ const (
 
 // appVersion is a variable so release builds can inject their tag with
 // -ldflags "-X main.appVersion=..." while local builds keep a useful default.
-var appVersion = "0.2.18"
+var appVersion = "0.2.19"
 
 type InstallUpdateResult struct {
 	Success     bool   `json:"success"`
@@ -71,6 +71,8 @@ type App struct {
 	provisionMu sync.Mutex
 	provisions  map[string]provisionedToolKey
 	restartTool toolRestartFunc
+	routerMu    sync.Mutex
+	router      *modelRouter
 }
 
 type toolRestartFunc func(string) ToolRestartResult
@@ -168,6 +170,10 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 }
 
+func (a *App) shutdown(ctx context.Context) {
+	_, _ = a.StopModelRouter()
+}
+
 func (a *App) GetAppInfo() AppInfo {
 	return AppInfo{
 		Name:              "词元神配置助手",
@@ -208,6 +214,10 @@ func (a *App) Configure(request ConfigurationRequest) ConfigureResult {
 	defer a.operation.Unlock()
 
 	result := ConfigureResult{FinishedAt: time.Now()}
+	if err := checkRouterConfigurationUnlocked(); err != nil {
+		result.Error = err.Error()
+		return result
+	}
 	operations, warnings, err := buildConfiguration(request)
 	result.Warnings = warnings
 	if err != nil {
@@ -273,6 +283,9 @@ func (a *App) GetBackupRoot() string {
 func (a *App) RestoreBackup(id string) error {
 	a.operation.Lock()
 	defer a.operation.Unlock()
+	if err := checkRouterConfigurationUnlocked(); err != nil {
+		return err
+	}
 	return restoreBackupByID(id)
 }
 

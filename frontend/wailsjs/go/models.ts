@@ -732,6 +732,48 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class RouterRequest {
+	    apiKey: string;
+	    model: string;
+	    useExistingKey: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new RouterRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.apiKey = source["apiKey"];
+	        this.model = source["model"];
+	        this.useExistingKey = source["useExistingKey"];
+	    }
+	}
+	export class RouterStatus {
+	    running: boolean;
+	    model: string;
+	    alias: string;
+	    address: string;
+	    requests: number;
+	    failures: number;
+	    lastError: string;
+	    backupPath: string;
+
+	    static createFrom(source: any = {}) {
+	        return new RouterStatus(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.running = source["running"];
+	        this.model = source["model"];
+	        this.alias = source["alias"];
+	        this.address = source["address"];
+	        this.requests = source["requests"];
+	        this.failures = source["failures"];
+	        this.lastError = source["lastError"];
+	        this.backupPath = source["backupPath"];
+	    }
+	}
 	export class SavedAccountLogin {
 	    username: string;
 	    password: string;

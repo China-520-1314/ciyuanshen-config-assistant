@@ -826,6 +826,10 @@ func (a *App) ConfigureExistingTool(request ExistingToolConfigurationRequest) Co
 	a.operation.Lock()
 	defer a.operation.Unlock()
 	result := ConfigureResult{FinishedAt: time.Now(), Configured: []string{clientID}}
+	if err := checkRouterConfigurationUnlocked(); err != nil {
+		result.Error = err.Error()
+		return result
+	}
 	if err := updateConfiguredClientModel(home, clientID, request.Model); err != nil {
 		result.Error = err.Error()
 		return result

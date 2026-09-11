@@ -34,7 +34,11 @@ export function GetClientConfiguration(arg1:string,arg2:boolean):Promise<main.Cl
 
 export function GetConfiguredToolModels(arg1:string):Promise<main.ToolKeyValidationResult>;
 
+export function GetModelRouterStatus():Promise<main.RouterStatus>;
+
 export function GetPublicGroupRatios():Promise<main.GroupRatioReport>;
+
+export function GetRouterModels(arg1:main.RouterRequest):Promise<main.ModelResponse>;
 
 export function GetSavedAccountLogin():Promise<main.SavedAccountLogin>;
 
@@ -61,6 +65,10 @@ export function RunToolLifecycleAction(arg1:main.ToolLifecycleRequest):Promise<m
 export function SaveAccountLogin(arg1:main.SavedAccountLogin):Promise<void>;
 
 export function ScanEnvironment():Promise<main.EnvironmentReport>;
+
+export function StartModelRouter(arg1:main.RouterRequest):Promise<main.RouterStatus>;
+
+export function StopModelRouter():Promise<main.RouterStatus>;
 
 export function ValidateToolKey(arg1:main.ToolKeyValidationRequest):Promise<main.ToolKeyValidationResult>;
 

@@ -260,6 +260,20 @@ h2 { margin-bottom: 4px; font-size: 17px; font-weight: 700; letter-spacing: 0; }
 .mode-switch button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; border: 1px solid transparent; border-radius: 5px; color: var(--muted-strong); background: transparent; font-size: 11px; font-weight: 650; }
 .mode-switch button.active { border-color: #b9d4d0; color: var(--teal-dark); background: var(--content-surface); box-shadow: 0 1px 2px rgba(17, 45, 52, 0.06); }
 .setup-flow { padding: 17px 18px 0; }
+.router-card { display: grid; gap: 12px; padding: 20px; border: 1px solid var(--line); border-radius: 7px; background: var(--content-surface); }
+.router-card h3, .router-card p { margin: 0; }
+.router-card h3 { font-size: 14px; }
+.router-card p { font-size: 12px; color: var(--muted); line-height: 1.6; }
+.router-card > button { justify-self: start; }
+.router-choices { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; }
+.router-choices label { display: flex; align-items: center; gap: 5px; }
+.router-mapping { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 16px; background: var(--content-surface-muted); border-radius: 6px; font-size: 12px; }
+.router-mapping span { min-width: 0; overflow-wrap: anywhere; line-height: 1.8; }
+.router-mapping svg { flex-shrink: 0; color: var(--teal); }
+.router-actions, .router-live { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.router-live { font-size: 12px; color: var(--teal-dark); }
+.router-error { color: var(--danger); background: var(--danger-soft); padding: 12px; border-radius: 6px; font-size: 12px; overflow-wrap: anywhere; }
+.router-card .router-notice { color: var(--teal-dark); }
 .account-setup-flow { display: grid; gap: 14px; }
 .account-key-path { display: grid; gap: 11px; padding: 14px; border: 1px solid var(--line); border-radius: 7px; background: var(--content-surface-soft); }
 .account-key-path.selected { border-color: #a8cec8; box-shadow: 0 0 0 2px rgba(12, 118, 109, 0.08); }

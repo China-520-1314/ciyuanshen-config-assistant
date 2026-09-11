@@ -66,8 +66,16 @@ export function GetConfiguredToolModels(arg1) {
   return window['go']['main']['App']['GetConfiguredToolModels'](arg1);
 }
 
+export function GetModelRouterStatus() {
+  return window['go']['main']['App']['GetModelRouterStatus']();
+}
+
 export function GetPublicGroupRatios() {
   return window['go']['main']['App']['GetPublicGroupRatios']();
+}
+
+export function GetRouterModels(arg1) {
+  return window['go']['main']['App']['GetRouterModels'](arg1);
 }
 
 export function GetSavedAccountLogin() {
@@ -120,6 +128,14 @@ export function SaveAccountLogin(arg1) {
 
 export function ScanEnvironment() {
   return window['go']['main']['App']['ScanEnvironment']();
+}
+
+export function StartModelRouter(arg1) {
+  return window['go']['main']['App']['StartModelRouter'](arg1);
+}
+
+export function StopModelRouter() {
+  return window['go']['main']['App']['StopModelRouter']();
 }
 
 export function ValidateToolKey(arg1) {

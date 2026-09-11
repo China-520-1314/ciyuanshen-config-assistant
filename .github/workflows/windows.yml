@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+env:
+  GOMAXPROCS: "4"
+  GOFLAGS: "-p=4"
+
 jobs:
   build-windows:
     runs-on: windows-latest
@@ -70,7 +74,7 @@ jobs:
           $version = $env:RELEASE_TAG
           $isRelease = $version -match "^v\d+\.\d+\.\d+$"
           if (-not $isRelease) {
-            $version = "0.2.18-dev"
+            $version = "0.2.19-dev"
           } else {
             $version = $version.Substring(1)
             $project = Get-Content wails.json -Raw | ConvertFrom-Json
@@ -88,7 +92,7 @@ jobs:
           if ($version -match "^v\d+\.\d+\.\d+$") {
             $version = $version.Substring(1)
           } else {
-            $version = "0.2.18-dev"
+            $version = "0.2.19-dev"
           }
           $installer = Get-ChildItem -Path build/bin -Filter "*installer.exe" | Select-Object -First 1
           if ($null -eq $installer) {
@@ -144,7 +148,7 @@ jobs:
           if [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             version="${RELEASE_TAG#v}"
           else
-            version="0.2.18-dev"
+            version="0.2.19-dev"
           fi
           VERSION="$version" python3 - <<'PY'
           import json
@@ -193,6 +197,9 @@ jobs:
       - build-macos
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout release notes
+        uses: actions/checkout@v4
+
       - name: Download package artifacts
         uses: actions/download-artifact@v4
         with:
@@ -206,4 +213,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          body_path: RELEASE_NOTES.md
           files: release/*

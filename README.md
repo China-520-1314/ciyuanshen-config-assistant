@@ -30,6 +30,28 @@ Gemini 的 Base URL 不能直接写成 `https://api.ciyuanshen.top/v1`，因为 
 
 ## 安全和恢复
 
+### 模型路由：在 Codex 里使用 Claude、Gemini、Grok、DeepSeek
+
+侧栏打开“模型路由”，按三个步骤操作：
+
+1. 选择“使用 Codex 当前的词元神 Key”，或粘贴另一个词元神 Key，点击“读取可用模型”。
+2. 搜索并选择实际模型。列表来自该 Key 的 `/v1/models` 权限，模型需要支持 Chat Completions；完成代码操作还需要支持工具调用。
+3. 点击“一键启动并配置 Codex”，然后重新打开 Codex、新建对话。使用期间保持助手运行。更换模型时先停止，再选择并启动。
+
+Codex 显示 `gpt-5.6-terra` 兼容别名，助手页面同时显示实际目标模型；本地路由发送给词元神的 `model` 始终为所选目标，不会自行回退到其他模型。网关内部的渠道映射仍由网关决定。模型列表验证不代表上游一定可用，实际请求失败会显示 HTTP 状态或协议错误。
+
+本地服务只监听 `127.0.0.1` 的随机端口，使用独立随机令牌认证，不允许浏览器跨域调用。它将 Codex Responses 请求转换为词元神 `/v1/chat/completions`，支持流式/非流式文本、图片输入、函数工具、命名空间工具、自由文本工具（包括补丁）以及工具结果回传。目标模型需具备相应能力。当前不支持内置联网搜索、`previous_response_id` 服务端续接、远端压缩等扩展；长对话请新建会话，不支持的输入会明确报错。
+
+启动时仅临时切换 `~/.codex/config.toml`，保留原文件的完整字节备份，不修改 `auth.json`。上游 Key 仅在内存中使用，写入 Codex 配置的是本机临时令牌。临时配置会关闭联网搜索、请求压缩和部分不兼容的上下文扩展，并取消默认 profile 选择；不要通过命令行 `--profile`/`-c` 再覆盖路由配置。自定义 `CODEX_HOME` 暂不支持一键接管。
+
+点击“停止并恢复配置”或正常退出时恢复原文件；异常退出后重新打开助手，在路由页点击“停止并恢复配置”。如果原配置已被其他程序修改，助手不会覆盖修改，恢复记录仍保存在用户配置目录的 `CiyuanShen/Config Assistant/router-recovery.json`（macOS 位于 `~/Library/Application Support/`，Windows 位于 `%AppData%`）。该 JSON 的 `original` 字段是原文件的 Base64 内容，`installed` 是路由写入的内容。恢复记录可能包含原配置中的凭据，请勿公开分享。路由启用或有待处理恢复记录期间，助手会阻止其他配置写入和备份恢复，避免相互覆盖。
+
+设计参考 [CC Switch](https://github.com/farion1231/cc-switch)（MIT，Jason Young）的本地代理、Responses/Chat 转换和工具兼容处理；本项目使用独立实现的 Go 路由，没有引入其 Rust 运行时。Codex 服务商字段按 [OpenAI 官方配置参考](https://learn.chatgpt.com/docs/config-file/config-reference) 核对。
+
+开发验证：`go test -race ./...` 覆盖协议转换、鉴权、模型转发、流中断、配置恢复和冲突保护。安装了 Codex CLI 时，可用 `CIYUANSHEN_TEST_CODEX_CLI=1 go test -run TestRouterCodexCLIContract -v` 运行真实 CLI 协议测试；仅调用本地模拟上游并使用临时用户目录，不需要真实 Key。
+
+### 通用配置保护
+
 - 用户输入的 API Key、账号会话和账号模式新建的原始 Key 只在当前进程内存中使用，不会保存到助手自己的数据库或浏览器存储。新建 Key 不会经过前端桥接，配置成功后才写入用户选定的客户端配置文件。
 - 仓库公开的是接口调用逻辑，不包含用户令牌；发布前不得提交 `.env`、本机 `config.toml`、`auth.json`、日志或构建产物中的敏感内容。服务端仍必须做好鉴权、限流和审计。
 - 写入目标客户端配置前会弹出确认，并在用户配置目录创建备份。
@@ -113,7 +135,7 @@ GitHub Release 用于构建产物归档和更新源故障回退。部署在更�
 ```bash
 go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build \
   -platform windows/amd64 -nsis \
-  -ldflags "-X main.appVersion=0.2.18"
+  -ldflags "-X main.appVersion=0.2.19"
 ```
 
 macOS 本地构建示例（需要 macOS、Xcode Command Line Tools 和 `hdiutil`）：
@@ -121,7 +143,7 @@ macOS 本地构建示例（需要 macOS、Xcode Command Line Tools 和 `hdiutil`
 ```bash
 go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build \
   -platform darwin/universal \
-  -ldflags "-X main.appVersion=0.2.18"
+  -ldflags "-X main.appVersion=0.2.19"
 ```
 
 Wails 会先生成 `build/bin/ciyuanshen-config-assistant.app`；发布流程再将它打成 DMG 和 ZIP。Release 标签、`wails.json` 的产品版本和应用内版本号必须保持一致。

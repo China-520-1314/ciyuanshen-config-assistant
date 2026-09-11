@@ -1,0 +1,86 @@
+import { useEffect, useState } from 'react';
+import { Activity, ArrowRight, Play, Square, RefreshCw } from 'lucide-react';
+import { GetRouterModels, GetModelRouterStatus, StartModelRouter, StopModelRouter } from '../wailsjs/go/main/App';
+
+type Status = { running: boolean; model: string; alias: string; address: string; requests: number; failures: number; lastError: string; backupPath: string };
+type Request = { apiKey: string; model: string; useExistingKey: boolean };
+type RouterBridge = {
+  GetRouterModels(request: Request): Promise<{ models: { id: string }[] }>;
+  GetModelRouterStatus(): Promise<Status>;
+  StartModelRouter(request: Request): Promise<Status>;
+  StopModelRouter(): Promise<Status>;
+};
+const bridge = (): RouterBridge | undefined => (window as unknown as { go?: { main?: { App?: unknown } } }).go?.main?.App
+  ? { GetRouterModels, GetModelRouterStatus, StartModelRouter, StopModelRouter } : undefined;
+const initial: Status = { running: false, model: '', alias: 'gpt-5.6-terra', address: '', requests: 0, failures: 0, lastError: '', backupPath: '' };
+
+export default function ModelRouter() {
+  const [status, setStatus] = useState(initial);
+  const [existing, setExisting] = useState(true);
+  const [key, setKey] = useState('');
+  const [models, setModels] = useState<string[]>([]);
+  const [model, setModel] = useState('');
+  const [filter, setFilter] = useState('');
+  const [busy, setBusy] = useState('');
+  const [notice, setNotice] = useState('');
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let active = true;
+    const refresh = () => { void bridge()?.GetModelRouterStatus().then(value => { if (active) setStatus(value); }).catch(() => { if (active) setError('读取路由状态失败，请重新打开此页面'); }); };
+    refresh(); const timer = window.setInterval(refresh, 2500);
+    return () => { active = false; window.clearInterval(timer); };
+  }, []);
+  function resetModels() { setModels([]); setModel(''); setFilter(''); setError(''); setNotice(''); }
+  async function run(action: 'models' | 'start' | 'stop') {
+    const api = bridge(); if (!api) { setError('请在桌面安装版中使用本地路由'); return; }
+    setBusy(action); setError(''); setNotice('');
+    const request = { apiKey: key, model, useExistingKey: existing };
+    try {
+      if (action === 'models') {
+        setModels([]); setModel('');
+        const result = await api.GetRouterModels(request);
+        const ids = result.models.map(item => item.id).sort(); setModels(ids); setModel('');
+        setNotice(ids.length ? `已读取 ${ids.length} 个模型。请选择支持对话和工具调用的模型。` : '此 Key 没有可用模型');
+      } else if (action === 'start') {
+        setStatus(await api.StartModelRouter(request)); setKey('');
+        setNotice('路由已启动。请重新打开 Codex 并新建对话，发送一句话测试连接。使用期间保持助手运行。');
+      } else {
+        setStatus(await api.StopModelRouter()); resetModels();
+        setNotice('已停止路由并恢复原配置。请重新打开 Codex。');
+      }
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(''); }
+  }
+  const locked = Boolean(busy) || status.running;
+  const visible = models.filter(id => id.toLowerCase().includes(filter.toLowerCase()));
+  return <div className="content-stack narrow-stack router-page">
+    <div className="page-intro"><div><p className="eyebrow">模型路由</p><h2>在 Codex 里使用更多模型</h2><p>选择词元神 Key 和实际模型，一键连接 Claude、Gemini、Grok、DeepSeek 等。</p></div></div>
+    <section className="router-card">
+      <h3>1 · 选择用于连接的 Key</h3>
+      <div className="router-choices">
+        <label><input type="radio" name="router-key-source" checked={existing} disabled={locked} onChange={() => { setExisting(true); setKey(''); resetModels(); }} />使用 Codex 当前的词元神 Key</label>
+        <label><input type="radio" name="router-key-source" checked={!existing} disabled={locked} onChange={() => { setExisting(false); resetModels(); }} />输入另一个词元神 Key</label>
+      </div>
+      {!existing && <div className="field-block"><label htmlFor="router-key">词元神 API Key</label><input id="router-key" type="password" autoComplete="off" value={key} disabled={locked} placeholder="粘贴支持目标模型分组的 Key" onChange={e => { setKey(e.target.value); resetModels(); }} /></div>}
+      <button className="secondary-button" disabled={locked || (!existing && !key.trim())} onClick={() => void run('models')}><RefreshCw size={15} />{busy === 'models' ? '读取中…' : '读取可用模型'}</button>
+      <p className="field-note">当前 Key 若属于其他服务商，请选择输入词元神 Key。Key 只用于本次路由，不保存到助手。</p>
+    </section>
+    <section className="router-card">
+      <h3>2 · 选择真正回答你的模型</h3>
+      <div className="field-block"><label htmlFor="router-filter">搜索模型</label><input id="router-filter" disabled={locked || !models.length} value={filter} onChange={e => setFilter(e.target.value)} placeholder="输入 claude、gemini、grok 或 deepseek" /></div>
+      <div className="field-block"><label htmlFor="router-model">实际使用模型</label><select id="router-model" value={model} disabled={locked || !models.length} onChange={e => setModel(e.target.value)}><option value="">请选择模型</option>{model && !visible.includes(model) && <option value={model}>{model}</option>}{visible.map(id => <option key={id} value={id}>{id}</option>)}</select></div>
+      <div className="router-mapping"><span>Codex 显示<br /><strong>{status.alias}</strong></span><ArrowRight size={22} /><span>实际请求<br /><strong>{status.running ? status.model : model || '等待选择'}</strong></span></div>
+      <p className="field-note">左侧是供 Codex 使用的模型别名，右侧才是词元神实际收到的模型名。模型列表表示 Key 的访问权限，实际可用性以请求结果为准。</p>
+    </section>
+    <section className="router-card">
+      <h3>3 · 一键启动，回到 Codex 开始使用</h3>
+      <p>启动时自动备份并切换 Codex 配置；停止或正常退出助手时恢复。如果配置被其他程序修改，会保留修改和恢复记录。重新打开 Codex、新建对话后生效。</p>
+      <div className="router-actions"><button className="primary-button" disabled={locked || !model || (!existing && !key.trim())} onClick={() => void run('start')}><Play size={16} />{busy === 'start' ? '启动中…' : '一键启动并配置 Codex'}</button><button className="secondary-button" disabled={Boolean(busy) || (!status.running && !status.lastError)} onClick={() => void run('stop')}><Square size={15} />{busy === 'stop' ? '恢复中…' : '停止并恢复配置'}</button></div>
+      <div className="router-live" role="status"><Activity size={17} /><strong>{status.running ? '运行中' : '未启动'}</strong>{status.running && <span>请求 {status.requests} 次 · 失败 {status.failures} 次</span>}</div>
+      {status.running && <p className="field-note">本机地址：{status.address} · 使用期间请保持助手运行。</p>}
+      {(error || status.lastError) && <div className="router-error" role="alert">{error || status.lastError}</div>}
+      {notice && <p className="router-notice" role="status">{notice}</p>}
+      <p className="field-note">支持文本流式回复、图片输入、函数与补丁工具。目标模型须支持相应能力。暂不支持内置联网搜索、服务端对话续接及远端压缩；遇到不支持的输入会明确报错。长对话请新建会话。</p>
+    </section>
+  </div>;
+}

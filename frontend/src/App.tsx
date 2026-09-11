@@ -60,6 +60,7 @@ import chinaWallpaper from './assets/themes/China.png';
 import animeBoyWallpaper from './assets/themes/二次元男.png';
 import animeGirlWallpaper from './assets/themes/二次元女.png';
 import './App.css';
+import ModelRouter from './ModelRouter';
 import {
   CheckClientConnections,
   CheckForUpdates,
@@ -95,7 +96,7 @@ import { main } from '../wailsjs/go/models';
 import { ClipboardGetText, ClipboardSetText, EventsOn, Quit, WindowMinimise, WindowToggleMaximise } from '../wailsjs/runtime/runtime';
 
 type ClientId = 'claude' | 'claude-desktop' | 'codex' | 'gemini' | 'grok' | 'opencode' | 'openclaw' | 'hermes';
-type TabId = 'overview' | 'groups' | 'backups' | 'updates' | 'appearance';
+type TabId = 'overview' | 'router' | 'groups' | 'backups' | 'updates' | 'appearance';
 type ThemeId = 'ciyuan' | 'anime' | 'sakura' | 'mountain' | 'city' | 'ikun' | 'china' | 'anime-boy' | 'anime-girl' | 'custom';
 type ThemeMode = 'system' | 'light' | 'dark';
 type ResolvedThemeMode = Exclude<ThemeMode, 'system'>;
@@ -419,6 +420,7 @@ function readCodexExperimentalSettings(content: string): CodexExperimentalSettin
 
 const tabTitles: Record<TabId, string> = {
   overview: '一键配置',
+  router: '模型路由',
   groups: '分组倍率',
   backups: '配置备份',
   updates: '版本更新',
@@ -492,7 +494,7 @@ function App() {
   const [systemThemeMode, setSystemThemeMode] = useState<ResolvedThemeMode>(getSystemThemeMode);
   const [customWallpaper, setCustomWallpaper] = useState(readStoredWallpaper);
   const [environment, setEnvironment] = useState<EnvironmentReport>(mockEnvironment);
-  const [appInfo, setAppInfo] = useState<AppInfo>({ name: '词元神配置助手', version: '0.2.18', platform: '', updateManifestUrl: '', gatewayUrl: 'https://api.ciyuanshen.top/v1' });
+  const [appInfo, setAppInfo] = useState<AppInfo>({ name: '词元神配置助手', version: '0.2.19', platform: '', updateManifestUrl: '', gatewayUrl: 'https://api.ciyuanshen.top/v1' });
   const [account, setAccount] = useState<AccountState>({ signedIn: false, username: '' });
   const [accountRefreshing, setAccountRefreshing] = useState(false);
   const [toolModels, setToolModels] = useState<Partial<Record<ClientId, Model[]>>>({});
@@ -1413,6 +1415,7 @@ function App() {
           <div className="sidebar-rule" />
           <nav className="side-nav" aria-label="主导航">
             <NavButton active={tab === 'overview'} icon={<ScanSearch size={17} />} label="一键配置" onClick={() => selectTab('overview')} />
+            <NavButton active={tab === 'router'} icon={<Globe size={17} />} label="模型路由" onClick={() => selectTab('router')} />
             <NavButton active={false} icon={<BookOpen size={17} />} label="文档教程" onClick={() => void openExternal(documentationURL)} external />
             <NavButton active={tab === 'groups'} icon={<Layers3 size={17} />} label="分组倍率" onClick={() => selectTab('groups')} />
             <NavButton active={tab === 'backups'} icon={<RotateCcw size={17} />} label="配置备份" onClick={() => selectTab('backups')} count={backups.length || undefined} />
@@ -1442,6 +1445,7 @@ function App() {
           {feedback && <Feedback tone={feedback.tone} text={feedback.text} onClose={() => setFeedback(null)} />}
           {tab === 'overview' && <Overview environment={environment} clientMap={clientMap} toolModels={toolModels} modelByClient={modelByClient} modelsLoading={modelsLoading} modelErrors={modelErrors} keyValidationResults={keyValidationResults} setClientModel={(clientId, model, anchor) => void applyExistingModel(clientId, model, anchor)} connectionResults={connectionResults} checkingClient={checkingClient} applyingModelClient={applyingModelClient} lifecycleByClient={lifecycleByClient} lifecycleBusyClient={lifecycleBusyClient} onCheck={checkClient} onConfigure={openToolSetup} onViewConfiguration={openClientConfiguration} onLifecycleCheck={checkToolLifecycle} onLifecycleAction={runToolLifecycleAction} />}
           {tab === 'groups' && <GroupRatios report={groupReport} busy={busy} refresh={() => void fetchGroupRatios()} />}
+          {tab === 'router' && <ModelRouter />}
           {tab === 'backups' && <Backups backups={backups} backupRoot={backupRoot} busy={busy} restore={restore} remove={deleteBackup} refresh={() => void refreshBackups()} />}
           {tab === 'updates' && <Updates update={update} progress={updateProgress} platform={appInfo.platform} busy={busy} check={() => void checkUpdate(false)} install={() => void installUpdate()} openDownload={() => update?.downloadUrl && void openExternal(update.downloadUrl)} />}
           {tab === 'appearance' && <ThemeGallery theme={theme} themeMode={themeMode} themes={availableThemes} customWallpaper={customWallpaper} transparency={activeThemeTransparency} onThemeChange={setTheme} onThemeModeChange={setThemeMode} onTransparencyChange={applyThemeTransparency} onCustomWallpaperChange={applyCustomWallpaper} onConfirm={confirmAction} onOpenSource={(url) => void openExternal(url)} />}
