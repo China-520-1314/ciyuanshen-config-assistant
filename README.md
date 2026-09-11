@@ -123,6 +123,14 @@ go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build
 
 ## Windows 与 macOS 打包
 
+分享给用户的固定下载入口（以后发布新版无需更换链接）：
+
+- 自动识别系统并开始下载：[下载最新版](https://api.ciyuanshen.top/downloads/ciyuanshen-config-assistant/latest)。Mac 浏览器下载 Universal DMG，其他浏览器默认下载 Windows 安装包；判断不准确时使用下面的专用链接。
+- [Windows 最新安装包](https://api.ciyuanshen.top/downloads/ciyuanshen-config-assistant/latest/windows.exe)
+- [macOS 最新 Universal DMG](https://api.ciyuanshen.top/downloads/ciyuanshen-config-assistant/latest/macos.dmg) / [备用 ZIP](https://api.ciyuanshen.top/downloads/ciyuanshen-config-assistant/latest/macos.zip)
+
+同步服务约每 5 分钟检查 GitHub 最新正式 Release，全部安装包下载完并校验 Windows SHA-256 后，原子切换 `latest` 软链接；同步失败时继续提供上一个完整版本。固定入口禁止缓存，版本化 `/releases/v.../` 链接仍用于历史版本下载。本次改动仅涉及下载服务，不需要用户升级助手。
+
 仓库中的 [`.github/workflows/windows.yml`](.github/workflows/windows.yml) 是统一的跨平台 Release 流程。推送 `v*` 标签后，它会并行构建 Windows amd64 NSIS 安装包和 macOS Universal 应用，并在两端构建成功后一次性上传 GitHub Release。Release 会包含：
 
 - Windows：`*-installer.exe` 和 Windows 专用 `update.json`。

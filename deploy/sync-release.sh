@@ -47,6 +47,13 @@ published_at=$(jq -er '.published_at' "$release_json")
 published_date=${published_at%%T*}
 release_directory="$destination_root/releases/$tag"
 
+# Switch all stable download URLs together, only after every asset is present.
+# The symlink is relative to destination_root, where it is atomically moved.
+publish_latest_link() {
+  ln -s "releases/$tag" "$work_dir/latest"
+  mv -Tf "$work_dir/latest" "$destination_root/latest"
+}
+
 if [[ -f "$destination_root/update.json" ]]; then
   current_version=$(jq -r '.version // empty' "$destination_root/update.json" 2>/dev/null || true)
   if [[ "$current_version" == "$version" ]]; then
@@ -55,6 +62,7 @@ if [[ -f "$destination_root/update.json" ]]; then
       [[ -f "$release_directory/$asset" ]] || complete_release=0
     done
     if [[ "$complete_release" == 1 ]]; then
+      publish_latest_link
       log "latest release $tag is already mirrored"
       exit 0
     fi
@@ -100,6 +108,8 @@ fi
 for asset in "$installer_name" "$mac_dmg_name" "$mac_zip_name"; do
   [[ -f "$release_directory/$asset" ]] || fail "published release is missing $asset"
 done
+
+publish_latest_link
 
 manifest_temp="$destination_root/.update.json.$$"
 jq -n \
