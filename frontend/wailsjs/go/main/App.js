@@ -74,6 +74,10 @@ export function GetPublicGroupRatios() {
   return window['go']['main']['App']['GetPublicGroupRatios']();
 }
 
+export function GetRouterAccountOptions() {
+  return window['go']['main']['App']['GetRouterAccountOptions']();
+}
+
 export function GetRouterModels(arg1) {
   return window['go']['main']['App']['GetRouterModels'](arg1);
 }

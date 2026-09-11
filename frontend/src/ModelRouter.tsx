@@ -1,17 +1,21 @@
 import { useEffect, useState } from 'react';
 import { Activity, ArrowRight, Play, Square, RefreshCw } from 'lucide-react';
-import { GetRouterModels, GetModelRouterStatus, StartModelRouter, StopModelRouter } from '../wailsjs/go/main/App';
+import { GetRouterModels, GetModelRouterStatus, StartModelRouter, StopModelRouter, GetRouterAccountOptions } from '../wailsjs/go/main/App';
 
 type Status = { running: boolean; model: string; alias: string; address: string; requests: number; failures: number; lastError: string; backupPath: string };
-type Request = { apiKey: string; model: string; useExistingKey: boolean };
+type Group = { name: string; description: string; ratio: string; models: { id: string }[] };
+type Key = { provisionId: string; group: string; groupDescription?: string; name?: string; models: { id: string }[]; existing?: boolean };
+type AccountOptions = { groups: Group[]; existingKeys?: Key[] };
+type Request = { apiKey: string; provisionId: string; model: string; useExistingKey: boolean };
 type RouterBridge = {
   GetRouterModels(request: Request): Promise<{ models: { id: string }[] }>;
   GetModelRouterStatus(): Promise<Status>;
   StartModelRouter(request: Request): Promise<Status>;
   StopModelRouter(): Promise<Status>;
+  GetRouterAccountOptions(): Promise<AccountOptions>;
 };
 const bridge = (): RouterBridge | undefined => (window as unknown as { go?: { main?: { App?: unknown } } }).go?.main?.App
-  ? { GetRouterModels, GetModelRouterStatus, StartModelRouter, StopModelRouter } : undefined;
+  ? { GetRouterModels, GetModelRouterStatus, StartModelRouter, StopModelRouter, GetRouterAccountOptions } : undefined;
 const initial: Status = { running: false, model: '', alias: 'gpt-5.6-terra', address: '', requests: 0, failures: 0, lastError: '', backupPath: '' };
 
 export default function ModelRouter() {
@@ -19,6 +23,10 @@ export default function ModelRouter() {
   const [existing, setExisting] = useState(true);
   const [key, setKey] = useState('');
   const [models, setModels] = useState<string[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [keys, setKeys] = useState<Key[]>([]);
+  const [selectedGroup, setSelectedGroup] = useState('');
+  const [provisionId, setProvisionId] = useState('');
   const [model, setModel] = useState('');
   const [filter, setFilter] = useState('');
   const [busy, setBusy] = useState('');
@@ -34,10 +42,19 @@ export default function ModelRouter() {
   async function run(action: 'models' | 'start' | 'stop') {
     const api = bridge(); if (!api) { setError('请在桌面安装版中使用本地路由'); return; }
     setBusy(action); setError(''); setNotice('');
-    const request = { apiKey: key, model, useExistingKey: existing };
+    const request = { apiKey: key, provisionId, model, useExistingKey: existing };
     try {
       if (action === 'models') {
         setModels([]); setModel('');
+        if (existing) {
+          const account = await api.GetRouterAccountOptions();
+          setGroups(account.groups || []); setKeys(account.existingKeys || []);
+          const available = [...(account.existingKeys || []).flatMap(k => k.models), ...(account.groups || []).flatMap(g => g.models)].map(m => m.id);
+          const ids = [...new Set(available)].sort(); setModels(ids); setModel('');
+          if ((account.existingKeys || []).length) { setProvisionId(account.existingKeys![0].provisionId); setSelectedGroup(account.existingKeys![0].group); }
+          setNotice(ids.length ? `已读取 ${ids.length} 个模型。已自动选择第一个可用分组。` : '账号没有可用模型');
+          return;
+        }
         const result = await api.GetRouterModels(request);
         const ids = result.models.map(item => item.id).sort(); setModels(ids); setModel('');
         setNotice(ids.length ? `已读取 ${ids.length} 个模型。请选择支持对话和工具调用的模型。` : '此 Key 没有可用模型');
@@ -62,7 +79,9 @@ export default function ModelRouter() {
         <label><input type="radio" name="router-key-source" checked={!existing} disabled={locked} onChange={() => { setExisting(false); resetModels(); }} />输入另一个词元神 Key</label>
       </div>
       {!existing && <div className="field-block"><label htmlFor="router-key">词元神 API Key</label><input id="router-key" type="password" autoComplete="off" value={key} disabled={locked} placeholder="粘贴支持目标模型分组的 Key" onChange={e => { setKey(e.target.value); resetModels(); }} /></div>}
-      <button className="secondary-button" disabled={locked || (!existing && !key.trim())} onClick={() => void run('models')}><RefreshCw size={15} />{busy === 'models' ? '读取中…' : '读取可用模型'}</button>
+      {existing && keys.length > 0 && <div className="field-block"><label htmlFor="router-group">模型对应分组</label><select id="router-group" value={provisionId} onChange={e => { const k = keys.find(x => x.provisionId === e.target.value); setProvisionId(e.target.value); setSelectedGroup(k?.group || ''); setModels(k?.models.map(m => m.id) || []); setModel(''); }} disabled={locked}>{keys.map(k => <option key={k.provisionId} value={k.provisionId}>{k.group || '未命名分组'} · {k.name || '已创建 Key'}</option>)}</select>{keys.find(k => k.provisionId === provisionId) && <p className="field-note">倍率：{groups.find(g => g.name === selectedGroup)?.ratio || '—'} · {keys.find(k => k.provisionId === provisionId)?.groupDescription || groups.find(g => g.name === selectedGroup)?.description || '暂无分组描述'}</p>}</div>}
+      {existing && groups.length > 1 && keys.length === 0 && <div className="field-block"><label htmlFor="router-group">选择模型分组</label><select id="router-group" value={selectedGroup} onChange={e => { const g = groups.find(x => x.name === e.target.value); setSelectedGroup(e.target.value); setModels(g?.models.map(m => m.id) || []); setModel(''); }} disabled={locked}>{groups.map(g => <option key={g.name} value={g.name}>{g.name} · {g.ratio}x</option>)}</select><p className="field-note">{groups.find(g => g.name === selectedGroup)?.description || '暂无分组描述'}</p></div>}
+      <button className="secondary-button" disabled={locked || (!existing && !key.trim())} onClick={() => void run('models')}><RefreshCw size={15} />{busy === 'models' ? '读取中…' : '读取可用模型与分组'}</button>
       <p className="field-note">当前 Key 若属于其他服务商，请选择输入词元神 Key。Key 只用于本次路由，不保存到助手。</p>
     </section>
     <section className="router-card">

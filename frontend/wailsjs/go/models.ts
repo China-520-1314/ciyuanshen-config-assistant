@@ -1,13 +1,13 @@
 export namespace main {
-
+	
 	export class AccountLoginRequest {
 	    username: string;
 	    password: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new AccountLoginRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.username = source["username"];
@@ -21,11 +21,11 @@ export namespace main {
 	    username: string;
 	    // Go type: time
 	    expiresAt: any;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new AccountLoginResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.signedIn = source["signedIn"];
@@ -34,7 +34,7 @@ export namespace main {
 	        this.username = source["username"];
 	        this.expiresAt = this.convertValues(source["expiresAt"], null);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -62,11 +62,11 @@ export namespace main {
 	    balanceUpdatedAt: any;
 	    // Go type: time
 	    expiresAt: any;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new AccountState(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.signedIn = source["signedIn"];
@@ -76,7 +76,7 @@ export namespace main {
 	        this.balanceUpdatedAt = this.convertValues(source["balanceUpdatedAt"], null);
 	        this.expiresAt = this.convertValues(source["expiresAt"], null);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -98,11 +98,11 @@ export namespace main {
 	export class AccountTwoFactorRequest {
 	    flowToken: string;
 	    code: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new AccountTwoFactorRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.flowToken = source["flowToken"];
@@ -115,11 +115,11 @@ export namespace main {
 	    platform: string;
 	    updateManifestUrl: string;
 	    gatewayUrl: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new AppInfo(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -134,11 +134,11 @@ export namespace main {
 	    originalPath: string;
 	    backupPath: string;
 	    exists: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new BackupFile(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.clientId = source["clientId"];
@@ -153,11 +153,11 @@ export namespace main {
 	    createdAt: any;
 	    path: string;
 	    files: BackupFile[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new BackupInfo(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -165,7 +165,7 @@ export namespace main {
 	        this.path = source["path"];
 	        this.files = this.convertValues(source["files"], BackupFile);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -188,11 +188,11 @@ export namespace main {
 	    path: string;
 	    exists: boolean;
 	    content: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ClientConfigurationFile(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
@@ -205,11 +205,11 @@ export namespace main {
 	    clientName: string;
 	    files: ClientConfigurationFile[];
 	    secretsRedacted: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ClientConfigurationView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.clientId = source["clientId"];
@@ -217,7 +217,7 @@ export namespace main {
 	        this.files = this.convertValues(source["files"], ClientConfigurationFile);
 	        this.secretsRedacted = source["secretsRedacted"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -246,11 +246,11 @@ export namespace main {
 	    message: string;
 	    // Go type: time
 	    checkedAt: any;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ClientConnectionResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -262,7 +262,7 @@ export namespace main {
 	        this.message = source["message"];
 	        this.checkedAt = this.convertValues(source["checkedAt"], null);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -292,11 +292,11 @@ export namespace main {
 	    configState: string;
 	    version: string;
 	    detail: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ClientStatus(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -315,11 +315,11 @@ export namespace main {
 	    contextManagementExperimentalMode: boolean;
 	    tokenBudgetEnabled: boolean;
 	    tokenBudgetUseHistoryNotesExtension: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CodexExperimentalSettings(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.contextManagementExperimentalMode = source["contextManagementExperimentalMode"];
@@ -331,11 +331,11 @@ export namespace main {
 	    clientId: string;
 	    path: string;
 	    action: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new FilePreview(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.clientId = source["clientId"];
@@ -347,18 +347,18 @@ export namespace main {
 	    files: FilePreview[];
 	    warnings: string[];
 	    error?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ConfigurationPreview(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.files = this.convertValues(source["files"], FilePreview);
 	        this.warnings = source["warnings"];
 	        this.error = source["error"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -382,11 +382,11 @@ export namespace main {
 	    targets: string[];
 	    models: Record<string, string>;
 	    codexExperimentalSettings?: CodexExperimentalSettings;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ConfigurationRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.apiKey = source["apiKey"];
@@ -394,7 +394,7 @@ export namespace main {
 	        this.models = source["models"];
 	        this.codexExperimentalSettings = this.convertValues(source["codexExperimentalSettings"], CodexExperimentalSettings);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -419,11 +419,11 @@ export namespace main {
 	    restarted: boolean;
 	    manualRestartRequired: boolean;
 	    message: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ToolRestartResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.clientId = source["clientId"];
@@ -443,11 +443,11 @@ export namespace main {
 	    restarts?: ToolRestartResult[];
 	    // Go type: time
 	    finishedAt: any;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ConfigureResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.success = source["success"];
@@ -459,7 +459,7 @@ export namespace main {
 	        this.restarts = this.convertValues(source["restarts"], ToolRestartResult);
 	        this.finishedAt = this.convertValues(source["finishedAt"], null);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -482,17 +482,17 @@ export namespace main {
 	    results: ClientConnectionResult[];
 	    // Go type: time
 	    checkedAt: any;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ConnectionCheckReport(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.results = this.convertValues(source["results"], ClientConnectionResult);
 	        this.checkedAt = this.convertValues(source["checkedAt"], null);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -513,11 +513,11 @@ export namespace main {
 	}
 	export class ConnectionCheckRequest {
 	    targets: string[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ConnectionCheckRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.targets = source["targets"];
@@ -529,11 +529,11 @@ export namespace main {
 	    // Go type: time
 	    scannedAt: any;
 	    clients: ClientStatus[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new EnvironmentReport(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.os = source["os"];
@@ -541,7 +541,7 @@ export namespace main {
 	        this.scannedAt = this.convertValues(source["scannedAt"], null);
 	        this.clients = this.convertValues(source["clients"], ClientStatus);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -563,27 +563,27 @@ export namespace main {
 	export class ExistingToolConfigurationRequest {
 	    clientId: string;
 	    model: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ExistingToolConfigurationRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.clientId = source["clientId"];
 	        this.model = source["model"];
 	    }
 	}
-
+	
 	export class GroupRatio {
 	    name: string;
 	    description: string;
 	    ratio: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GroupRatio(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -596,18 +596,18 @@ export namespace main {
 	    endpoint: string;
 	    // Go type: time
 	    fetchedAt: any;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GroupRatioReport(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.groups = this.convertValues(source["groups"], GroupRatio);
 	        this.endpoint = source["endpoint"];
 	        this.fetchedAt = this.convertValues(source["fetchedAt"], null);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -631,11 +631,11 @@ export namespace main {
 	    message?: string;
 	    error?: string;
 	    downloadUrl?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new InstallUpdateResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.success = source["success"];
@@ -648,11 +648,11 @@ export namespace main {
 	    id: string;
 	    object?: string;
 	    owned_by?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Model(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -665,11 +665,11 @@ export namespace main {
 	    status: number;
 	    message?: string;
 	    endpoint: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ModelResponse(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.models = this.convertValues(source["models"], Model);
@@ -677,7 +677,7 @@ export namespace main {
 	        this.message = source["message"];
 	        this.endpoint = source["endpoint"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -701,11 +701,11 @@ export namespace main {
 	    clientId: string;
 	    model: string;
 	    codexExperimentalSettings?: CodexExperimentalSettings;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ProvisionedToolConfigurationRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.provisionId = source["provisionId"];
@@ -713,7 +713,7 @@ export namespace main {
 	        this.model = source["model"];
 	        this.codexExperimentalSettings = this.convertValues(source["codexExperimentalSettings"], CodexExperimentalSettings);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -734,16 +734,18 @@ export namespace main {
 	}
 	export class RouterRequest {
 	    apiKey: string;
+	    provisionId: string;
 	    model: string;
 	    useExistingKey: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new RouterRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.apiKey = source["apiKey"];
+	        this.provisionId = source["provisionId"];
 	        this.model = source["model"];
 	        this.useExistingKey = source["useExistingKey"];
 	    }
@@ -757,11 +759,11 @@ export namespace main {
 	    failures: number;
 	    lastError: string;
 	    backupPath: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new RouterStatus(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.running = source["running"];
@@ -777,11 +779,11 @@ export namespace main {
 	export class SavedAccountLogin {
 	    username: string;
 	    password: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SavedAccountLogin(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.username = source["username"];
@@ -793,11 +795,11 @@ export namespace main {
 	    apiKey: string;
 	    model: string;
 	    codexExperimentalSettings?: CodexExperimentalSettings;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ToolConfigurationRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.clientId = source["clientId"];
@@ -805,7 +807,7 @@ export namespace main {
 	        this.model = source["model"];
 	        this.codexExperimentalSettings = this.convertValues(source["codexExperimentalSettings"], CodexExperimentalSettings);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -829,11 +831,11 @@ export namespace main {
 	    description: string;
 	    ratio: string;
 	    models: Model[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ToolGroupOption(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -841,7 +843,7 @@ export namespace main {
 	        this.ratio = source["ratio"];
 	        this.models = this.convertValues(source["models"], Model);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -863,11 +865,11 @@ export namespace main {
 	export class ToolKeyRequest {
 	    clientId: string;
 	    group: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ToolKeyRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.clientId = source["clientId"];
@@ -884,11 +886,11 @@ export namespace main {
 	    models: Model[];
 	    status: number;
 	    endpoint: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ToolKeyResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.provisionId = source["provisionId"];
@@ -901,7 +903,7 @@ export namespace main {
 	        this.status = source["status"];
 	        this.endpoint = source["endpoint"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -923,11 +925,11 @@ export namespace main {
 	export class ToolKeyValidationRequest {
 	    clientId: string;
 	    apiKey: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ToolKeyValidationRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.clientId = source["clientId"];
@@ -940,11 +942,11 @@ export namespace main {
 	    selectedModel?: string;
 	    status: number;
 	    endpoint: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ToolKeyValidationResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.clientId = source["clientId"];
@@ -953,7 +955,7 @@ export namespace main {
 	        this.status = source["status"];
 	        this.endpoint = source["endpoint"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -987,11 +989,11 @@ export namespace main {
 	    checkedAt: any;
 	    message?: string;
 	    error?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ToolLifecycleInfo(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.clientId = source["clientId"];
@@ -1008,7 +1010,7 @@ export namespace main {
 	        this.message = source["message"];
 	        this.error = source["error"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -1030,11 +1032,11 @@ export namespace main {
 	export class ToolLifecycleRequest {
 	    clientId: string;
 	    action: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ToolLifecycleRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.clientId = source["clientId"];
@@ -1048,11 +1050,11 @@ export namespace main {
 	    message?: string;
 	    error?: string;
 	    info: ToolLifecycleInfo;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ToolLifecycleResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.success = source["success"];
@@ -1062,7 +1064,7 @@ export namespace main {
 	        this.error = source["error"];
 	        this.info = this.convertValues(source["info"], ToolLifecycleInfo);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -1085,18 +1087,18 @@ export namespace main {
 	    clientId: string;
 	    groups: ToolGroupOption[];
 	    existingKeys?: ToolKeyResult[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ToolOptionsResponse(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.clientId = source["clientId"];
 	        this.groups = this.convertValues(source["groups"], ToolGroupOption);
 	        this.existingKeys = this.convertValues(source["existingKeys"], ToolKeyResult);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -1115,7 +1117,7 @@ export namespace main {
 		    return a;
 		}
 	}
-
+	
 	export class UpdateInfo {
 	    currentVersion: string;
 	    latestVersion: string;
@@ -1127,11 +1129,11 @@ export namespace main {
 	    // Go type: time
 	    checkedAt: any;
 	    error?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new UpdateInfo(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.currentVersion = source["currentVersion"];
@@ -1144,7 +1146,7 @@ export namespace main {
 	        this.checkedAt = this.convertValues(source["checkedAt"], null);
 	        this.error = source["error"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -1165,3 +1167,4 @@ export namespace main {
 	}
 
 }
+

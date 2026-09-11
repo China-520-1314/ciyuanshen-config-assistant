@@ -38,6 +38,8 @@ export function GetModelRouterStatus():Promise<main.RouterStatus>;
 
 export function GetPublicGroupRatios():Promise<main.GroupRatioReport>;
 
+export function GetRouterAccountOptions():Promise<main.ToolOptionsResponse>;
+
 export function GetRouterModels(arg1:main.RouterRequest):Promise<main.ModelResponse>;
 
 export function GetSavedAccountLogin():Promise<main.SavedAccountLogin>;

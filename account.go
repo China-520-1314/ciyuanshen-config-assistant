@@ -28,6 +28,8 @@ const (
 	dashboardTokenMaxPages = 1000
 )
 
+var errAccountSessionExpired = errors.New("词元神登录状态已过期")
+
 type AccountLoginRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
@@ -66,6 +68,13 @@ type ToolOptionsResponse struct {
 	ClientID     string            `json:"clientId"`
 	Groups       []ToolGroupOption `json:"groups"`
 	ExistingKeys []ToolKeyResult   `json:"existingKeys,omitempty"`
+}
+
+// GetRouterAccountOptions returns every model family exposed by the account's
+// groups. Unlike a normal client setup, the router intentionally does not
+// restrict the catalog to OpenAI models.
+func (a *App) GetRouterAccountOptions() (ToolOptionsResponse, error) {
+	return a.accountToolOptionsWithRenewal("router", true)
 }
 
 type ToolKeyRequest struct {
@@ -202,7 +211,7 @@ func (a *App) GetAccountState() AccountState {
 		return AccountState{}
 	}
 	if !session.ExpiresAt.IsZero() && time.Now().After(session.ExpiresAt) {
-		a.clearAccountSession()
+		a.clearAccountSessionForToken(session.AccessToken)
 		return AccountState{}
 	}
 	return accountStateFromSession(session)
@@ -211,6 +220,10 @@ func (a *App) GetAccountState() AccountState {
 // RefreshAccountState updates the in-memory account summary. It deliberately
 // does not persist the dashboard token, user data, or quota to local storage.
 func (a *App) RefreshAccountState() (AccountState, error) {
+	return a.refreshAccountState(true)
+}
+
+func (a *App) refreshAccountState(retryAfterRenewal bool) (AccountState, error) {
 	accessToken, err := a.accountAccessToken()
 	if err != nil {
 		return AccountState{}, err
@@ -218,6 +231,12 @@ func (a *App) RefreshAccountState() (AccountState, error) {
 
 	data, _, err := a.dashboardData(http.MethodGet, "/api/user/self", accessToken, nil)
 	if err != nil {
+		if retryAfterRenewal && errors.Is(err, errAccountSessionExpired) {
+			if _, renewalErr := a.renewAccountSession(); renewalErr != nil {
+				return AccountState{}, renewalErr
+			}
+			return a.refreshAccountState(false)
+		}
 		return AccountState{}, err
 	}
 	var profile struct {
@@ -320,10 +339,21 @@ func formatAccountInteger(value int64) string {
 }
 
 func (a *App) LogoutAccount() {
+	a.accountRenewMu.Lock()
+	defer a.accountRenewMu.Unlock()
 	a.clearAccountSession()
+	a.accountMu.Lock()
+	a.accountAutoRenewDisabled = true
+	a.accountMu.Unlock()
 }
 
 func (a *App) LoginAccount(request AccountLoginRequest) (AccountLoginResult, error) {
+	a.accountRenewMu.Lock()
+	defer a.accountRenewMu.Unlock()
+	return a.loginAccount(request)
+}
+
+func (a *App) loginAccount(request AccountLoginRequest) (AccountLoginResult, error) {
 	username := strings.TrimSpace(request.Username)
 	if username == "" || strings.TrimSpace(request.Password) == "" {
 		return AccountLoginResult{}, errors.New("请输入词元神用户名或邮箱和密码")
@@ -344,7 +374,58 @@ func (a *App) LoginAccount(request AccountLoginRequest) (AccountLoginResult, err
 	return a.consumeLoginResponse(raw, username)
 }
 
+// renewAccountSession exchanges explicitly remembered credentials for a fresh
+// dashboard token. Raw dashboard tokens remain memory-only; the OS credential
+// manager is the sole persistent store for an opted-in account password.
+func (a *App) renewAccountSession() (string, error) {
+	a.accountRenewMu.Lock()
+	defer a.accountRenewMu.Unlock()
+
+	a.accountMu.RLock()
+	session := a.account
+	autoRenewDisabled := a.accountAutoRenewDisabled
+	a.accountMu.RUnlock()
+	if session.AccessToken != "" && (session.ExpiresAt.IsZero() || time.Now().Before(session.ExpiresAt)) {
+		return session.AccessToken, nil
+	}
+	if autoRenewDisabled {
+		return "", errors.New("已退出词元神账号，请重新登录")
+	}
+	if session.AccessToken != "" {
+		a.clearAccountSessionForToken(session.AccessToken)
+	}
+
+	saved, err := a.GetSavedAccountLogin()
+	if err != nil {
+		return "", fmt.Errorf("登录状态已过期，无法读取保存的登录信息：%w", err)
+	}
+	if saved.Username == "" || saved.Password == "" {
+		if session.AccessToken == "" {
+			return "", errors.New("请先登录词元神账号")
+		}
+		return "", errors.New("登录状态已过期，请重新登录；勾选“保存密码”后可自动续期")
+	}
+
+	result, err := a.loginAccount(AccountLoginRequest{Username: saved.Username, Password: saved.Password})
+	if err != nil {
+		return "", fmt.Errorf("登录状态已过期，自动续期失败：%w", err)
+	}
+	if result.RequiresTwoFactor {
+		return "", errors.New("登录状态已过期，已保存的账号需要两步验证，请重新登录")
+	}
+
+	a.accountMu.RLock()
+	renewed := a.account
+	a.accountMu.RUnlock()
+	if renewed.AccessToken == "" || (!renewed.ExpiresAt.IsZero() && !time.Now().Before(renewed.ExpiresAt)) {
+		return "", errors.New("登录状态已过期，自动续期未获得有效会话，请重新登录")
+	}
+	return renewed.AccessToken, nil
+}
+
 func (a *App) VerifyAccountTwoFactor(request AccountTwoFactorRequest) (AccountLoginResult, error) {
+	a.accountRenewMu.Lock()
+	defer a.accountRenewMu.Unlock()
 	if strings.TrimSpace(request.FlowToken) == "" || strings.TrimSpace(request.Code) == "" {
 		return AccountLoginResult{}, errors.New("请输入两步验证代码")
 	}
@@ -363,7 +444,18 @@ func (a *App) GetAccountToolOptions(clientID string) (ToolOptionsResponse, error
 	if err != nil {
 		return ToolOptionsResponse{}, err
 	}
-	return a.accountToolOptions(clientID, true)
+	return a.accountToolOptionsWithRenewal(clientID, true)
+}
+
+func (a *App) accountToolOptionsWithRenewal(clientID string, includeExisting bool) (ToolOptionsResponse, error) {
+	options, err := a.accountToolOptions(clientID, includeExisting)
+	if !errors.Is(err, errAccountSessionExpired) {
+		return options, err
+	}
+	if _, renewalErr := a.renewAccountSession(); renewalErr != nil {
+		return ToolOptionsResponse{}, renewalErr
+	}
+	return a.accountToolOptions(clientID, includeExisting)
 }
 
 func (a *App) accountToolOptions(clientID string, includeExisting bool) (ToolOptionsResponse, error) {
@@ -394,9 +486,14 @@ func (a *App) accountToolOptions(clientID string, includeExisting bool) (ToolOpt
 		}
 		models, err := a.fetchDashboardGroupModels(accessToken, groupName)
 		if err != nil {
+			if errors.Is(err, errAccountSessionExpired) {
+				return ToolOptionsResponse{}, err
+			}
 			continue
 		}
-		models = filterModelsForClient(clientID, models)
+		if clientID != "router" {
+			models = filterModelsForClient(clientID, models)
+		}
 		if len(models) == 0 {
 			continue
 		}
@@ -430,12 +527,11 @@ func (a *App) CreateToolKey(request ToolKeyRequest) (ToolKeyResult, error) {
 	if groupName == "" {
 		return ToolKeyResult{}, errors.New("请选择分组")
 	}
-	accessToken, err := a.accountAccessToken()
+	options, err := a.accountToolOptionsWithRenewal(clientID, false)
 	if err != nil {
 		return ToolKeyResult{}, err
 	}
-
-	options, err := a.accountToolOptions(clientID, false)
+	accessToken, err := a.accountAccessToken()
 	if err != nil {
 		return ToolKeyResult{}, err
 	}
@@ -667,7 +763,15 @@ func (a *App) findExistingToolKeys(accessToken, clientID string, groupDescriptio
 		if key == "" {
 			continue
 		}
-		validated, validateErr := a.validateToolKey(clientID, key)
+		var validated ToolKeyValidationResult
+		var validateErr error
+		if clientID == "router" {
+			response, e := a.fetchGatewayModels(key)
+			validated = ToolKeyValidationResult{ClientID: clientID, Models: response.Models, Status: response.Status, Endpoint: response.Endpoint}
+			validateErr = e
+		} else {
+			validated, validateErr = a.validateToolKey(clientID, key)
+		}
 		if validateErr != nil {
 			continue
 		}
@@ -933,6 +1037,7 @@ func (a *App) consumeLoginResponse(raw []byte, fallbackUsername string) (Account
 	}
 	a.accountMu.Lock()
 	a.account = dashboardSession{AccessToken: payload.AccessToken, Username: username, ExpiresAt: expiresAt}
+	a.accountAutoRenewDisabled = false
 	a.accountMu.Unlock()
 	return AccountLoginResult{SignedIn: true, Username: username, ExpiresAt: expiresAt}, nil
 }
@@ -1088,20 +1193,38 @@ func (a *App) accountAccessToken() (string, error) {
 	a.accountMu.RLock()
 	session := a.account
 	a.accountMu.RUnlock()
-	if session.AccessToken == "" {
-		return "", errors.New("请先登录词元神账号")
+	if session.AccessToken != "" && (session.ExpiresAt.IsZero() || time.Now().Before(session.ExpiresAt)) {
+		return session.AccessToken, nil
 	}
-	if !session.ExpiresAt.IsZero() && time.Now().After(session.ExpiresAt) {
-		a.clearAccountSession()
-		return "", errors.New("登录状态已过期，请重新登录")
+	if session.AccessToken != "" {
+		a.clearAccountSessionForToken(session.AccessToken)
 	}
-	return session.AccessToken, nil
+	return a.renewAccountSession()
 }
 
 func (a *App) clearAccountSession() {
 	a.accountMu.Lock()
 	a.account = dashboardSession{}
 	a.accountMu.Unlock()
+	a.clearProvisionedToolKeys()
+}
+
+func (a *App) clearAccountSessionForToken(accessToken string) {
+	accessToken = strings.TrimSpace(accessToken)
+	if accessToken == "" {
+		return
+	}
+	a.accountMu.Lock()
+	if a.account.AccessToken != accessToken {
+		a.accountMu.Unlock()
+		return
+	}
+	a.account = dashboardSession{}
+	a.accountMu.Unlock()
+	a.clearProvisionedToolKeys()
+}
+
+func (a *App) clearProvisionedToolKeys() {
 	a.provisionMu.Lock()
 	a.provisions = map[string]provisionedToolKey{}
 	a.provisionMu.Unlock()
@@ -1119,9 +1242,9 @@ func (a *App) pruneProvisionsLocked() {
 func (a *App) dashboardData(method, path, accessToken string, payload any) (json.RawMessage, int, error) {
 	status, raw, err := a.dashboardRaw(method, path, accessToken, payload)
 	if err != nil {
-		if status == http.StatusUnauthorized {
-			a.clearAccountSession()
-			return nil, status, errors.New("登录状态已过期，请重新登录")
+		if status == http.StatusUnauthorized && strings.TrimSpace(accessToken) != "" {
+			a.clearAccountSessionForToken(accessToken)
+			return nil, status, errAccountSessionExpired
 		}
 		return nil, status, err
 	}

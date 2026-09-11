@@ -22,6 +22,7 @@ const routerProvider = "ciyuanshen-local-router"
 
 type RouterRequest struct {
 	APIKey         string `json:"apiKey"`
+	ProvisionID    string `json:"provisionId"`
 	Model          string `json:"model"`
 	UseExistingKey bool   `json:"useExistingKey"`
 }
@@ -66,6 +67,15 @@ func checkRouterConfigurationUnlocked() error {
 }
 
 func (a *App) routerKey(r RouterRequest) (string, error) {
+	if strings.TrimSpace(r.ProvisionID) != "" {
+		a.provisionMu.Lock()
+		defer a.provisionMu.Unlock()
+		p, ok := a.provisions[strings.TrimSpace(r.ProvisionID)]
+		if !ok || p.Key == "" {
+			return "", errors.New("所选分组 Key 已失效，请重新读取分组")
+		}
+		return p.Key, nil
+	}
 	if !r.UseExistingKey {
 		if strings.TrimSpace(r.APIKey) == "" {
 			return "", errors.New("请粘贴词元神 Key，或选择使用 Codex 当前 Key")
