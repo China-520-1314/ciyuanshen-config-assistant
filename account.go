@@ -1158,6 +1158,9 @@ func containsModel(models []Model, value string) bool {
 
 func normaliseClientID(value string) (string, error) {
 	clientID := strings.ToLower(strings.TrimSpace(value))
+	if clientID == "router" {
+		return clientID, nil
+	}
 	for _, definition := range clientDefinitions() {
 		if definition.ID == clientID {
 			return clientID, nil

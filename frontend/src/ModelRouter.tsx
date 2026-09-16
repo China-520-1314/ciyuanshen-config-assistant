@@ -60,7 +60,7 @@ export default function ModelRouter() {
         setNotice(ids.length ? `已读取 ${ids.length} 个模型。请选择支持对话和工具调用的模型。` : '此 Key 没有可用模型');
       } else if (action === 'start') {
         setStatus(await api.StartModelRouter(request)); setKey('');
-        setNotice('路由已启动。请重新打开 Codex 并新建对话，发送一句话测试连接。使用期间保持助手运行。');
+        setNotice('路由已启动。请关闭并重新打开 Codex 客户端，再新建对话后使用。期间请保持助手运行。');
       } else {
         setStatus(await api.StopModelRouter()); resetModels();
         setNotice('已停止路由并恢复原配置。请重新打开 Codex。');

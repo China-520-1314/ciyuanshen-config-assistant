@@ -38,7 +38,7 @@ const (
 
 // appVersion is a variable so release builds can inject their tag with
 // -ldflags "-X main.appVersion=..." while local builds keep a useful default.
-var appVersion = "0.2.21"
+var appVersion = "0.2.22"
 
 type InstallUpdateResult struct {
 	Success     bool   `json:"success"`
