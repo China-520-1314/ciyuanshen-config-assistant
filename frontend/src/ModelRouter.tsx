@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Activity, ArrowRight, Play, Square, RefreshCw } from 'lucide-react';
-import { GetRouterModels, GetModelRouterStatus, StartModelRouter, StopModelRouter, GetRouterAccountOptions } from '../wailsjs/go/main/App';
+import { GetRouterModels, GetModelRouterStatus, StartModelRouter, StopModelRouter, GetRouterAccountOptions, CreateToolKey } from '../wailsjs/go/main/App';
 
 type Status = { running: boolean; model: string; alias: string; address: string; requests: number; failures: number; lastError: string; backupPath: string };
 type Group = { name: string; description: string; ratio: string; models: { id: string }[] };
@@ -13,9 +13,10 @@ type RouterBridge = {
   StartModelRouter(request: Request): Promise<Status>;
   StopModelRouter(): Promise<Status>;
   GetRouterAccountOptions(): Promise<AccountOptions>;
+  CreateToolKey(request: { clientId: string; group: string }): Promise<Key>;
 };
 const bridge = (): RouterBridge | undefined => (window as unknown as { go?: { main?: { App?: unknown } } }).go?.main?.App
-  ? { GetRouterModels, GetModelRouterStatus, StartModelRouter, StopModelRouter, GetRouterAccountOptions } : undefined;
+  ? { GetRouterModels, GetModelRouterStatus, StartModelRouter, StopModelRouter, GetRouterAccountOptions, CreateToolKey } : undefined;
 const initial: Status = { running: false, model: '', alias: 'gpt-5.6-terra', address: '', requests: 0, failures: 0, lastError: '', backupPath: '' };
 
 export default function ModelRouter() {
@@ -59,7 +60,15 @@ export default function ModelRouter() {
         const ids = result.models.map(item => item.id).sort(); setModels(ids); setModel('');
         setNotice(ids.length ? `已读取 ${ids.length} 个模型。请选择支持对话和工具调用的模型。` : '此 Key 没有可用模型');
       } else if (action === 'start') {
-        setStatus(await api.StartModelRouter(request)); setKey('');
+        let startRequest = request;
+        if (existing && !provisionId) {
+          if (!selectedGroup) throw new Error('请选择该模型对应的分组');
+          setNotice('正在创建所选分组 Key…');
+          const created = await api.CreateToolKey({ clientId: 'router', group: selectedGroup });
+          setProvisionId(created.provisionId); setKeys(previous => [...previous, created]);
+          startRequest = { ...request, provisionId: created.provisionId };
+        }
+        setStatus(await api.StartModelRouter(startRequest)); setKey('');
         setNotice('路由已启动。请关闭并重新打开 Codex 客户端，再新建对话后使用。期间请保持助手运行。');
       } else {
         setStatus(await api.StopModelRouter()); resetModels();
@@ -69,8 +78,11 @@ export default function ModelRouter() {
     finally { setBusy(''); }
   }
   const locked = Boolean(busy) || status.running;
-  const visible = models.filter(id => id.toLowerCase().includes(filter.toLowerCase()));
+  const visible = models;
   const providers = [...new Set(visible.map(id => id.split(/[-/:]/)[0].toLowerCase()))].sort();
+  const ratio = (value: string) => Number.parseFloat(value.replace(',', '.').replace(/[^0-9.]/g, '')) || Number.POSITIVE_INFINITY;
+  const modelGroups = groups.filter(group => !model || group.models.some(item => item.id === model)).sort((a, b) => ratio(a.ratio) - ratio(b.ratio) || a.name.localeCompare(b.name));
+  const modelKeys = keys.filter(item => !model || item.models.some(candidate => candidate.id === model));
   return <div className="content-stack narrow-stack router-page">
     <div className="page-intro"><div><p className="eyebrow">模型路由</p><h2>在 Codex 里使用更多模型</h2><p>选择词元神 Key 和实际模型，一键连接 Claude、Gemini、Grok、DeepSeek 等。</p></div></div>
     <section className="router-card">
@@ -81,13 +93,12 @@ export default function ModelRouter() {
       </div>
       {!existing && <div className="field-block"><label htmlFor="router-key">词元神 API Key</label><input id="router-key" type="password" autoComplete="off" value={key} disabled={locked} placeholder="粘贴支持目标模型分组的 Key" onChange={e => { setKey(e.target.value); resetModels(); }} /></div>}
       {existing && keys.length > 0 && <div className="field-block"><label htmlFor="router-group">模型对应分组</label><select id="router-group" value={provisionId} onChange={e => { const k = keys.find(x => x.provisionId === e.target.value); setProvisionId(e.target.value); setSelectedGroup(k?.group || ''); setModel(''); }} disabled={locked}>{keys.map(k => <option key={k.provisionId} value={k.provisionId}>{k.group || '未命名分组'} · {k.name || '已创建 Key'}</option>)}</select>{keys.find(k => k.provisionId === provisionId) && <p className="field-note">倍率：{groups.find(g => g.name === selectedGroup)?.ratio || '—'} · {keys.find(k => k.provisionId === provisionId)?.groupDescription || groups.find(g => g.name === selectedGroup)?.description || '暂无分组描述'}</p>}</div>}
-      {existing && groups.length > 0 && <div className="field-block"><label htmlFor="router-group">账号可用模型分组</label><select id="router-group" value={selectedGroup} onChange={e => { const g = groups.find(x => x.name === e.target.value); setSelectedGroup(e.target.value); setModel(''); }} disabled={locked}>{groups.map(g => <option key={g.name} value={g.name}>{g.name} · {g.ratio}x</option>)}</select><p className="field-note">{groups.find(g => g.name === selectedGroup)?.description || '暂无分组描述'}{keys.length === 0 ? '；该分组暂无已创建 Key，请先创建 Key 后再启动路由。' : ''}</p></div>}
+      {existing && groups.length > 0 && <div className="field-block"><label htmlFor="router-group">账号可用模型分组</label><select id="router-group" value={provisionId || selectedGroup} onChange={e => { const value = e.target.value; const found = modelKeys.find(k => k.provisionId === value); setProvisionId(found?.provisionId || ''); setSelectedGroup(found?.group || value); }} disabled={locked}><option value="">请选择模型后选择分组</option>{modelKeys.map(k => <option key={k.provisionId} value={k.provisionId}>已有 Key · {k.group} · {groups.find(g => g.name === k.group)?.ratio || '—'}x</option>)}{modelGroups.map(g => <option key={g.name} value={g.name}>自动创建 Key · {g.name} · {g.ratio || '—'}x</option>)}</select><p className="field-note">{groups.find(g => g.name === selectedGroup)?.description || keys.find(k => k.provisionId === provisionId)?.groupDescription || '请选择分组'}{!provisionId && selectedGroup ? '；启动时会自动创建此分组 Key。' : ''}</p></div>}
       <button className="secondary-button" disabled={locked || (!existing && !key.trim())} onClick={() => void run('models')}><RefreshCw size={15} />{busy === 'models' ? '读取中…' : '读取可用模型与分组'}</button>
       <p className="field-note">当前 Key 若属于其他服务商，请选择输入词元神 Key。Key 只用于本次路由，不保存到助手。</p>
     </section>
     <section className="router-card">
       <h3>2 · 选择真正回答你的模型</h3>
-      <div className="field-block"><label htmlFor="router-filter">搜索模型</label><input id="router-filter" disabled={locked || !models.length} value={filter} onChange={e => setFilter(e.target.value)} placeholder="输入 claude、gemini、grok 或 deepseek" /></div>
       <div className="field-block"><label htmlFor="router-model">实际使用模型</label><select id="router-model" value={model} disabled={locked || !models.length} onChange={e => { const id=e.target.value; setModel(id); const match=keys.find(k => k.models.some(m => m.id === id)); if (match) { setProvisionId(match.provisionId); setSelectedGroup(match.group); } }}><option value="">请选择模型</option>{model && !visible.includes(model) && <option value={model}>{model}</option>}{providers.map(provider => <optgroup key={provider} label={provider.toUpperCase()}>{visible.filter(id => id.split(/[-/:]/)[0].toLowerCase() === provider).map(id => <option key={id} value={id}>{id}</option>)}</optgroup>)}</select></div>
       <div className="router-mapping"><span>Codex 显示<br /><strong>{status.alias}</strong></span><ArrowRight size={22} /><span>实际请求<br /><strong>{status.running ? status.model : model || '等待选择'}</strong></span></div>
       <p className="field-note">模型列表汇总账号所有可用分组，并按供应商分类；当前选择的分组 Key 必须实际拥有该模型权限。左侧是供 Codex 使用的模型别名，右侧才是词元神实际收到的模型名。</p>
@@ -95,7 +106,7 @@ export default function ModelRouter() {
     <section className="router-card">
       <h3>3 · 一键启动，回到 Codex 开始使用</h3>
       <p>启动时自动备份并切换 Codex 配置；停止或正常退出助手时恢复。如果配置被其他程序修改，会保留修改和恢复记录。重新打开 Codex、新建对话后生效。</p>
-      <div className="router-actions"><button className="primary-button" disabled={locked || !model || (!existing && !key.trim())} onClick={() => void run('start')}><Play size={16} />{busy === 'start' ? '启动中…' : '一键启动并配置 Codex'}</button><button className="secondary-button" disabled={Boolean(busy) || (!status.running && !status.lastError)} onClick={() => void run('stop')}><Square size={15} />{busy === 'stop' ? '恢复中…' : '停止并恢复配置'}</button></div>
+      <div className="router-actions"><button className="primary-button" disabled={locked || !model || (existing && !provisionId && !selectedGroup) || (!existing && !key.trim())} onClick={() => void run('start')}><Play size={16} />{busy === 'start' ? '启动中…' : '一键启动并配置 Codex'}</button><button className="secondary-button" disabled={Boolean(busy) || (!status.running && !status.lastError)} onClick={() => void run('stop')}><Square size={15} />{busy === 'stop' ? '恢复中…' : '停止并恢复配置'}</button></div>
       <div className="router-live" role="status"><Activity size={17} /><strong>{status.running ? '运行中' : '未启动'}</strong>{status.running && <span>请求 {status.requests} 次 · 失败 {status.failures} 次</span>}</div>
       {status.running && <p className="field-note">本机地址：{status.address} · 使用期间请保持助手运行。</p>}
       {(error || status.lastError) && <div className="router-error" role="alert">{error || status.lastError}</div>}

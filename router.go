@@ -258,7 +258,12 @@ func restoreRouterJournal(j routerJournal) error {
 		return os.Remove(routerJournalPath())
 	}
 	if !bytes.Equal(current, j.Installed) {
-		return errors.New("路由启动后配置被其他程序修改，未覆盖你的修改；原配置保存在 " + routerJournalPath())
+		// The user explicitly asked to stop the router and restore the original
+		// Codex configuration. Preserve any intervening edits before restoring.
+		conflict := j.Path + ".router-conflict-" + time.Now().Format("20060102-150405")
+		if err := atomicWrite(conflict, current); err != nil {
+			return fmt.Errorf("无法备份当前配置，未恢复原配置：%w", err)
+		}
 	}
 	if j.Existed {
 		err = atomicWrite(j.Path, j.Original)
