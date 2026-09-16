@@ -21,7 +21,7 @@ const initial: Status = { running: false, model: '', alias: 'gpt-5.6-terra', add
 
 export default function ModelRouter() {
   const [status, setStatus] = useState(initial);
-  const [existing, setExisting] = useState(true);
+  const [mode, setMode] = useState<'auto' | 'manual'>('auto');
   const [key, setKey] = useState('');
   const [models, setModels] = useState<string[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -29,7 +29,6 @@ export default function ModelRouter() {
   const [selectedGroup, setSelectedGroup] = useState('');
   const [provisionId, setProvisionId] = useState('');
   const [model, setModel] = useState('');
-  const [filter, setFilter] = useState('');
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
@@ -39,7 +38,19 @@ export default function ModelRouter() {
     refresh(); const timer = window.setInterval(refresh, 2500);
     return () => { active = false; window.clearInterval(timer); };
   }, []);
-  function resetModels() { setModels([]); setModel(''); setFilter(''); setError(''); setNotice(''); }
+  const existing = mode === 'auto';
+  function resetModels() { setModels([]); setModel(''); setError(''); setNotice(''); setSelectedGroup(''); setProvisionId(''); }
+  async function loadAutomaticOptions() {
+    const api = bridge(); if (!api) return;
+    setBusy('models'); setError('');
+    try {
+      const account = await api.GetRouterAccountOptions();
+      setGroups(account.groups || []); setKeys(account.existingKeys || []);
+      const ids = [...new Set([...(account.existingKeys || []).flatMap(k => k.models), ...(account.groups || []).flatMap(g => g.models)].map(m => m.id))].sort();
+      setModels(ids); setModel(''); setNotice(ids.length ? `已自动读取 ${ids.length} 个模型，请选择模型。` : '账号没有可用模型');
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
+  }
+  useEffect(() => { if (mode === 'auto') void loadAutomaticOptions(); }, [mode]);
   async function run(action: 'models' | 'start' | 'stop') {
     const api = bridge(); if (!api) { setError('请在桌面安装版中使用本地路由'); return; }
     setBusy(action); setError(''); setNotice('');
@@ -47,15 +58,7 @@ export default function ModelRouter() {
     try {
       if (action === 'models') {
         setModels([]); setModel('');
-        if (existing) {
-          const account = await api.GetRouterAccountOptions();
-          setGroups(account.groups || []); setKeys(account.existingKeys || []);
-          const available = [...(account.existingKeys || []).flatMap(k => k.models), ...(account.groups || []).flatMap(g => g.models)].map(m => m.id);
-          const ids = [...new Set(available)].sort(); setModels(ids); setModel('');
-          if ((account.existingKeys || []).length) { setProvisionId(account.existingKeys![0].provisionId); setSelectedGroup(account.existingKeys![0].group); }
-          setNotice(ids.length ? `已读取 ${ids.length} 个模型。已自动选择第一个可用分组。` : '账号没有可用模型');
-          return;
-        }
+        if (existing) { await loadAutomaticOptions(); return; }
         const result = await api.GetRouterModels(request);
         const ids = result.models.map(item => item.id).sort(); setModels(ids); setModel('');
         setNotice(ids.length ? `已读取 ${ids.length} 个模型。请选择支持对话和工具调用的模型。` : '此 Key 没有可用模型');
@@ -88,14 +91,14 @@ export default function ModelRouter() {
     <section className="router-card">
       <h3>1 · 选择用于连接的 Key</h3>
       <div className="router-choices">
-        <label><input type="radio" name="router-key-source" checked={existing} disabled={locked} onChange={() => { setExisting(true); setKey(''); resetModels(); }} />使用 Codex 当前的词元神 Key</label>
-        <label><input type="radio" name="router-key-source" checked={!existing} disabled={locked} onChange={() => { setExisting(false); resetModels(); }} />输入另一个词元神 Key</label>
+        <label><input type="radio" name="router-key-source" checked={mode === 'auto'} disabled={locked} onChange={() => { setMode('auto'); setKey(''); resetModels(); }} />自动模式：从账号模型和分组中选择</label>
+        <label><input type="radio" name="router-key-source" checked={mode === 'manual'} disabled={locked} onChange={() => { setMode('manual'); resetModels(); }} />手动模式：输入已有 Key</label>
       </div>
-      {!existing && <div className="field-block"><label htmlFor="router-key">词元神 API Key</label><input id="router-key" type="password" autoComplete="off" value={key} disabled={locked} placeholder="粘贴支持目标模型分组的 Key" onChange={e => { setKey(e.target.value); resetModels(); }} /></div>}
+      {mode === 'manual' && <div className="field-block"><label htmlFor="router-key">词元神 API Key</label><input id="router-key" type="password" autoComplete="off" value={key} disabled={locked} placeholder="粘贴 Key 后读取模型" onChange={e => { setKey(e.target.value); resetModels(); }} /></div>}
       {existing && keys.length > 0 && <div className="field-block"><label htmlFor="router-group">模型对应分组</label><select id="router-group" value={provisionId} onChange={e => { const k = keys.find(x => x.provisionId === e.target.value); setProvisionId(e.target.value); setSelectedGroup(k?.group || ''); setModel(''); }} disabled={locked}>{keys.map(k => <option key={k.provisionId} value={k.provisionId}>{k.group || '未命名分组'} · {k.name || '已创建 Key'}</option>)}</select>{keys.find(k => k.provisionId === provisionId) && <p className="field-note">倍率：{groups.find(g => g.name === selectedGroup)?.ratio || '—'} · {keys.find(k => k.provisionId === provisionId)?.groupDescription || groups.find(g => g.name === selectedGroup)?.description || '暂无分组描述'}</p>}</div>}
       {existing && groups.length > 0 && <div className="field-block"><label htmlFor="router-group">账号可用模型分组</label><select id="router-group" value={provisionId || selectedGroup} onChange={e => { const value = e.target.value; const found = modelKeys.find(k => k.provisionId === value); setProvisionId(found?.provisionId || ''); setSelectedGroup(found?.group || value); }} disabled={locked}><option value="">请选择模型后选择分组</option>{modelKeys.map(k => <option key={k.provisionId} value={k.provisionId}>已有 Key · {k.group} · {groups.find(g => g.name === k.group)?.ratio || '—'}x</option>)}{modelGroups.map(g => <option key={g.name} value={g.name}>自动创建 Key · {g.name} · {g.ratio || '—'}x</option>)}</select><p className="field-note">{groups.find(g => g.name === selectedGroup)?.description || keys.find(k => k.provisionId === provisionId)?.groupDescription || '请选择分组'}{!provisionId && selectedGroup ? '；启动时会自动创建此分组 Key。' : ''}</p></div>}
-      <button className="secondary-button" disabled={locked || (!existing && !key.trim())} onClick={() => void run('models')}><RefreshCw size={15} />{busy === 'models' ? '读取中…' : '读取可用模型与分组'}</button>
-      <p className="field-note">当前 Key 若属于其他服务商，请选择输入词元神 Key。Key 只用于本次路由，不保存到助手。</p>
+      {mode === 'manual' && <button className="secondary-button" disabled={locked || !key.trim()} onClick={() => void run('models')}><RefreshCw size={15} />{busy === 'models' ? '读取中…' : '读取这个 Key 的模型'}</button>}
+      <p className="field-note">自动模式会读取账号所有可用分组；手动模式只使用你输入的 Key，Key 不会保存到助手。</p>
     </section>
     <section className="router-card">
       <h3>2 · 选择真正回答你的模型</h3>
