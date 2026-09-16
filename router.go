@@ -338,14 +338,24 @@ func (p *modelRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body, _ := json.Marshal(request)
-	upstream, err := http.NewRequestWithContext(r.Context(), "POST", upstreamURL+"/chat/completions", bytes.NewReader(body))
-	if err != nil {
-		routeError(w, 502, "上游地址无效")
-		return
+	var resp *http.Response
+	for attempt := 0; attempt < 3; attempt++ {
+		upstream, requestErr := http.NewRequestWithContext(r.Context(), "POST", upstreamURL+"/chat/completions", bytes.NewReader(body))
+		if requestErr != nil {
+			routeError(w, 502, "上游地址无效")
+			return
+		}
+		upstream.Header.Set("Content-Type", "application/json")
+		upstream.Header.Set("Authorization", "Bearer "+p.key)
+		resp, err = p.client.Do(upstream)
+		if err != nil || resp.StatusCode != http.StatusServiceUnavailable {
+			break
+		}
+		resp.Body.Close()
+		if attempt < 2 {
+			time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
+		}
 	}
-	upstream.Header.Set("Content-Type", "application/json")
-	upstream.Header.Set("Authorization", "Bearer "+p.key)
-	resp, err := p.client.Do(upstream)
 	if err != nil {
 		if r.Context().Err() == nil {
 			p.fail("上游连接失败或超时")
@@ -355,7 +365,7 @@ func (p *modelRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		message := fmt.Sprintf("上游返回 HTTP %d，请检查 Key 分组、余额和模型可用性", resp.StatusCode)
+		message := fmt.Sprintf("上游返回 HTTP %d，当前分组内支持该模型的供应商暂时不可用；请稍后重试或更换分组", resp.StatusCode)
 		p.fail(message)
 		routeError(w, resp.StatusCode, message)
 		return
