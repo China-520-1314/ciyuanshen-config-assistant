@@ -593,7 +593,15 @@ func (a *App) CreateToolKey(request ToolKeyRequest) (ToolKeyResult, error) {
 		return ToolKeyResult{}, fmt.Errorf("API Key 已创建，但读取新建 Key 失败：%w", err)
 	}
 
-	validated, validationErr := a.validateToolKey(clientID, key)
+	var validated ToolKeyValidationResult
+	var validationErr error
+	if clientID == "router" {
+		response, fetchErr := a.fetchGatewayModels(key)
+		validationErr = fetchErr
+		validated = ToolKeyValidationResult{ClientID: clientID, Models: response.Models, Status: response.Status, Endpoint: response.Endpoint}
+	} else {
+		validated, validationErr = a.validateToolKey(clientID, key)
+	}
 	if validationErr != nil {
 		_, _, _ = a.dashboardData(http.MethodDelete, fmt.Sprintf("/api/token/%d", createdID), accessToken, nil)
 		return ToolKeyResult{}, fmt.Errorf("新建 API Key 检测失败，已自动删除：%w", validationErr)
