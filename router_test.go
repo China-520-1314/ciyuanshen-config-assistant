@@ -288,10 +288,13 @@ func TestRouterRejectsInvalidModelAndUnsupportedInput(t *testing.T) {
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatal("invalid request changed config")
 	}
-	for _, raw := range []string{`{"input":"hi","previous_response_id":"old"}`, `{"input":"hi","tools":[{"type":"web_search"}]}`, `{"input":[{"role":"user","content":[{"type":"input_file"}]}]}`} {
+	for _, raw := range []string{`{"input":"hi","previous_response_id":"old"}`, `{"input":[{"role":"user","content":[{"type":"input_file"}]}]}`} {
 		if _, _, err := responsesToChat(routerInput(t, raw), "test"); err == nil {
 			t.Fatalf("unsupported request accepted: %s", raw)
 		}
+	}
+	if _, _, err := responsesToChat(routerInput(t, `{"input":"hi","tools":[{"type":"web_search"}]}`), "test"); err != nil {
+		t.Fatalf("server-side search declaration should be ignored: %v", err)
 	}
 	if err := createRouterJournal([]byte("first")); err != nil {
 		t.Fatal(err)

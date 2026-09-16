@@ -40,6 +40,13 @@ func responsesToChat(in map[string]any, model string) (map[string]any, map[strin
 	var addTool func(map[string]any, string) error
 	addTool = func(t map[string]any, namespace string) error {
 		kind := str(t["type"])
+		// Gemini-compatible gateways cannot execute Codex's server-side search
+		// tools. Codex may still include these declarations even when
+		// web_search is disabled, so omit them instead of rejecting the whole
+		// request. Regular function/custom tools remain supported.
+		if kind == "web_search" || kind == "tool_search" || kind == "namespace_search" {
+			return nil
+		}
 		if kind == "namespace" {
 			for _, child := range arr(t["tools"]) {
 				if err := addTool(obj(child), str(t["name"])); err != nil {
