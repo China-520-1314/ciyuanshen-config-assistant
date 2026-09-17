@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Activity, ArrowRight, Play, Square, RefreshCw } from 'lucide-react';
 import { GetRouterModels, GetModelRouterStatus, StartModelRouter, StopModelRouter, GetRouterAccountOptions, CreateToolKey } from '../wailsjs/go/main/App';
 
@@ -32,6 +32,8 @@ export default function ModelRouter() {
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const [loadingOptions, setLoadingOptions] = useState(false);
+  const loadingRef = useRef(false);
   useEffect(() => {
     let active = true;
     const refresh = () => { void bridge()?.GetModelRouterStatus().then(value => { if (active) setStatus(value); }).catch(() => { if (active) setError('读取路由状态失败，请重新打开此页面'); }); };
@@ -42,16 +44,23 @@ export default function ModelRouter() {
   function resetModels() { setModels([]); setModel(''); setError(''); setNotice(''); setSelectedGroup(''); setProvisionId(''); }
   async function loadAutomaticOptions() {
     const api = bridge(); if (!api) return;
-    setBusy('models'); setError('');
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+    setLoadingOptions(true); setError('');
     try {
       const account = await api.GetRouterAccountOptions();
       setGroups(account.groups || []); setKeys(account.existingKeys || []);
       const ids = [...new Set([...(account.existingKeys || []).flatMap(k => k.models), ...(account.groups || []).flatMap(g => g.models)].map(m => m.id))].sort();
-      setModels(ids); setModel(''); setNotice(ids.length ? `已自动读取 ${ids.length} 个模型，请选择模型。` : '账号没有可用模型');
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(''); }
+      setModels(ids);
+      setModel(current => ids.includes(current) ? current : '');
+      setProvisionId(current => (account.existingKeys || []).some(k => k.provisionId === current) ? current : '');
+      setSelectedGroup(current => (account.groups || []).some(g => g.name === current) ? current : '');
+      setNotice(ids.length ? `已读取 ${ids.length} 个模型。` : '账号没有可用模型');
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { loadingRef.current = false; setLoadingOptions(false); }
   }
   useEffect(() => { if (mode === 'auto') void loadAutomaticOptions(); }, [mode]);
   async function run(action: 'models' | 'start' | 'stop') {
+    if (loadingOptions && action === 'start') { setError('请等待分组刷新完成后启动，模型仍可继续选择。'); return; }
     const api = bridge(); if (!api) { setError('请在桌面安装版中使用本地路由'); return; }
     setBusy(action); setError(''); setNotice('');
     const request = { apiKey: key, provisionId, model, useExistingKey: existing };
@@ -74,7 +83,7 @@ export default function ModelRouter() {
         setStatus(await api.StartModelRouter(startRequest)); setKey('');
         setNotice('路由已启动。请关闭并重新打开 Codex 客户端，再新建对话后使用。期间请保持助手运行。');
       } else {
-        setStatus(await api.StopModelRouter()); resetModels();
+        setStatus(await api.StopModelRouter());
         setNotice('已停止路由并恢复原配置。请重新打开 Codex。');
       }
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
@@ -88,12 +97,13 @@ export default function ModelRouter() {
   const modelKeys = keys.filter(item => !model || item.models.some(candidate => candidate.id === model));
   return <div className="content-stack narrow-stack router-page">
     <div className="page-intro"><div><p className="eyebrow">模型路由</p><h2>在 Codex 里使用更多模型</h2><p>选择词元神 Key 和实际模型，一键连接 Claude、Gemini、Grok、DeepSeek 等。</p></div></div>
+    {existing && <div role="status" aria-live="polite"><p>{loadingOptions ? (models.length ? '正在刷新模型和分组，可继续选择已有模型…' : '正在自动获取账号模型和分组，请稍候…') : '切换页面会保留模型列表和选择；需要更新时请点击刷新。'}</p><button className="secondary-button" disabled={loadingOptions || Boolean(busy) || status.running} onClick={() => void loadAutomaticOptions()}><RefreshCw size={15} className={loadingOptions ? 'spin' : ''} />{loadingOptions ? '获取中…' : '刷新模型和分组'}</button></div>}
     <section className="router-card">
       <h3>1 · 选择用于连接的 Key</h3>
-      <div className="router-choices">
+      <fieldset className="router-choices" disabled={loadingOptions}>
         <label><input type="radio" name="router-key-source" checked={mode === 'auto'} disabled={locked} onChange={() => { setMode('auto'); setKey(''); resetModels(); }} />自动模式：从账号模型和分组中选择</label>
         <label><input type="radio" name="router-key-source" checked={mode === 'manual'} disabled={locked} onChange={() => { setMode('manual'); resetModels(); }} />手动模式：输入已有 Key</label>
-      </div>
+      </fieldset>
       {mode === 'manual' && <div className="field-block"><label htmlFor="router-key">词元神 API Key</label><input id="router-key" type="password" autoComplete="off" value={key} disabled={locked} placeholder="粘贴 Key 后读取模型" onChange={e => { setKey(e.target.value); resetModels(); }} /></div>}
       {existing && keys.length > 0 && <div className="field-block"><label htmlFor="router-group">模型对应分组</label><select id="router-group" value={provisionId} onChange={e => { const k = keys.find(x => x.provisionId === e.target.value); setProvisionId(e.target.value); setSelectedGroup(k?.group || ''); setModel(''); }} disabled={locked}>{keys.map(k => <option key={k.provisionId} value={k.provisionId}>{k.group || '未命名分组'} · {k.name || '已创建 Key'}</option>)}</select>{keys.find(k => k.provisionId === provisionId) && <p className="field-note">倍率：{groups.find(g => g.name === selectedGroup)?.ratio || '—'} · {keys.find(k => k.provisionId === provisionId)?.groupDescription || groups.find(g => g.name === selectedGroup)?.description || '暂无分组描述'}</p>}</div>}
       {existing && groups.length > 0 && <div className="field-block"><label htmlFor="router-group">账号可用模型分组</label><select id="router-group" value={provisionId || selectedGroup} onChange={e => { const value = e.target.value; const found = modelKeys.find(k => k.provisionId === value); setProvisionId(found?.provisionId || ''); setSelectedGroup(found?.group || value); }} disabled={locked}><option value="">请选择模型后选择分组</option>{modelKeys.map(k => <option key={k.provisionId} value={k.provisionId}>已有 Key · {k.group} · {groups.find(g => g.name === k.group)?.ratio || '—'}x</option>)}{modelGroups.map(g => <option key={g.name} value={g.name}>自动创建 Key · {g.name} · {g.ratio || '—'}x</option>)}</select><p className="field-note">{groups.find(g => g.name === selectedGroup)?.description || keys.find(k => k.provisionId === provisionId)?.groupDescription || '请选择分组'}{!provisionId && selectedGroup ? '；启动时会自动创建此分组 Key。' : ''}</p></div>}

@@ -157,7 +157,7 @@ func configureCodexWithSettings(home, key, model string, settings CodexExperimen
 	}, nil
 }
 
-const codexDefaultModel = "gpt-5.6-terra"
+const codexDefaultModel = "gpt-5.6-sol"
 
 func defaultCodexExperimentalSettings() CodexExperimentalSettings {
 	return CodexExperimentalSettings{
@@ -181,8 +181,8 @@ type codexTemplateField struct {
 
 var codexTopLevelTemplate = []codexTemplateField{
 	{Key: "model_provider", Value: `"ciyuanshen"`},
-	{Key: "model", Value: `"gpt-5.6-terra"`},
-	{Key: "model_reasoning_effort", Value: `"max"`},
+	{Key: "model", Value: `"gpt-5.6-sol"`},
+	{Key: "model_reasoning_effort", Value: `"medium"`},
 	{Key: "disable_response_storage", Value: "true"},
 	{Key: "preferred_auth_method", Value: `"apikey"`},
 	{Key: "service_tier", Value: `"fast"`},
@@ -463,7 +463,7 @@ func patchCodexTopLevel(lines []string, providerName, selectedModel string) []st
 	values := map[string]string{
 		"model_provider":           strconv.Quote(providerName),
 		"model":                    strconv.Quote(strings.TrimSpace(selectedModel)),
-		"model_reasoning_effort":   `"max"`,
+		"model_reasoning_effort":   `"medium"`,
 		"disable_response_storage": "true",
 		"preferred_auth_method":    `"apikey"`,
 		"service_tier":             `"fast"`,

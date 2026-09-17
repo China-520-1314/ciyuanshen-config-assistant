@@ -205,7 +205,7 @@ func TestConfigureCodexAddsDefaultsAndPreservesExistingConfig(t *testing.T) {
 		`model = "old-model"`,
 		`custom_top_level = "keep"`,
 		`model_provider = "ciyuanshen"`,
-		`model_reasoning_effort = "max"`,
+		`model_reasoning_effort = "medium"`,
 		`disable_response_storage = true`,
 		`preferred_auth_method = "apikey"`,
 		`service_tier = "fast"`,
@@ -357,7 +357,7 @@ func TestConfigureCodexUsesNewDefaultModelForEmptyConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(operationFor(t, operations, filepath.Join(home, ".codex", "config.toml")).Content)
-	if !strings.Contains(content, `model = "gpt-5.6-terra"`) {
+	if !strings.Contains(content, `model = "gpt-5.6-sol"`) || !strings.Contains(content, `model_reasoning_effort = "medium"`) {
 		t.Fatalf("empty Codex config did not receive the new default model:\n%s", content)
 	}
 	if strings.Contains(content, "review_model") {
@@ -384,7 +384,7 @@ custom = true
 		`model_provider = "user-provider"`,
 		`model = "user-model"`,
 		`disable_response_storage = false`,
-		`model_reasoning_effort = "max"`,
+		`model_reasoning_effort = "medium"`,
 		`preferred_auth_method = "apikey"`,
 		`service_tier = "fast"`,
 		`web_search = "live"`,

@@ -213,7 +213,7 @@ const clientCopy: Record<ClientId, { short: string; badge: string }> = {
 const recommendedModels: Record<ClientId, string> = {
   claude: 'claude-sonnet-4-5',
   'claude-desktop': 'claude-sonnet-4-5',
-  codex: 'gpt-5.6-terra',
+  codex: 'gpt-5.6-sol',
   gemini: 'gemini-2.5-pro',
   grok: 'grok-4',
   opencode: 'gpt-5.6-sol',
@@ -488,6 +488,7 @@ function defaultModel(clientId: ClientId, models: Model[], current?: string) {
 
 function App() {
   const [tab, setTab] = useState<TabId>('overview');
+  const [routerVisited, setRouterVisited] = useState(false);
   const [theme, setTheme] = useState<ThemeId>(readStoredTheme);
   const [themeMode, setThemeMode] = useState<ThemeMode>(readStoredThemeMode);
   const [themeTransparency, setThemeTransparency] = useState<ThemeTransparencyByTheme>(readStoredThemeTransparency);
@@ -1421,6 +1422,7 @@ function App() {
 
   function selectTab(nextTab: TabId) {
     setTab(nextTab);
+    if (nextTab === 'router') setRouterVisited(true);
     if (nextTab === 'groups') void fetchGroupRatios();
     if (nextTab === 'updates') void checkUpdate(false);
   }
@@ -1467,7 +1469,7 @@ function App() {
           {feedback && <Feedback tone={feedback.tone} text={feedback.text} onClose={() => setFeedback(null)} />}
           {tab === 'overview' && <Overview environment={environment} clientMap={clientMap} toolModels={toolModels} modelByClient={modelByClient} modelsLoading={modelsLoading} modelErrors={modelErrors} keyValidationResults={keyValidationResults} setClientModel={(clientId, model, anchor) => void applyExistingModel(clientId, model, anchor)} connectionResults={connectionResults} checkingClient={checkingClient} applyingModelClient={applyingModelClient} lifecycleByClient={lifecycleByClient} lifecycleBusyClient={lifecycleBusyClient} onCheck={checkClient} onConfigure={openToolSetup} onViewConfiguration={openClientConfiguration} onLifecycleCheck={checkToolLifecycle} onLifecycleAction={runToolLifecycleAction} />}
           {tab === 'groups' && <GroupRatios report={groupReport} busy={busy} refresh={() => void fetchGroupRatios()} />}
-          {tab === 'router' && <ModelRouter />}
+          {routerVisited && <div hidden={tab !== 'router'}><ModelRouter key={`${account.signedIn}:${account.username}:${account.expiresAt}`} /></div>}
           {tab === 'backups' && <Backups backups={backups} backupRoot={backupRoot} busy={busy} restore={restore} remove={deleteBackup} refresh={() => void refreshBackups()} />}
           {tab === 'updates' && <Updates update={update} progress={updateProgress} platform={appInfo.platform} busy={busy} check={() => void checkUpdate(false)} install={() => void installUpdate()} openDownload={() => update?.downloadUrl && void openExternal(update.downloadUrl)} />}
           {tab === 'appearance' && <ThemeGallery theme={theme} themeMode={themeMode} themes={availableThemes} customWallpaper={customWallpaper} transparency={activeThemeTransparency} onThemeChange={setTheme} onThemeModeChange={setThemeMode} onTransparencyChange={applyThemeTransparency} onCustomWallpaperChange={applyCustomWallpaper} onConfirm={confirmAction} onOpenSource={(url) => void openExternal(url)} />}
