@@ -61,6 +61,7 @@ import animeBoyWallpaper from './assets/themes/二次元男.png';
 import animeGirlWallpaper from './assets/themes/二次元女.png';
 import './App.css';
 import ModelRouter from './ModelRouter';
+import CodexSkins from './CodexSkins';
 import {
   CheckClientConnections,
   CheckForUpdates,
@@ -93,10 +94,10 @@ import {
   VerifyAccountTwoFactor,
 } from '../wailsjs/go/main/App';
 import { main } from '../wailsjs/go/models';
-import { ClipboardGetText, ClipboardSetText, EventsOn, Quit, WindowMinimise, WindowToggleMaximise } from '../wailsjs/runtime/runtime';
+import { ClipboardGetText, ClipboardSetText, EventsOn, Quit, WindowMinimise, WindowToggleMaximise, WindowIsFullscreen, WindowUnfullscreen } from '../wailsjs/runtime/runtime';
 
 type ClientId = 'claude' | 'claude-desktop' | 'codex' | 'gemini' | 'grok' | 'opencode' | 'openclaw' | 'hermes';
-type TabId = 'overview' | 'router' | 'groups' | 'backups' | 'updates' | 'appearance';
+type TabId = 'overview' | 'router' | 'groups' | 'backups' | 'updates' | 'appearance' | 'codex-skins';
 type ThemeId = 'ciyuan' | 'anime' | 'sakura' | 'mountain' | 'city' | 'ikun' | 'china' | 'anime-boy' | 'anime-girl' | 'custom';
 type ThemeMode = 'system' | 'light' | 'dark';
 type ResolvedThemeMode = Exclude<ThemeMode, 'system'>;
@@ -421,6 +422,7 @@ function readCodexExperimentalSettings(content: string): CodexExperimentalSettin
 const tabTitles: Record<TabId, string> = {
   overview: '一键配置',
   router: '模型路由',
+  'codex-skins': 'Codex 皮肤广场',
   groups: '分组倍率',
   backups: '配置备份',
   updates: '版本更新',
@@ -1440,6 +1442,7 @@ function App() {
           <nav className="side-nav" aria-label="主导航">
             <NavButton active={tab === 'overview'} icon={<ScanSearch size={17} />} label="一键配置" onClick={() => selectTab('overview')} />
             <NavButton active={tab === 'router'} icon={<Globe size={17} />} label="模型路由" onClick={() => selectTab('router')} />
+            <NavButton active={tab === 'codex-skins'} icon={<Palette size={17} />} label="Codex 皮肤广场" onClick={() => selectTab('codex-skins')} />
             <NavButton active={false} icon={<BookOpen size={17} />} label="文档教程" onClick={() => void openExternal(documentationURL)} external />
             <NavButton active={tab === 'groups'} icon={<Layers3 size={17} />} label="分组倍率" onClick={() => selectTab('groups')} />
             <NavButton active={tab === 'backups'} icon={<RotateCcw size={17} />} label="配置备份" onClick={() => selectTab('backups')} count={backups.length || undefined} />
@@ -1470,6 +1473,7 @@ function App() {
           {tab === 'overview' && <Overview environment={environment} clientMap={clientMap} toolModels={toolModels} modelByClient={modelByClient} modelsLoading={modelsLoading} modelErrors={modelErrors} keyValidationResults={keyValidationResults} setClientModel={(clientId, model, anchor) => void applyExistingModel(clientId, model, anchor)} connectionResults={connectionResults} checkingClient={checkingClient} applyingModelClient={applyingModelClient} lifecycleByClient={lifecycleByClient} lifecycleBusyClient={lifecycleBusyClient} onCheck={checkClient} onConfigure={openToolSetup} onViewConfiguration={openClientConfiguration} onLifecycleCheck={checkToolLifecycle} onLifecycleAction={runToolLifecycleAction} />}
           {tab === 'groups' && <GroupRatios report={groupReport} busy={busy} refresh={() => void fetchGroupRatios()} />}
           {routerVisited && <div hidden={tab !== 'router'}><ModelRouter key={`${account.signedIn}:${account.username}:${account.expiresAt}`} /></div>}
+          {tab === 'codex-skins' && <CodexSkins openExternal={openExternal} />}
           {tab === 'backups' && <Backups backups={backups} backupRoot={backupRoot} busy={busy} restore={restore} remove={deleteBackup} refresh={() => void refreshBackups()} />}
           {tab === 'updates' && <Updates update={update} progress={updateProgress} platform={appInfo.platform} busy={busy} check={() => void checkUpdate(false)} install={() => void installUpdate()} openDownload={() => update?.downloadUrl && void openExternal(update.downloadUrl)} />}
           {tab === 'appearance' && <ThemeGallery theme={theme} themeMode={themeMode} themes={availableThemes} customWallpaper={customWallpaper} transparency={activeThemeTransparency} onThemeChange={setTheme} onThemeModeChange={setThemeMode} onTransparencyChange={applyThemeTransparency} onCustomWallpaperChange={applyCustomWallpaper} onConfirm={confirmAction} onOpenSource={(url) => void openExternal(url)} />}
@@ -1491,7 +1495,7 @@ function WindowTitlebar() {
     <div className="window-title"><img src={logo} alt="" /><span>词元神配置助手</span></div>
     <div className="window-controls" style={{ '--wails-draggable': 'no-drag' } as CSSProperties}>
       <button className="window-control" title="最小化" aria-label="最小化" onClick={WindowMinimise}><Minus size={16} /></button>
-      <button className="window-control" title="最大化或还原" aria-label="最大化或还原" onClick={WindowToggleMaximise}><Maximize2 size={15} /></button>
+      <button className="window-control" title="退出全屏或最大化/还原" aria-label="退出全屏或最大化/还原" onClick={async () => { if (await WindowIsFullscreen()) WindowUnfullscreen(); else WindowToggleMaximise(); }}><Maximize2 size={15} /></button>
       <button className="window-control close" title="关闭" aria-label="关闭" onClick={Quit}><X size={17} /></button>
     </div>
   </header>;

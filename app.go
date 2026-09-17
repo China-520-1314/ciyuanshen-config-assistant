@@ -38,7 +38,7 @@ const (
 
 // appVersion is a variable so release builds can inject their tag with
 // -ldflags "-X main.appVersion=..." while local builds keep a useful default.
-var appVersion = "0.2.28"
+var appVersion = "0.2.29"
 
 type InstallUpdateResult struct {
 	Success     bool   `json:"success"`
@@ -77,6 +77,7 @@ type App struct {
 	restartTool              toolRestartFunc
 	routerMu                 sync.Mutex
 	router                   *modelRouter
+	skinMu                   sync.Mutex
 }
 
 type toolRestartFunc func(string) ToolRestartResult
