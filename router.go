@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -316,8 +317,12 @@ func (p *modelRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeRouteJSON(w, map[string]any{"object": "list", "data": []any{map[string]any{"id": routerAlias, "object": "model"}}})
 		return
 	}
+	if r.Method == "POST" && r.URL.Path == "/v1/messages" {
+		p.serveAnthropic(w, r)
+		return
+	}
 	if r.Method != "POST" || r.URL.Path != "/v1/responses" {
-		routeError(w, 400, "本地路由仅支持 Responses 对话；压缩、内置搜索等扩展暂不支持")
+		routeError(w, 400, "本地路由支持 Responses 与 Anthropic Messages 对话")
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 16<<20)
@@ -374,6 +379,69 @@ func (p *modelRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err = chatToResponses(w, resp.Body, stream, model, specs); err != nil {
 		p.fail(err.Error())
 	}
+}
+
+// serveAnthropic provides the Claude Code compatible Messages endpoint. It
+// translates the standard Anthropic request to OpenAI Chat Completions and
+// returns an Anthropic-shaped response, allowing Claude Code to use any
+// upstream model through the same local router.
+func (p *modelRouter) serveAnthropic(w http.ResponseWriter, r *http.Request) {
+	raw, _ := io.ReadAll(http.MaxBytesReader(w, r.Body, 16<<20))
+	var in map[string]any
+	if json.Unmarshal(raw, &in) != nil {
+		routeError(w, 400, "Anthropic 请求格式错误")
+		return
+	}
+	p.mu.Lock()
+	p.status.Requests++
+	model, upstream, key := p.status.Model, p.upstream, p.key
+	p.mu.Unlock()
+	msgs := []any{}
+	if sys, ok := in["system"].(string); ok && sys != "" {
+		msgs = append(msgs, map[string]any{"role": "system", "content": sys})
+	}
+	if arr, ok := in["messages"].([]any); ok {
+		for _, m := range arr {
+			if mm, ok := m.(map[string]any); ok {
+				msgs = append(msgs, map[string]any{"role": mm["role"], "content": mm["content"]})
+			}
+		}
+	}
+	body, _ := json.Marshal(map[string]any{"model": model, "messages": msgs, "stream": false, "max_tokens": in["max_tokens"]})
+	up, err := http.NewRequestWithContext(r.Context(), "POST", upstream+"/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		routeError(w, 502, "上游地址无效")
+		return
+	}
+	up.Header.Set("Content-Type", "application/json")
+	up.Header.Set("Authorization", "Bearer "+key)
+	resp, err := p.client.Do(up)
+	if err != nil {
+		p.fail("上游连接失败")
+		routeError(w, 502, "上游连接失败")
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		p.fail(fmt.Sprintf("上游返回 HTTP %d", resp.StatusCode))
+		routeError(w, resp.StatusCode, "上游模型暂时不可用")
+		return
+	}
+	var out map[string]any
+	if json.NewDecoder(resp.Body).Decode(&out) != nil {
+		routeError(w, 502, "上游响应格式错误")
+		return
+	}
+	content := ""
+	if choices, ok := out["choices"].([]any); ok && len(choices) > 0 {
+		if c, ok := choices[0].(map[string]any); ok {
+			if m, ok := c["message"].(map[string]any); ok {
+				content = str(m["content"])
+			}
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"id": "msg_local_router", "type": "message", "role": "assistant", "model": model, "content": []any{map[string]any{"type": "text", "text": content}}, "stop_reason": "end_turn", "stop_sequence": nil, "usage": map[string]any{"input_tokens": 0, "output_tokens": 0}})
 }
 func (p *modelRouter) fail(message string) {
 	p.mu.Lock()
