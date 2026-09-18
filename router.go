@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/pelletier/go-toml/v2"
 	"io"
 	"net"
 	"net/http"
@@ -19,7 +20,7 @@ import (
 )
 
 const routerAlias = "gpt-5.6-terra"
-const routerProvider = "ciyuanshen-local-router"
+const routerProvider = "ciyuanshen"
 
 type RouterRequest struct {
 	APIKey         string `json:"apiKey"`
@@ -39,11 +40,14 @@ type RouterStatus struct {
 	BackupPath string `json:"backupPath"`
 }
 type routerJournal struct {
-	Path      string `json:"path"`
-	Original  []byte `json:"original"`
-	Installed []byte `json:"installed"`
-	Existed   bool   `json:"existed"`
-	Address   string `json:"address"`
+	Path            string `json:"path"`
+	Original        []byte `json:"original"`
+	Installed       []byte `json:"installed"`
+	Existed         bool   `json:"existed"`
+	Address         string `json:"address"`
+	CatalogPath     string `json:"catalogPath,omitempty"`
+	CatalogOriginal []byte `json:"catalogOriginal,omitempty"`
+	CatalogExisted  bool   `json:"catalogExisted,omitempty"`
 }
 type modelRouter struct {
 	mu                   sync.Mutex
@@ -186,9 +190,6 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 		return RouterStatus{}, err
 	}
 	providers := ensureMap(root, "model_providers")
-	if _, ok := providers[routerProvider]; ok {
-		return RouterStatus{}, errors.New("配置已含本地路由服务商，请先恢复原配置")
-	}
 	token, err := createProvisionID()
 	if err != nil {
 		listener.Close()
@@ -211,12 +212,36 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 	features["enable_request_compression"] = false
 	delete(features, "context_management")
 	providers[routerProvider] = map[string]any{"name": "词元神本地路由", "base_url": address + "/v1", "wire_api": "responses", "experimental_bearer_token": token, "supports_websockets": false}
+	// Keep a stable provider entry after takeover is stopped so Codex can open
+	// conversations created while routing was enabled.
 	installed, err := marshalTOML(root)
 	if err != nil {
 		listener.Close()
 		return RouterStatus{}, err
 	}
-	journal := routerJournal{Path: path, Original: original, Installed: installed, Existed: existed, Address: listener.Addr().String()}
+	catalogPath := filepath.Join(filepath.Dir(path), "ciyuanshen-model-catalog.json")
+	catalogOriginal, catalogErr := os.ReadFile(catalogPath)
+	catalogExisted := catalogErr == nil
+	if catalogErr != nil && !errors.Is(catalogErr, os.ErrNotExist) {
+		listener.Close()
+		return RouterStatus{}, catalogErr
+	}
+	catalogModels := make([]map[string]any, 0, len(models.Models))
+	for _, m := range models.Models {
+		catalogModels = append(catalogModels, map[string]any{"slug": m.ID, "display_name": m.ID, "description": "词元神路由模型"})
+	}
+	catalog, _ := json.Marshal(map[string]any{"models": catalogModels})
+	if err = atomicWrite(catalogPath, catalog); err != nil {
+		listener.Close()
+		return RouterStatus{}, err
+	}
+	root["model_catalog_json"] = "ciyuanshen-model-catalog.json"
+	installed, err = marshalTOML(root)
+	if err != nil {
+		listener.Close()
+		return RouterStatus{}, err
+	}
+	journal := routerJournal{Path: path, Original: original, Installed: installed, Existed: existed, Address: listener.Addr().String(), CatalogPath: catalogPath, CatalogOriginal: catalogOriginal, CatalogExisted: catalogExisted}
 	encoded, _ := json.Marshal(journal)
 	if err = createRouterJournal(encoded); err != nil {
 		listener.Close()
@@ -325,7 +350,7 @@ func restoreRouterJournal(j routerJournal) error {
 	if err != nil {
 		return err
 	}
-	if j.Path != filepath.Join(home, ".codex", "config.toml") {
+	if j.Path != filepath.Join(home, ".codex", "config.toml") && filepath.Base(j.Path) != "settings.json" {
 		return errors.New("恢复记录的配置路径不匹配")
 	}
 	current, err := os.ReadFile(j.Path)
@@ -344,12 +369,35 @@ func restoreRouterJournal(j routerJournal) error {
 		}
 	}
 	if j.Existed {
-		err = atomicWrite(j.Path, j.Original)
+		restored := j.Original
+		// Keep the stable provider ID available for conversations created while
+		// routing was active. Its endpoint is the normal gateway after stop.
+		if filepath.Base(j.Path) == "config.toml" {
+			root := map[string]any{}
+			parseErr := toml.Unmarshal(j.Original, &root)
+			if parseErr == nil {
+				providers := ensureMap(root, "model_providers")
+				if _, exists := providers[routerProvider]; !exists {
+					providers[routerProvider] = map[string]any{"name": "词元神", "base_url": defaultGatewayURL, "wire_api": "responses", "supports_websockets": false}
+					if out, marshalErr := marshalTOML(root); marshalErr == nil {
+						restored = out
+					}
+				}
+			}
+		}
+		err = atomicWrite(j.Path, restored)
 	} else {
 		err = os.Remove(j.Path)
 	}
 	if err != nil {
 		return err
+	}
+	if j.CatalogPath != "" {
+		if j.CatalogExisted {
+			_ = atomicWrite(j.CatalogPath, j.CatalogOriginal)
+		} else {
+			_ = os.Remove(j.CatalogPath)
+		}
 	}
 	return os.Remove(routerJournalPath())
 }
