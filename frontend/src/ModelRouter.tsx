@@ -6,7 +6,7 @@ type Status = { running: boolean; model: string; alias: string; address: string;
 type Group = { name: string; description: string; ratio: string; models: { id: string }[] };
 type Key = { provisionId: string; group: string; groupDescription?: string; name?: string; models: { id: string }[]; existing?: boolean };
 type AccountOptions = { groups: Group[]; existingKeys?: Key[] };
-type Request = { apiKey: string; provisionId: string; model: string; useExistingKey: boolean };
+type Request = { apiKey: string; provisionId: string; model: string; useExistingKey: boolean; client?: string };
 type RouterBridge = {
   GetRouterModels(request: Request): Promise<{ models: { id: string }[] }>;
   GetModelRouterStatus(): Promise<Status>;
@@ -22,6 +22,7 @@ const initial: Status = { running: false, model: '', alias: 'gpt-5.6-terra', add
 export default function ModelRouter() {
   const [status, setStatus] = useState(initial);
   const [mode, setMode] = useState<'auto' | 'manual'>('auto');
+  const [client, setClient] = useState<'codex' | 'claude'>('codex');
   const [key, setKey] = useState('');
   const [models, setModels] = useState<string[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -63,7 +64,7 @@ export default function ModelRouter() {
     if (loadingOptions && action === 'start') { setError('请等待分组刷新完成后启动，模型仍可继续选择。'); return; }
     const api = bridge(); if (!api) { setError('请在桌面安装版中使用本地路由'); return; }
     setBusy(action); setError(''); setNotice('');
-    const request = { apiKey: key, provisionId, model, useExistingKey: existing };
+    const request = { apiKey: key, provisionId, model, useExistingKey: existing, client };
     try {
       if (action === 'models') {
         setModels([]); setModel('');
@@ -99,6 +100,7 @@ export default function ModelRouter() {
     <div className="page-intro"><div><p className="eyebrow">模型路由</p><h2>在 Codex 里使用更多模型</h2><p>选择词元神 Key 和实际模型，一键连接 Claude、Gemini、Grok、DeepSeek 等。</p></div></div>
     {existing && <div role="status" aria-live="polite"><p>{loadingOptions ? (models.length ? '正在刷新模型和分组，可继续选择已有模型…' : '正在自动获取账号模型和分组，请稍候…') : '切换页面会保留模型列表和选择；需要更新时请点击刷新。'}</p><button className="secondary-button" disabled={loadingOptions || Boolean(busy) || status.running} onClick={() => void loadAutomaticOptions()}><RefreshCw size={15} className={loadingOptions ? 'spin' : ''} />{loadingOptions ? '获取中…' : '刷新模型和分组'}</button></div>}
     <section className="router-card">
+      <h3>选择要接入的客户端</h3><div className="field-block"><label htmlFor="router-client">路由客户端</label><select id="router-client" value={client} disabled={locked} onChange={e=>setClient(e.target.value as 'codex'|'claude')}><option value="codex">Codex</option><option value="claude">Claude Code CLI / 插件</option></select><p className="field-note">Claude Code 会通过 Anthropic Messages API 连接本地路由；启动后请重新打开 Claude Code。</p></div>
       <h3>1 · 选择用于连接的 Key</h3>
       <fieldset className="router-choices" disabled={loadingOptions}>
         <label><input type="radio" name="router-key-source" checked={mode === 'auto'} disabled={locked} onChange={() => { setMode('auto'); setKey(''); resetModels(); }} />自动模式：从账号模型和分组中选择</label>

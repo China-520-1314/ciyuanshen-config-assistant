@@ -26,6 +26,7 @@ type RouterRequest struct {
 	ProvisionID    string `json:"provisionId"`
 	Model          string `json:"model"`
 	UseExistingKey bool   `json:"useExistingKey"`
+	Client         string `json:"client"` // codex or claude
 }
 type RouterStatus struct {
 	Running    bool   `json:"running"`
@@ -68,6 +69,13 @@ func checkRouterConfigurationUnlocked() error {
 }
 
 func (a *App) routerKey(r RouterRequest) (string, error) {
+	if strings.EqualFold(r.Client, "claude") && r.UseExistingKey && strings.TrimSpace(r.ProvisionID) == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		return readConfiguredClientAPIKey(home, "claude")
+	}
 	if strings.TrimSpace(r.ProvisionID) != "" {
 		a.provisionMu.Lock()
 		defer a.provisionMu.Unlock()
@@ -150,11 +158,28 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 	if custom := os.Getenv("CODEX_HOME"); custom != "" && filepath.Clean(custom) != filepath.Join(home, ".codex") {
 		return RouterStatus{}, errors.New("检测到自定义 CODEX_HOME，请先恢复默认目录后使用一键路由")
 	}
+	client := strings.ToLower(strings.TrimSpace(r.Client))
+	if client == "" {
+		client = "codex"
+	}
+	if client != "codex" && client != "claude" {
+		return RouterStatus{}, errors.New("不支持的路由客户端")
+	}
 	path := filepath.Join(home, ".codex", "config.toml")
+	if client == "claude" {
+		path = firstClientPath("claude", home)
+	}
 	original, err := os.ReadFile(path)
 	existed := err == nil
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return RouterStatus{}, err
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return RouterStatus{}, err
+	}
+	if client == "claude" {
+		return a.startClaudeRouter(r, key, path, home, listener)
 	}
 	root, err := readTOMLMap(path)
 	if err != nil {
@@ -164,10 +189,6 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 	if _, ok := providers[routerProvider]; ok {
 		return RouterStatus{}, errors.New("配置已含本地路由服务商，请先恢复原配置")
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return RouterStatus{}, err
-	}
 	token, err := createProvisionID()
 	if err != nil {
 		listener.Close()
@@ -175,6 +196,8 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 	}
 	address := "http://" + listener.Addr().String()
 	root["model_provider"] = routerProvider
+	// Keep the stable Codex alias in config; /v1/models advertises the actual
+	// mapped model so clients can display the upstream name.
 	root["model"] = routerAlias
 	root["web_search"] = "disabled"
 	root["disable_response_storage"] = true
@@ -205,6 +228,59 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 	}
 	proxy := &modelRouter{key: key, token: token, upstream: defaultGatewayURL, client: &http.Client{Timeout: 10 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, journal: journal,
 		status: RouterStatus{Running: true, Alias: routerAlias, Model: strings.TrimSpace(r.Model), Address: address, BackupPath: routerJournalPath()}}
+	proxy.server = &http.Server{Handler: proxy, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
+	a.router = proxy
+	go func() {
+		if err := proxy.server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			proxy.mu.Lock()
+			proxy.status.Running = false
+			proxy.status.LastError = "本地路由停止，请恢复配置后重启"
+			proxy.mu.Unlock()
+		}
+	}()
+	proxy.mu.Lock()
+	defer proxy.mu.Unlock()
+	return proxy.status, nil
+}
+
+func (a *App) startClaudeRouter(r RouterRequest, key, path, home string, listener net.Listener) (RouterStatus, error) {
+	original, err := os.ReadFile(path)
+	existed := err == nil
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		listener.Close()
+		return RouterStatus{}, err
+	}
+	root, err := readJSONMap(path)
+	if err != nil {
+		listener.Close()
+		return RouterStatus{}, err
+	}
+	env := ensureMap(root, "env")
+	env["ANTHROPIC_BASE_URL"] = "http://" + listener.Addr().String() + "/v1"
+	env["ANTHROPIC_AUTH_TOKEN"] = key
+	env["ANTHROPIC_MODEL"] = strings.TrimSpace(r.Model)
+	installed, err := marshalJSON(root)
+	if err != nil {
+		listener.Close()
+		return RouterStatus{}, err
+	}
+	token, err := createProvisionID()
+	if err != nil {
+		listener.Close()
+		return RouterStatus{}, err
+	}
+	journal := routerJournal{Path: path, Original: original, Installed: installed, Existed: existed, Address: listener.Addr().String()}
+	encoded, _ := json.Marshal(journal)
+	if err = createRouterJournal(encoded); err != nil {
+		listener.Close()
+		return RouterStatus{}, err
+	}
+	if err = atomicWrite(path, installed); err != nil {
+		listener.Close()
+		_ = os.Remove(routerJournalPath())
+		return RouterStatus{}, err
+	}
+	proxy := &modelRouter{key: key, token: token, upstream: defaultGatewayURL, client: &http.Client{Timeout: 10 * time.Minute}, journal: journal, status: RouterStatus{Running: true, Alias: strings.TrimSpace(r.Model), Model: strings.TrimSpace(r.Model), Address: "http://" + listener.Addr().String(), BackupPath: routerJournalPath()}}
 	proxy.server = &http.Server{Handler: proxy, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
 	a.router = proxy
 	go func() {
@@ -314,7 +390,10 @@ func (p *modelRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == "GET" && r.URL.Path == "/v1/models" {
-		writeRouteJSON(w, map[string]any{"object": "list", "data": []any{map[string]any{"id": routerAlias, "object": "model"}}})
+		p.mu.Lock()
+		advertised := p.status.Model
+		p.mu.Unlock()
+		writeRouteJSON(w, map[string]any{"object": "list", "data": []any{map[string]any{"id": advertised, "object": "model"}}})
 		return
 	}
 	if r.Method == "POST" && r.URL.Path == "/v1/messages" {
