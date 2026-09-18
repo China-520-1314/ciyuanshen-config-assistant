@@ -672,6 +672,15 @@ function App() {
             setLoginUsername(saved.username);
             setLoginPassword(saved.password);
             setRememberLogin(true);
+            try {
+              const renewed = await LoginAccount({ username: saved.username, password: saved.password }) as AccountLoginResult;
+              if (!renewed.requiresTwoFactor && renewed.signedIn) {
+                setAccount(await GetAccountState());
+                void refreshAccountState(false);
+              }
+            } catch {
+              // Saved credentials may have expired; the normal login dialog remains available.
+            }
           }
         } catch {
           // Some Linux installations have no Secret Service provider. Login
@@ -1472,7 +1481,7 @@ function App() {
           {feedback && <Feedback tone={feedback.tone} text={feedback.text} onClose={() => setFeedback(null)} />}
           {tab === 'overview' && <Overview environment={environment} clientMap={clientMap} toolModels={toolModels} modelByClient={modelByClient} modelsLoading={modelsLoading} modelErrors={modelErrors} keyValidationResults={keyValidationResults} setClientModel={(clientId, model, anchor) => void applyExistingModel(clientId, model, anchor)} connectionResults={connectionResults} checkingClient={checkingClient} applyingModelClient={applyingModelClient} lifecycleByClient={lifecycleByClient} lifecycleBusyClient={lifecycleBusyClient} onCheck={checkClient} onConfigure={openToolSetup} onViewConfiguration={openClientConfiguration} onLifecycleCheck={checkToolLifecycle} onLifecycleAction={runToolLifecycleAction} />}
           {tab === 'groups' && <GroupRatios report={groupReport} busy={busy} refresh={() => void fetchGroupRatios()} />}
-          {routerVisited && <div hidden={tab !== 'router'}><ModelRouter key={`${account.signedIn}:${account.username}:${account.expiresAt}`} /></div>}
+          {routerVisited && <div hidden={tab !== 'router'}><ModelRouter key={`${account.signedIn}:${account.username}:${account.expiresAt}`} onLogin={() => openLogin()} /></div>}
           {tab === 'codex-skins' && <CodexSkins openExternal={openExternal} />}
           {tab === 'backups' && <Backups backups={backups} backupRoot={backupRoot} busy={busy} restore={restore} remove={deleteBackup} refresh={() => void refreshBackups()} />}
           {tab === 'updates' && <Updates update={update} progress={updateProgress} platform={appInfo.platform} busy={busy} check={() => void checkUpdate(false)} install={() => void installUpdate()} openDownload={() => update?.downloadUrl && void openExternal(update.downloadUrl)} />}

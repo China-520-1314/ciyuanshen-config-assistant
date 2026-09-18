@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/zalando/go-keyring"
 )
 
 func TestFilterModelsForClient(t *testing.T) {
@@ -119,6 +121,120 @@ func TestRefreshAccountStateLoadsUsernameAndFormatsBalance(t *testing.T) {
 	if state.Username != "alice" || state.Quota != 1250000 || state.Balance != "¥18.25" {
 		t.Fatalf("unexpected account state: %#v", state)
 	}
+}
+
+func TestGetAccountToolOptionsRenewsExpiredSavedSession(t *testing.T) {
+	keyring.MockInit()
+	app := NewApp()
+	if err := app.SaveAccountLogin(SavedAccountLogin{Username: "alice", Password: "saved-password"}); err != nil {
+		t.Fatal(err)
+	}
+	app.account = dashboardSession{AccessToken: "expired-session", ExpiresAt: time.Now().Add(-time.Minute)}
+	client, loginCalls := testSavedAccountRenewalClient(t, false)
+	app.client = client
+
+	options, err := app.GetAccountToolOptions("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(options.Groups) != 1 || options.Groups[0].Name != "gpt" {
+		t.Fatalf("unexpected options: %#v", options)
+	}
+	if *loginCalls != 1 {
+		t.Fatalf("renewal login calls = %d, want 1", *loginCalls)
+	}
+	state := app.GetAccountState()
+	if !state.SignedIn || state.Username != "alice" {
+		t.Fatalf("renewed account state = %#v", state)
+	}
+}
+
+func TestGetAccountToolOptionsRenewsAfterDashboardUnauthorized(t *testing.T) {
+	keyring.MockInit()
+	app := NewApp()
+	if err := app.SaveAccountLogin(SavedAccountLogin{Username: "alice", Password: "saved-password"}); err != nil {
+		t.Fatal(err)
+	}
+	app.account = dashboardSession{AccessToken: "stale-session", ExpiresAt: time.Now().Add(time.Hour)}
+	client, loginCalls := testSavedAccountRenewalClient(t, true)
+	app.client = client
+
+	options, err := app.GetAccountToolOptions("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(options.Groups) != 1 || options.Groups[0].Name != "gpt" {
+		t.Fatalf("unexpected options after renewal: %#v", options)
+	}
+	if *loginCalls != 1 {
+		t.Fatalf("renewal login calls = %d, want 1", *loginCalls)
+	}
+}
+
+func TestLogoutAccountDoesNotAutoRenewSavedSession(t *testing.T) {
+	keyring.MockInit()
+	app := NewApp()
+	if err := app.SaveAccountLogin(SavedAccountLogin{Username: "alice", Password: "saved-password"}); err != nil {
+		t.Fatal(err)
+	}
+	app.account = dashboardSession{AccessToken: "active-session", ExpiresAt: time.Now().Add(time.Hour)}
+	app.LogoutAccount()
+
+	if _, err := app.accountAccessToken(); err == nil || !strings.Contains(err.Error(), "已退出") {
+		t.Fatalf("account access after logout error = %v", err)
+	}
+}
+
+func testSavedAccountRenewalClient(t *testing.T, rejectFirstGroupsRequest bool) (*http.Client, *int) {
+	t.Helper()
+	loginCalls := 0
+	groupCalls := 0
+	const salt = "saved-account-renewal"
+	sum := sha256.Sum256([]byte(salt + "0"))
+	return &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/api/captcha/altcha/challenge":
+			return testRawJSONResponse(request, fmt.Sprintf(`{"algorithm":"SHA-256","challenge":"%s","maxnumber":1,"salt":"%s","signature":"signature"}`, hex.EncodeToString(sum[:]), salt)), nil
+		case request.Method == http.MethodPost && request.URL.Path == "/api/user/login":
+			var payload map[string]string
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				return nil, err
+			}
+			if payload["username"] != "alice" || payload["password"] != "saved-password" || payload["altcha"] == "" {
+				return nil, fmt.Errorf("unexpected renewal login payload")
+			}
+			loginCalls++
+			return testDashboardResponse(request, map[string]any{
+				"access_token":      "renewed-session",
+				"access_expires_at": time.Now().Add(time.Hour).Unix(),
+				"user":              map[string]string{"username": "alice"},
+			}), nil
+		case request.Method == http.MethodGet && request.URL.Path == "/api/user/self/groups":
+			groupCalls++
+			if rejectFirstGroupsRequest && groupCalls == 1 {
+				if request.Header.Get("Authorization") != "Bearer stale-session" {
+					return nil, fmt.Errorf("first group request used %q", request.Header.Get("Authorization"))
+				}
+				return &http.Response{StatusCode: http.StatusUnauthorized, Body: io.NopCloser(strings.NewReader(`{"success":false,"message":"unauthorized"}`)), Header: make(http.Header), Request: request}, nil
+			}
+			if request.Header.Get("Authorization") != "Bearer renewed-session" {
+				return nil, fmt.Errorf("group request used %q", request.Header.Get("Authorization"))
+			}
+			return testDashboardResponse(request, map[string]any{"gpt": map[string]any{"desc": "GPT", "ratio": 1}}), nil
+		case request.Method == http.MethodGet && request.URL.Path == "/api/user/models":
+			if request.Header.Get("Authorization") != "Bearer renewed-session" {
+				return nil, fmt.Errorf("model request used %q", request.Header.Get("Authorization"))
+			}
+			return testDashboardResponse(request, []string{"gpt-5.6-terra"}), nil
+		case request.Method == http.MethodGet && request.URL.Path == "/api/token/":
+			if request.Header.Get("Authorization") != "Bearer renewed-session" {
+				return nil, fmt.Errorf("token request used %q", request.Header.Get("Authorization"))
+			}
+			return testDashboardResponse(request, map[string]any{"page": 1, "page_size": 100, "total": 0, "items": []dashboardToken{}}), nil
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", request.Method, request.URL.String())
+		}
+	})}, &loginCalls
 }
 
 func TestFormatAccountBalanceSupportsTokenDisplay(t *testing.T) {

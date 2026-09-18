@@ -23,21 +23,23 @@ const routerAlias = "gpt-5.6-terra"
 const routerProvider = "ciyuanshen"
 
 type RouterRequest struct {
-	APIKey         string `json:"apiKey"`
-	ProvisionID    string `json:"provisionId"`
-	Model          string `json:"model"`
-	UseExistingKey bool   `json:"useExistingKey"`
-	Client         string `json:"client"` // codex or claude
+	APIKey         string   `json:"apiKey"`
+	ProvisionID    string   `json:"provisionId"`
+	Model          string   `json:"model"`
+	Models         []string `json:"models,omitempty"`
+	UseExistingKey bool     `json:"useExistingKey"`
+	Client         string   `json:"client"` // codex or claude
 }
 type RouterStatus struct {
-	Running    bool   `json:"running"`
-	Model      string `json:"model"`
-	Alias      string `json:"alias"`
-	Address    string `json:"address"`
-	Requests   int    `json:"requests"`
-	Failures   int    `json:"failures"`
-	LastError  string `json:"lastError"`
-	BackupPath string `json:"backupPath"`
+	Running    bool     `json:"running"`
+	Model      string   `json:"model"`
+	Alias      string   `json:"alias"`
+	Models     []string `json:"models,omitempty"`
+	Address    string   `json:"address"`
+	Requests   int      `json:"requests"`
+	Failures   int      `json:"failures"`
+	LastError  string   `json:"lastError"`
+	BackupPath string   `json:"backupPath"`
 }
 type routerJournal struct {
 	Path            string `json:"path"`
@@ -54,6 +56,7 @@ type modelRouter struct {
 	status               RouterStatus
 	server               *http.Server
 	key, token, upstream string
+	models               []string
 	client               *http.Client
 	journal              routerJournal
 }
@@ -152,9 +155,20 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 	if err != nil {
 		return RouterStatus{}, err
 	}
-	if !containsModel(models.Models, strings.TrimSpace(r.Model)) {
-		return RouterStatus{}, errors.New("所选模型不在这个 Key 的可用模型列表中")
+	selectedModels := uniqueModelIDs(r.Models)
+	if len(selectedModels) == 0 && strings.TrimSpace(r.Model) != "" {
+		selectedModels = []string{strings.TrimSpace(r.Model)}
 	}
+	if len(selectedModels) == 0 {
+		return RouterStatus{}, errors.New("请先选择至少一个模型")
+	}
+	for _, selected := range selectedModels {
+		if !containsModel(models.Models, selected) {
+			return RouterStatus{}, fmt.Errorf("所选模型 %q 不在这个 Key 的可用模型列表中", selected)
+		}
+	}
+	primaryModel := selectedModels[0]
+	r.Model = primaryModel
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return RouterStatus{}, err
@@ -200,7 +214,7 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 	// Codex reads the selected model from config.toml before it queries the
 	// provider. Write the mapped upstream model here so the client displays the
 	// same name that the router sends upstream.
-	root["model"] = strings.TrimSpace(r.Model)
+	root["model"] = primaryModel
 	root["web_search"] = "disabled"
 	root["disable_response_storage"] = true
 	delete(root, "service_tier")
@@ -228,7 +242,35 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 	}
 	catalogModels := make([]map[string]any, 0, len(models.Models))
 	for _, m := range models.Models {
-		catalogModels = append(catalogModels, map[string]any{"slug": m.ID, "display_name": m.ID, "description": "词元神路由模型"})
+		modelID := strings.TrimSpace(m.ID)
+		if modelID == "" {
+			continue
+		}
+		catalogModels = append(catalogModels, map[string]any{
+			"slug":         modelID,
+			"display_name": modelID,
+			"description":  "词元神路由模型",
+			"supported_reasoning_levels": []map[string]string{
+				{"effort": "low", "description": "Low reasoning"},
+				{"effort": "medium", "description": "Medium reasoning"},
+				{"effort": "high", "description": "High reasoning"},
+				{"effort": "xhigh", "description": "Extra high reasoning"},
+				{"effort": "ultra", "description": "Ultra reasoning"},
+				{"effort": "max", "description": "Maximum reasoning"},
+			},
+			"default_reasoning_level":          "medium",
+			"context_window":                   114688,
+			"max_context_window":               114688,
+			"effective_context_window_percent": 100,
+			"supports_reasoning_summaries":     true,
+			"supports_parallel_tool_calls":     true,
+			"input_modalities":                 []string{"text", "image"},
+			"support_verbosity":                false,
+			"visibility":                       "list",
+			"supported_in_api":                 true,
+			"priority":                         0,
+			"is_default":                       false,
+		})
 	}
 	catalog, _ := json.Marshal(map[string]any{"models": catalogModels})
 	if err = atomicWrite(catalogPath, catalog); err != nil {
@@ -252,8 +294,8 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 		_ = os.Remove(routerJournalPath())
 		return RouterStatus{}, err
 	}
-	proxy := &modelRouter{key: key, token: token, upstream: defaultGatewayURL, client: &http.Client{Timeout: 10 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, journal: journal,
-		status: RouterStatus{Running: true, Alias: routerAlias, Model: strings.TrimSpace(r.Model), Address: address, BackupPath: routerJournalPath()}}
+	proxy := &modelRouter{key: key, token: token, upstream: defaultGatewayURL, models: selectedModels, client: &http.Client{Timeout: 10 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, journal: journal,
+		status: RouterStatus{Running: true, Alias: primaryModel, Model: primaryModel, Models: selectedModels, Address: address, BackupPath: routerJournalPath()}}
 	proxy.server = &http.Server{Handler: proxy, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
 	a.router = proxy
 	go func() {
@@ -306,7 +348,7 @@ func (a *App) startClaudeRouter(r RouterRequest, key, path, home string, listene
 		_ = os.Remove(routerJournalPath())
 		return RouterStatus{}, err
 	}
-	proxy := &modelRouter{key: key, token: token, upstream: defaultGatewayURL, client: &http.Client{Timeout: 10 * time.Minute}, journal: journal, status: RouterStatus{Running: true, Alias: strings.TrimSpace(r.Model), Model: strings.TrimSpace(r.Model), Address: "http://" + listener.Addr().String(), BackupPath: routerJournalPath()}}
+	proxy := &modelRouter{key: key, token: token, upstream: defaultGatewayURL, models: uniqueModelIDs(r.Models), client: &http.Client{Timeout: 10 * time.Minute}, journal: journal, status: RouterStatus{Running: true, Alias: strings.TrimSpace(r.Model), Model: strings.TrimSpace(r.Model), Models: uniqueModelIDs(r.Models), Address: "http://" + listener.Addr().String(), BackupPath: routerJournalPath()}}
 	proxy.server = &http.Server{Handler: proxy, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
 	a.router = proxy
 	go func() {
@@ -440,9 +482,13 @@ func (p *modelRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == "GET" && r.URL.Path == "/v1/models" {
 		p.mu.Lock()
-		advertised := p.status.Model
+		advertised := append([]string(nil), p.models...)
 		p.mu.Unlock()
-		writeRouteJSON(w, map[string]any{"object": "list", "data": []any{map[string]any{"id": advertised, "object": "model"}}})
+		data := make([]any, 0, len(advertised))
+		for _, id := range advertised {
+			data = append(data, map[string]any{"id": id, "object": "model"})
+		}
+		writeRouteJSON(w, map[string]any{"object": "list", "data": data})
 		return
 	}
 	if r.Method == "POST" && r.URL.Path == "/v1/messages" {
@@ -462,6 +508,14 @@ func (p *modelRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p.mu.Lock()
 	p.status.Requests++
 	model := p.status.Model
+	if requested := str(input["model"]); requested != "" {
+		for _, available := range p.models {
+			if requested == available {
+				model = requested
+				break
+			}
+		}
+	}
 	upstreamURL := p.upstream
 	p.mu.Unlock()
 	request, specs, err := responsesToChat(input, model)
@@ -523,6 +577,14 @@ func (p *modelRouter) serveAnthropic(w http.ResponseWriter, r *http.Request) {
 	p.mu.Lock()
 	p.status.Requests++
 	model, upstream, key := p.status.Model, p.upstream, p.key
+	if requested := str(in["model"]); requested != "" {
+		for _, available := range p.models {
+			if requested == available {
+				model = requested
+				break
+			}
+		}
+	}
 	p.mu.Unlock()
 	msgs := []any{}
 	if sys, ok := in["system"].(string); ok && sys != "" {
@@ -587,3 +649,16 @@ func writeRouteJSON(w http.ResponseWriter, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 func str(v any) string { s, _ := v.(string); return s }
+
+func uniqueModelIDs(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" && !seen[value] {
+			seen[value] = true
+			result = append(result, value)
+		}
+	}
+	return result
+}

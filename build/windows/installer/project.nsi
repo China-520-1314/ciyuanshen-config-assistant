@@ -77,6 +77,8 @@ ShowInstDetails show # This will always show the installation details.
 
 Function .onInit
    !insertmacro wails.checkArchitecture
+   ; Close an older assistant process before replacing its executable.
+   nsExec::ExecToLog 'taskkill /F /IM "${PRODUCT_EXECUTABLE}"'
 FunctionEnd
 
 Section

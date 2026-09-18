@@ -29,3 +29,11 @@
 下载：Windows 选择 installer.exe；Mac 选择 Universal DMG（Intel / Apple Silicon 通用），ZIP 为备用。macOS 未签名/公证，首次打开方式见 README。
 
 设计参考 CC Switch（MIT），路由为独立 Go 实现。
+# v0.2.34 · 路由模型与更新体验修复
+
+- 默认窗口改为最大化启动，不遮挡任务栏。
+- 首次启动自动检查更新；Windows 更新完成后自动重新打开助手，安装包会先关闭旧进程。
+- 自动获取模型和分组前检查词元神登录状态，支持保存凭据后的自动登录续期。
+- 模型路由支持按供应商查看并多选模型，同一 Key 可配置多个模型；菜单显示名、Codex 请求模型和实际上游模型保持一致。
+- 路由 `/v1/models` 返回全部已配置模型，并根据请求中的模型选择对应上游模型。
+- 修复 Codex 模型目录缺少 `supported_reasoning_levels` 导致配置解析失败的问题。

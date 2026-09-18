@@ -2,11 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { Activity, ArrowRight, Play, Square, RefreshCw } from 'lucide-react';
 import { GetRouterModels, GetModelRouterStatus, StartModelRouter, StopModelRouter, GetRouterAccountOptions, CreateToolKey } from '../wailsjs/go/main/App';
 
-type Status = { running: boolean; model: string; alias: string; address: string; requests: number; failures: number; lastError: string; backupPath: string };
+type Status = { running: boolean; model: string; alias: string; models?: string[]; address: string; requests: number; failures: number; lastError: string; backupPath: string };
 type Group = { name: string; description: string; ratio: string; models: { id: string }[] };
 type Key = { provisionId: string; group: string; groupDescription?: string; name?: string; models: { id: string }[]; existing?: boolean };
 type AccountOptions = { groups: Group[]; existingKeys?: Key[] };
-type Request = { apiKey: string; provisionId: string; model: string; useExistingKey: boolean; client?: string };
+type Request = { apiKey: string; provisionId: string; model: string; models?: string[]; useExistingKey: boolean; client?: string };
 type RouterBridge = {
   GetRouterModels(request: Request): Promise<{ models: { id: string }[] }>;
   GetModelRouterStatus(): Promise<Status>;
@@ -17,9 +17,9 @@ type RouterBridge = {
 };
 const bridge = (): RouterBridge | undefined => (window as unknown as { go?: { main?: { App?: unknown } } }).go?.main?.App
   ? { GetRouterModels, GetModelRouterStatus, StartModelRouter, StopModelRouter, GetRouterAccountOptions, CreateToolKey } : undefined;
-const initial: Status = { running: false, model: '', alias: 'gpt-5.6-terra', address: '', requests: 0, failures: 0, lastError: '', backupPath: '' };
+const initial: Status = { running: false, model: '', alias: '', models: [], address: '', requests: 0, failures: 0, lastError: '', backupPath: '' };
 
-export default function ModelRouter() {
+export default function ModelRouter({ onLogin }: { onLogin?: () => void }) {
   const [status, setStatus] = useState(initial);
   const [mode, setMode] = useState<'auto' | 'manual'>('auto');
   const [client, setClient] = useState<'codex' | 'claude'>('codex');
@@ -30,6 +30,7 @@ export default function ModelRouter() {
   const [selectedGroup, setSelectedGroup] = useState('');
   const [provisionId, setProvisionId] = useState('');
   const [model, setModel] = useState('');
+  const [selectedModels, setSelectedModels] = useState<string[]>([]);
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
@@ -42,7 +43,7 @@ export default function ModelRouter() {
     return () => { active = false; window.clearInterval(timer); };
   }, []);
   const existing = mode === 'auto';
-  function resetModels() { setModels([]); setModel(''); setError(''); setNotice(''); setSelectedGroup(''); setProvisionId(''); }
+  function resetModels() { setModels([]); setModel(''); setSelectedModels([]); setError(''); setNotice(''); setSelectedGroup(''); setProvisionId(''); }
   async function loadAutomaticOptions() {
     const api = bridge(); if (!api) return;
     if (loadingRef.current) return;
@@ -54,23 +55,24 @@ export default function ModelRouter() {
       const ids = [...new Set([...(account.existingKeys || []).flatMap(k => k.models), ...(account.groups || []).flatMap(g => g.models)].map(m => m.id))].sort();
       setModels(ids);
       setModel(current => ids.includes(current) ? current : '');
+      setSelectedModels(current => current.filter(id => ids.includes(id)));
       setProvisionId(current => (account.existingKeys || []).some(k => k.provisionId === current) ? current : '');
       setSelectedGroup(current => (account.groups || []).some(g => g.name === current) ? current : '');
       setNotice(ids.length ? `已读取 ${ids.length} 个模型。` : '账号没有可用模型');
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { loadingRef.current = false; setLoadingOptions(false); }
+    } catch (e) { const message = e instanceof Error ? e.message : String(e); setError(message); if (/请先登录|登录词元神账号/.test(message)) onLogin?.(); } finally { loadingRef.current = false; setLoadingOptions(false); }
   }
   useEffect(() => { if (mode === 'auto') void loadAutomaticOptions(); }, [mode]);
   async function run(action: 'models' | 'start' | 'stop') {
     if (loadingOptions && action === 'start') { setError('请等待分组刷新完成后启动，模型仍可继续选择。'); return; }
     const api = bridge(); if (!api) { setError('请在桌面安装版中使用本地路由'); return; }
     setBusy(action); setError(''); setNotice('');
-    const request = { apiKey: key, provisionId, model, useExistingKey: existing, client };
+    const request = { apiKey: key, provisionId, model: selectedModels[0] || model, models: selectedModels, useExistingKey: existing, client };
     try {
       if (action === 'models') {
         setModels([]); setModel('');
         if (existing) { await loadAutomaticOptions(); return; }
         const result = await api.GetRouterModels(request);
-        const ids = result.models.map(item => item.id).sort(); setModels(ids); setModel('');
+        const ids = result.models.map(item => item.id).sort(); setModels(ids); setModel(''); setSelectedModels([]);
         setNotice(ids.length ? `已读取 ${ids.length} 个模型。请选择支持对话和工具调用的模型。` : '此 Key 没有可用模型');
       } else if (action === 'start') {
         let startRequest = request;
@@ -94,8 +96,9 @@ export default function ModelRouter() {
   const visible = models;
   const providers = [...new Set(visible.map(id => id.split(/[-/:]/)[0].toLowerCase()))].sort();
   const ratio = (value: string) => Number.parseFloat(value.replace(',', '.').replace(/[^0-9.]/g, '')) || Number.POSITIVE_INFINITY;
-  const modelGroups = groups.filter(group => !model || group.models.some(item => item.id === model)).sort((a, b) => ratio(a.ratio) - ratio(b.ratio) || a.name.localeCompare(b.name));
-  const modelKeys = keys.filter(item => !model || item.models.some(candidate => candidate.id === model));
+  const primaryModel = selectedModels[0] || model;
+  const modelGroups = groups.filter(group => !primaryModel || group.models.some(item => item.id === primaryModel)).sort((a, b) => ratio(a.ratio) - ratio(b.ratio) || a.name.localeCompare(b.name));
+  const modelKeys = keys.filter(item => !primaryModel || item.models.some(candidate => candidate.id === primaryModel));
   return <div className="content-stack narrow-stack router-page">
     <div className="page-intro"><div><p className="eyebrow">模型路由</p><h2>在 Codex 里使用更多模型</h2><p>选择词元神 Key 和实际模型，一键连接 Claude、Gemini、Grok、DeepSeek 等。</p></div></div>
     {existing && <div role="status" aria-live="polite"><p>{loadingOptions ? (models.length ? '正在刷新模型和分组，可继续选择已有模型…' : '正在自动获取账号模型和分组，请稍候…') : '切换页面会保留模型列表和选择；需要更新时请点击刷新。'}</p><button className="secondary-button" disabled={loadingOptions || Boolean(busy) || status.running} onClick={() => void loadAutomaticOptions()}><RefreshCw size={15} className={loadingOptions ? 'spin' : ''} />{loadingOptions ? '获取中…' : '刷新模型和分组'}</button></div>}
@@ -114,8 +117,8 @@ export default function ModelRouter() {
     </section>
     <section className="router-card">
       <h3>2 · 选择真正回答你的模型</h3>
-      <div className="field-block"><label htmlFor="router-model">实际使用模型</label><select id="router-model" value={model} disabled={locked || !models.length} onChange={e => { const id=e.target.value; setModel(id); const match=keys.find(k => k.models.some(m => m.id === id)); const candidates=groups.filter(g => g.models.some(m => m.id === id)).sort((a,b) => ratio(a.ratio)-ratio(b.ratio) || a.name.localeCompare(b.name)); if (match) { setProvisionId(match.provisionId); setSelectedGroup(match.group); setNotice(`已找到该模型的已有 Key：${match.group || '未命名分组'}。`); } else if (candidates.length) { setProvisionId(''); setSelectedGroup(candidates[0].name); setNotice(`未找到该模型的已有 Key，已自动选择最低倍率分组：${candidates[0].name}。启动时将自动创建 Key。`); } else { setProvisionId(''); setSelectedGroup(''); setNotice('没有找到支持该模型的可用分组。'); } }}><option value="">请选择模型</option>{model && !visible.includes(model) && <option value={model}>{model}</option>}{providers.map(provider => <optgroup key={provider} label={provider.toUpperCase()}>{visible.filter(id => id.split(/[-/:]/)[0].toLowerCase() === provider).map(id => <option key={id} value={id}>{id}</option>)}</optgroup>)}</select></div>
-      <div className="router-mapping"><span>Codex 显示<br /><strong>{status.alias}</strong></span><ArrowRight size={22} /><span>实际请求<br /><strong>{status.running ? status.model : model || '等待选择'}</strong></span></div>
+      <div className="field-block"><label htmlFor="router-model">实际使用模型（可多选）</label><select id="router-model" multiple size={Math.min(10, Math.max(4, providers.length + 2))} value={selectedModels} disabled={locked || !models.length} onChange={e => { const ids=Array.from(e.target.selectedOptions).map(o=>o.value); const id=ids[0] || ''; setSelectedModels(ids); setModel(id); const match=keys.find(k => k.models.some(m => m.id === id)); const candidates=groups.filter(g => g.models.some(m => m.id === id)).sort((a,b) => ratio(a.ratio)-ratio(b.ratio) || a.name.localeCompare(b.name)); if (match) { setProvisionId(match.provisionId); setSelectedGroup(match.group); setNotice(`已找到该模型的已有 Key：${match.group || '未命名分组'}。`); } else if (candidates.length) { setProvisionId(''); setSelectedGroup(candidates[0].name); setNotice(`未找到该模型的已有 Key，已自动选择最低倍率分组：${candidates[0].name}。启动时将自动创建 Key。`); } else { setProvisionId(''); setSelectedGroup(''); setNotice('没有找到支持该模型的可用分组。'); } }}>{providers.map(provider => <optgroup key={provider} label={provider.toUpperCase()}>{visible.filter(id => id.split(/[-/:]/)[0].toLowerCase() === provider).map(id => <option key={id} value={id}>{id}</option>)}</optgroup>)}</select><p className="field-note">按住 Ctrl（Windows）或 Command（Mac）可选择多个模型；第一个模型作为默认模型。</p></div>
+      <div className="router-mapping"><span>菜单显示名<br /><strong>{status.running ? status.alias : model || '等待选择'}</strong></span><ArrowRight size={22} /><span>实际请求模型<br /><strong>{status.running ? status.model : model || '等待选择'}</strong></span></div>
       <p className="field-note">模型列表汇总账号所有可用分组，并按供应商分类；当前选择的分组 Key 必须实际拥有该模型权限。左侧是供 Codex 使用的模型别名，右侧才是词元神实际收到的模型名。</p>
     </section>
     <section className="router-card">
