@@ -224,7 +224,7 @@ func TestRouterLifecycle(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if root["model_provider"] != routerProvider || root["model"] != routerAlias {
+			if root["model_provider"] != routerProvider || root["model"] != request.Model {
 				t.Fatal("not configured")
 			}
 			if _, err := a.StartModelRouter(request); err == nil {

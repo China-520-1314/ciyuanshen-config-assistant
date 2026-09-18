@@ -196,9 +196,10 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 	}
 	address := "http://" + listener.Addr().String()
 	root["model_provider"] = routerProvider
-	// Keep the stable Codex alias in config; /v1/models advertises the actual
-	// mapped model so clients can display the upstream name.
-	root["model"] = routerAlias
+	// Codex reads the selected model from config.toml before it queries the
+	// provider. Write the mapped upstream model here so the client displays the
+	// same name that the router sends upstream.
+	root["model"] = strings.TrimSpace(r.Model)
 	root["web_search"] = "disabled"
 	root["disable_response_storage"] = true
 	delete(root, "service_tier")
