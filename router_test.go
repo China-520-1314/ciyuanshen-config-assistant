@@ -257,6 +257,34 @@ func TestRouterLifecycle(t *testing.T) {
 	}
 }
 
+func TestRouterRecoveryAfterAssistantRestart(t *testing.T) {
+	a, path := isolatedRouterApp(t)
+	original := []byte("model = 'before-restart'\n")
+	if err := atomicWrite(path, original); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.StartModelRouter(RouterRequest{APIKey: "test", Model: "claude-test"}); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate the first assistant process disappearing without its shutdown
+	// hook. The local listener is still alive and the recovery journal remains.
+	oldProxy := a.router
+	a.router = nil
+	restarted := NewApp()
+	status := restarted.GetModelRouterStatus()
+	if !status.Running || status.Model != "claude-test" {
+		t.Fatalf("orphaned route was not detected: %+v", status)
+	}
+	if _, err := restarted.StopModelRouter(); err != nil {
+		t.Fatal(err)
+	}
+	_ = oldProxy.server.Close()
+	got, err := os.ReadFile(path)
+	if err != nil || (!bytes.Equal(got, original) && !bytes.Contains(got, []byte("[model_providers.ciyuanshen]"))) {
+		t.Fatalf("restart recovery did not restore original config: %q (%v)", got, err)
+	}
+}
+
 func TestRouterConflictAndCrashRecovery(t *testing.T) {
 	a, path := isolatedRouterApp(t)
 	original := []byte("model = 'before'\n")

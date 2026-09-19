@@ -291,6 +291,11 @@ h2 { margin-bottom: 4px; font-size: 17px; font-weight: 700; letter-spacing: 0; }
 .field-block label { color: var(--muted-strong); font-size: 13px; font-weight: 650; }
 .field-block input, .field-block select { width: 100%; height: 42px; min-width: 0; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 6px; outline: none; color: var(--ink); background: var(--content-surface); font-size: 13px; }
 .field-block input:focus, .field-block select:focus { border-color: var(--focus); box-shadow: 0 0 0 2px rgba(12, 118, 109, 0.1); }
+.field-block select.router-model-select { height: clamp(280px, 38vh, 460px); min-height: 280px; padding: 8px 10px; font-size: 14px; line-height: 1.6; cursor: pointer; }
+.router-model-select option { padding: 8px 10px; }
+.router-model-select optgroup { padding: 4px 0; color: var(--muted-strong); font-size: 13px; font-weight: 700; }
+.router-model-select option:checked { color: var(--surface); background: var(--teal); }
+.router-model-count { margin: 0; color: var(--teal-dark); font-size: 13px; font-weight: 650; }
 .field-note { color: var(--muted); font-size: 12px; line-height: 1.5; }
 .select-row { display: grid; grid-template-columns: minmax(0, 1fr) 36px; gap: 7px; }
 .key-input-wrap { display: flex; align-items: center; gap: 7px; min-width: 0; height: 39px; padding-left: 10px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--muted); background: var(--content-surface); }

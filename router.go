@@ -127,14 +127,55 @@ func (a *App) GetModelRouterStatus() RouterStatus {
 	defer a.routerMu.Unlock()
 	if a.router == nil {
 		s := RouterStatus{Alias: routerAlias, BackupPath: routerJournalPath()}
-		if _, err := os.Stat(routerJournalPath()); err == nil {
-			s.LastError = "发现上次路由的恢复记录，请点击停止并恢复配置后再启动"
+		if journal, err := readRouterJournal(); err == nil {
+			s.BackupPath = routerJournalPath()
+			s.Address = "http://" + journal.Address
+			s.Model, s.Models = routerModelsFromJournal(journal)
+			s.Alias = s.Model
+			if routerAddressReachable(journal.Address) {
+				s.Running = true
+				s.LastError = "路由仍在运行，但当前助手不是启动它的窗口；点击停止并恢复配置即可接管恢复"
+			} else {
+				s.LastError = "发现上次路由的恢复记录，请点击停止并恢复配置后再启动"
+			}
 		}
 		return s
 	}
 	a.router.mu.Lock()
 	defer a.router.mu.Unlock()
 	return a.router.status
+}
+
+func readRouterJournal() (routerJournal, error) {
+	raw, err := os.ReadFile(routerJournalPath())
+	if err != nil {
+		return routerJournal{}, err
+	}
+	var journal routerJournal
+	if err := json.Unmarshal(raw, &journal); err != nil {
+		return routerJournal{}, err
+	}
+	return journal, nil
+}
+
+func routerAddressReachable(address string) bool {
+	conn, err := net.DialTimeout("tcp", address, 250*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
+func routerModelsFromJournal(j routerJournal) (string, []string) {
+	var root map[string]any
+	if err := toml.Unmarshal(j.Installed, &root); err == nil {
+		model := strings.TrimSpace(str(root["model"]))
+		if model != "" {
+			return model, []string{model}
+		}
+	}
+	return routerAlias, []string{routerAlias}
 }
 func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 	a.routerMu.Lock()
@@ -449,23 +490,18 @@ func (a *App) StopModelRouter() (RouterStatus, error) {
 	a.operation.Lock()
 	defer a.operation.Unlock()
 	if a.router == nil {
-		raw, err := os.ReadFile(routerJournalPath())
+		j, err := readRouterJournal()
 		if errors.Is(err, os.ErrNotExist) {
 			return RouterStatus{Alias: routerAlias}, nil
 		}
 		if err != nil {
 			return RouterStatus{}, err
 		}
-		var j routerJournal
-		if err = json.Unmarshal(raw, &j); err != nil {
-			return RouterStatus{}, err
-		}
-		conn, dialErr := net.DialTimeout("tcp", j.Address, time.Second)
-		if dialErr == nil {
-			conn.Close()
-			return RouterStatus{}, errors.New("另一个助手可能仍在运行路由，请在原窗口停止")
-		}
-		return RouterStatus{Alias: routerAlias}, restoreRouterJournal(j)
+		// The original assistant process may have exited without running its
+		// shutdown hook. The journal is the recovery authority; restoring it is
+		// safe even if the orphaned local listener is still accepting requests,
+		// because Codex will immediately stop pointing at that listener.
+		return RouterStatus{Alias: routerAlias, BackupPath: routerJournalPath()}, restoreRouterJournal(j)
 	}
 	proxy := a.router
 	if err := restoreRouterJournal(proxy.journal); err != nil {
