@@ -26,6 +26,7 @@ type RouterRequest struct {
 	APIKey         string   `json:"apiKey"`
 	ProvisionID    string   `json:"provisionId"`
 	Model          string   `json:"model"`
+	DefaultModel   string   `json:"defaultModel,omitempty"`
 	Models         []string `json:"models,omitempty"`
 	UseExistingKey bool     `json:"useExistingKey"`
 	Client         string   `json:"client"` // codex or claude
@@ -42,14 +43,16 @@ type RouterStatus struct {
 	BackupPath string   `json:"backupPath"`
 }
 type routerJournal struct {
-	Path            string `json:"path"`
-	Original        []byte `json:"original"`
-	Installed       []byte `json:"installed"`
-	Existed         bool   `json:"existed"`
-	Address         string `json:"address"`
-	CatalogPath     string `json:"catalogPath,omitempty"`
-	CatalogOriginal []byte `json:"catalogOriginal,omitempty"`
-	CatalogExisted  bool   `json:"catalogExisted,omitempty"`
+	Path            string   `json:"path"`
+	Original        []byte   `json:"original"`
+	Installed       []byte   `json:"installed"`
+	Existed         bool     `json:"existed"`
+	Address         string   `json:"address"`
+	CatalogPath     string   `json:"catalogPath,omitempty"`
+	CatalogOriginal []byte   `json:"catalogOriginal,omitempty"`
+	CatalogExisted  bool     `json:"catalogExisted,omitempty"`
+	Models          []string `json:"models,omitempty"`
+	DefaultModel    string   `json:"defaultModel,omitempty"`
 }
 type modelRouter struct {
 	mu                   sync.Mutex
@@ -168,6 +171,13 @@ func routerAddressReachable(address string) bool {
 }
 
 func routerModelsFromJournal(j routerJournal) (string, []string) {
+	if len(j.Models) > 0 {
+		model := strings.TrimSpace(j.DefaultModel)
+		if model == "" {
+			model = strings.TrimSpace(j.Models[0])
+		}
+		return model, uniqueModelIDs(j.Models)
+	}
 	var root map[string]any
 	if err := toml.Unmarshal(j.Installed, &root); err == nil {
 		model := strings.TrimSpace(str(root["model"]))
@@ -209,7 +219,11 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 		}
 	}
 	primaryModel := selectedModels[0]
-	r.Model = primaryModel
+	defaultModel := strings.TrimSpace(r.DefaultModel)
+	if defaultModel == "" {
+		defaultModel = primaryModel
+	}
+	r.Model = defaultModel
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return RouterStatus{}, err
@@ -238,6 +252,7 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 		return RouterStatus{}, err
 	}
 	if client == "claude" {
+		r.Models = selectedModels
 		return a.startClaudeRouter(r, key, path, home, listener)
 	}
 	root, err := readTOMLMap(path)
@@ -255,7 +270,7 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 	// Codex reads the selected model from config.toml before it queries the
 	// provider. Write the mapped upstream model here so the client displays the
 	// same name that the router sends upstream.
-	root["model"] = primaryModel
+	root["model"] = defaultModel
 	root["web_search"] = "disabled"
 	root["disable_response_storage"] = true
 	delete(root, "service_tier")
@@ -281,9 +296,9 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 		listener.Close()
 		return RouterStatus{}, catalogErr
 	}
-	catalogModels := make([]map[string]any, 0, len(models.Models))
-	for _, m := range models.Models {
-		modelID := strings.TrimSpace(m.ID)
+	catalogModels := make([]map[string]any, 0, len(selectedModels))
+	for _, modelID := range selectedModels {
+		modelID = strings.TrimSpace(modelID)
 		if modelID == "" {
 			continue
 		}
@@ -310,7 +325,7 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 			"visibility":                       "list",
 			"supported_in_api":                 true,
 			"priority":                         0,
-			"is_default":                       false,
+			"is_default":                       modelID == defaultModel,
 		})
 	}
 	catalog, _ := json.Marshal(map[string]any{"models": catalogModels})
@@ -324,7 +339,7 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 		listener.Close()
 		return RouterStatus{}, err
 	}
-	journal := routerJournal{Path: path, Original: original, Installed: installed, Existed: existed, Address: listener.Addr().String(), CatalogPath: catalogPath, CatalogOriginal: catalogOriginal, CatalogExisted: catalogExisted}
+	journal := routerJournal{Path: path, Original: original, Installed: installed, Existed: existed, Address: listener.Addr().String(), CatalogPath: catalogPath, CatalogOriginal: catalogOriginal, CatalogExisted: catalogExisted, Models: selectedModels, DefaultModel: defaultModel}
 	encoded, _ := json.Marshal(journal)
 	if err = createRouterJournal(encoded); err != nil {
 		listener.Close()
@@ -336,7 +351,7 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 		return RouterStatus{}, err
 	}
 	proxy := &modelRouter{key: key, token: token, upstream: defaultGatewayURL, models: selectedModels, client: &http.Client{Timeout: 10 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, journal: journal,
-		status: RouterStatus{Running: true, Alias: primaryModel, Model: primaryModel, Models: selectedModels, Address: address, BackupPath: routerJournalPath()}}
+		status: RouterStatus{Running: true, Alias: defaultModel, Model: defaultModel, Models: selectedModels, Address: address, BackupPath: routerJournalPath()}}
 	proxy.server = &http.Server{Handler: proxy, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
 	a.router = proxy
 	go func() {
@@ -367,7 +382,11 @@ func (a *App) startClaudeRouter(r RouterRequest, key, path, home string, listene
 	env := ensureMap(root, "env")
 	env["ANTHROPIC_BASE_URL"] = "http://" + listener.Addr().String() + "/v1"
 	env["ANTHROPIC_AUTH_TOKEN"] = key
-	env["ANTHROPIC_MODEL"] = strings.TrimSpace(r.Model)
+	defaultModel := strings.TrimSpace(r.DefaultModel)
+	if defaultModel == "" {
+		defaultModel = strings.TrimSpace(r.Model)
+	}
+	env["ANTHROPIC_MODEL"] = defaultModel
 	installed, err := marshalJSON(root)
 	if err != nil {
 		listener.Close()
@@ -378,7 +397,7 @@ func (a *App) startClaudeRouter(r RouterRequest, key, path, home string, listene
 		listener.Close()
 		return RouterStatus{}, err
 	}
-	journal := routerJournal{Path: path, Original: original, Installed: installed, Existed: existed, Address: listener.Addr().String()}
+	journal := routerJournal{Path: path, Original: original, Installed: installed, Existed: existed, Address: listener.Addr().String(), Models: uniqueModelIDs(r.Models), DefaultModel: defaultModel}
 	encoded, _ := json.Marshal(journal)
 	if err = createRouterJournal(encoded); err != nil {
 		listener.Close()
@@ -389,7 +408,7 @@ func (a *App) startClaudeRouter(r RouterRequest, key, path, home string, listene
 		_ = os.Remove(routerJournalPath())
 		return RouterStatus{}, err
 	}
-	proxy := &modelRouter{key: key, token: token, upstream: defaultGatewayURL, models: uniqueModelIDs(r.Models), client: &http.Client{Timeout: 10 * time.Minute}, journal: journal, status: RouterStatus{Running: true, Alias: strings.TrimSpace(r.Model), Model: strings.TrimSpace(r.Model), Models: uniqueModelIDs(r.Models), Address: "http://" + listener.Addr().String(), BackupPath: routerJournalPath()}}
+	proxy := &modelRouter{key: key, token: token, upstream: defaultGatewayURL, models: uniqueModelIDs(r.Models), client: &http.Client{Timeout: 10 * time.Minute}, journal: journal, status: RouterStatus{Running: true, Alias: defaultModel, Model: defaultModel, Models: uniqueModelIDs(r.Models), Address: "http://" + listener.Addr().String(), BackupPath: routerJournalPath()}}
 	proxy.server = &http.Server{Handler: proxy, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
 	a.router = proxy
 	go func() {
@@ -545,12 +564,10 @@ func (p *modelRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p.status.Requests++
 	model := p.status.Model
 	if requested := str(input["model"]); requested != "" {
-		for _, available := range p.models {
-			if requested == available {
-				model = requested
-				break
-			}
-		}
+		// Codex may request a model that is intentionally absent from the
+		// catalog. Keep /v1/models limited to mappings while allowing direct
+		// requests, matching CC Switch behavior.
+		model = requested
 	}
 	upstreamURL := p.upstream
 	p.mu.Unlock()
@@ -614,12 +631,7 @@ func (p *modelRouter) serveAnthropic(w http.ResponseWriter, r *http.Request) {
 	p.status.Requests++
 	model, upstream, key := p.status.Model, p.upstream, p.key
 	if requested := str(in["model"]); requested != "" {
-		for _, available := range p.models {
-			if requested == available {
-				model = requested
-				break
-			}
-		}
+		model = requested
 	}
 	p.mu.Unlock()
 	msgs := []any{}
@@ -634,14 +646,25 @@ func (p *modelRouter) serveAnthropic(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	body, _ := json.Marshal(map[string]any{"model": model, "messages": msgs, "stream": false, "max_tokens": in["max_tokens"]})
-	up, err := http.NewRequestWithContext(r.Context(), "POST", upstream+"/chat/completions", bytes.NewReader(body))
-	if err != nil {
-		routeError(w, 502, "上游地址无效")
-		return
+	var resp *http.Response
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		up, requestErr := http.NewRequestWithContext(r.Context(), "POST", upstream+"/chat/completions", bytes.NewReader(body))
+		if requestErr != nil {
+			routeError(w, 502, "上游地址无效")
+			return
+		}
+		up.Header.Set("Content-Type", "application/json")
+		up.Header.Set("Authorization", "Bearer "+key)
+		resp, err = p.client.Do(up)
+		if err != nil || resp.StatusCode != http.StatusServiceUnavailable {
+			break
+		}
+		resp.Body.Close()
+		if attempt < 2 {
+			time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
+		}
 	}
-	up.Header.Set("Content-Type", "application/json")
-	up.Header.Set("Authorization", "Bearer "+key)
-	resp, err := p.client.Do(up)
 	if err != nil {
 		p.fail("上游连接失败")
 		routeError(w, 502, "上游连接失败")

@@ -150,7 +150,7 @@ func TestRouterHTTPForwarding(t *testing.T) {
 			defer upstream.Close()
 			p := &modelRouter{token: "local-test", key: "upstream-test-key", upstream: upstream.URL, client: upstream.Client(), status: RouterStatus{Model: "deepseek-test"}}
 			for _, auth := range []bool{false, true} {
-				r := httptest.NewRequest("POST", "/v1/responses", strings.NewReader(fmt.Sprintf(`{"model":"ignored","input":"hi","stream":%t}`, stream)))
+				r := httptest.NewRequest("POST", "/v1/responses", strings.NewReader(fmt.Sprintf(`{"model":"deepseek-test","input":"hi","stream":%t}`, stream)))
 				if auth {
 					r.Header.Set("Authorization", "Bearer local-test")
 				}
@@ -188,7 +188,7 @@ func isolatedRouterApp(t *testing.T) (*App, string) {
 		if r.URL.String() != defaultGatewayURL+"/models" {
 			t.Errorf("unexpected URL: %s", r.URL)
 		}
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"claude-test"}]}`)), Header: make(http.Header)}, nil
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"claude-test"},{"id":"alpha"},{"id":"beta"}]}`)), Header: make(http.Header)}, nil
 	})}
 	t.Cleanup(func() {
 		if a.router != nil {
@@ -282,6 +282,26 @@ func TestRouterRecoveryAfterAssistantRestart(t *testing.T) {
 	got, err := os.ReadFile(path)
 	if err != nil || (!bytes.Equal(got, original) && !bytes.Contains(got, []byte("[model_providers.ciyuanshen]"))) {
 		t.Fatalf("restart recovery did not restore original config: %q (%v)", got, err)
+	}
+}
+
+func TestRouterRecoveryPreservesModelMappings(t *testing.T) {
+	a, path := isolatedRouterApp(t)
+	if err := atomicWrite(path, []byte("model = 'before-restart'\n")); err != nil {
+		t.Fatal(err)
+	}
+	request := RouterRequest{APIKey: "test", Model: "alpha", DefaultModel: "beta", Models: []string{"alpha", "beta"}}
+	if _, err := a.StartModelRouter(request); err != nil {
+		t.Fatal(err)
+	}
+	a.router = nil
+	restarted := NewApp()
+	status := restarted.GetModelRouterStatus()
+	if !status.Running || status.Model != "beta" || len(status.Models) != 2 || status.Models[0] != "alpha" || status.Models[1] != "beta" {
+		t.Fatalf("model mappings were not recovered: %+v", status)
+	}
+	if _, err := restarted.StopModelRouter(); err != nil {
+		t.Fatal(err)
 	}
 }
 

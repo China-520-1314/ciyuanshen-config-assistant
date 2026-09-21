@@ -6,7 +6,7 @@ type Status = { running: boolean; model: string; alias: string; models?: string[
 type Group = { name: string; description: string; ratio: string; models: { id: string }[] };
 type Key = { provisionId: string; group: string; groupDescription?: string; name?: string; models: { id: string }[]; existing?: boolean };
 type AccountOptions = { groups: Group[]; existingKeys?: Key[] };
-type Request = { apiKey: string; provisionId: string; model: string; models?: string[]; useExistingKey: boolean; client?: string };
+type Request = { apiKey: string; provisionId: string; model: string; defaultModel?: string; models?: string[]; useExistingKey: boolean; client?: string };
 type RouterBridge = {
   GetRouterModels(request: Request): Promise<{ models: { id: string }[] }>;
   GetModelRouterStatus(): Promise<Status>;
@@ -31,6 +31,7 @@ export default function ModelRouter({ onLogin }: { onLogin?: () => void }) {
   const [provisionId, setProvisionId] = useState('');
   const [model, setModel] = useState('');
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
+  const [defaultModel, setDefaultModel] = useState('');
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
@@ -43,7 +44,7 @@ export default function ModelRouter({ onLogin }: { onLogin?: () => void }) {
     return () => { active = false; window.clearInterval(timer); };
   }, []);
   const existing = mode === 'auto';
-  function resetModels() { setModels([]); setModel(''); setSelectedModels([]); setError(''); setNotice(''); setSelectedGroup(''); setProvisionId(''); }
+  function resetModels() { setModels([]); setModel(''); setSelectedModels([]); setDefaultModel(''); setError(''); setNotice(''); setSelectedGroup(''); setProvisionId(''); }
   async function loadAutomaticOptions() {
     const api = bridge(); if (!api) return;
     if (loadingRef.current) return;
@@ -66,13 +67,13 @@ export default function ModelRouter({ onLogin }: { onLogin?: () => void }) {
     if (loadingOptions && action === 'start') { setError('请等待分组刷新完成后启动，模型仍可继续选择。'); return; }
     const api = bridge(); if (!api) { setError('请在桌面安装版中使用本地路由'); return; }
     setBusy(action); setError(''); setNotice('');
-    const request = { apiKey: key, provisionId, model: selectedModels[0] || model, models: selectedModels, useExistingKey: existing, client };
+    const request = { apiKey: key, provisionId, model: defaultModel.trim() || selectedModels[0] || model, defaultModel: defaultModel.trim(), models: selectedModels, useExistingKey: existing, client };
     try {
       if (action === 'models') {
         setModels([]); setModel('');
         if (existing) { await loadAutomaticOptions(); return; }
         const result = await api.GetRouterModels(request);
-        const ids = result.models.map(item => item.id).sort(); setModels(ids); setModel(''); setSelectedModels([]);
+        const ids = result.models.map(item => item.id).sort(); setModels(ids); setModel(''); setSelectedModels([]); setDefaultModel('');
         setNotice(ids.length ? `已读取 ${ids.length} 个模型。请选择支持对话和工具调用的模型。` : '此 Key 没有可用模型');
       } else if (action === 'start') {
         let startRequest = request;
@@ -97,6 +98,7 @@ export default function ModelRouter({ onLogin }: { onLogin?: () => void }) {
   const providers = [...new Set(visible.map(id => id.split(/[-/:]/)[0].toLowerCase()))].sort();
   const ratio = (value: string) => Number.parseFloat(value.replace(',', '.').replace(/[^0-9.]/g, '')) || Number.POSITIVE_INFINITY;
   const primaryModel = selectedModels[0] || model;
+  const effectiveDefaultModel = defaultModel.trim() || primaryModel;
   const modelGroups = groups.filter(group => !primaryModel || group.models.some(item => item.id === primaryModel)).sort((a, b) => ratio(a.ratio) - ratio(b.ratio) || a.name.localeCompare(b.name));
   const modelKeys = keys.filter(item => !primaryModel || item.models.some(candidate => candidate.id === primaryModel));
   return <div className="content-stack narrow-stack router-page">
@@ -117,9 +119,10 @@ export default function ModelRouter({ onLogin }: { onLogin?: () => void }) {
     </section>
     <section className="router-card">
       <h3>2 · 选择真正回答你的模型</h3>
-      <div className="field-block"><label htmlFor="router-model">实际使用模型（可多选）</label><select className="router-model-select" id="router-model" multiple size={Math.min(16, Math.max(8, visible.length))} value={selectedModels} disabled={locked || !models.length} onChange={e => { const ids=Array.from(e.target.selectedOptions).map(o=>o.value); const id=ids[0] || ''; setSelectedModels(ids); setModel(id); const match=keys.find(k => k.models.some(m => m.id === id)); const candidates=groups.filter(g => g.models.some(m => m.id === id)).sort((a,b) => ratio(a.ratio)-ratio(b.ratio) || a.name.localeCompare(b.name)); if (match) { setProvisionId(match.provisionId); setSelectedGroup(match.group); setNotice(`已找到该模型的已有 Key：${match.group || '未命名分组'}。`); } else if (candidates.length) { setProvisionId(''); setSelectedGroup(candidates[0].name); setNotice(`未找到该模型的已有 Key，已自动选择最低倍率分组：${candidates[0].name}。启动时将自动创建 Key。`); } else { setProvisionId(''); setSelectedGroup(''); setNotice('没有找到支持该模型的可用分组。'); } }}>{providers.map(provider => <optgroup key={provider} label={provider.toUpperCase()}>{visible.filter(id => id.split(/[-/:]/)[0].toLowerCase() === provider).map(id => <option key={id} value={id}>{id}</option>)}</optgroup>)}</select><p className="router-model-count">已选择 {selectedModels.length} 个模型{selectedModels.length ? ` · 默认使用 ${selectedModels[0]}` : ''}</p><p className="field-note">按住 Ctrl（Windows）或 Command（Mac）可选择多个模型；第一个模型作为默认模型。列表已加大，滚动即可查看更多供应商模型。</p></div>
-      <div className="router-mapping"><span>菜单显示名<br /><strong>{status.running ? status.alias : model || '等待选择'}</strong></span><ArrowRight size={22} /><span>实际请求模型<br /><strong>{status.running ? status.model : model || '等待选择'}</strong></span></div>
-      <p className="field-note">模型列表汇总账号所有可用分组，并按供应商分类；当前选择的分组 Key 必须实际拥有该模型权限。左侧是供 Codex 使用的模型别名，右侧才是词元神实际收到的模型名。</p>
+      <div className="field-block"><label htmlFor="router-model">模型映射（可多选）</label><select className="router-model-select" id="router-model" multiple size={Math.min(16, Math.max(8, visible.length))} value={selectedModels} disabled={locked || !models.length} onChange={e => { const ids=Array.from(e.target.selectedOptions).map(o=>o.value); const id=ids[0] || ''; setSelectedModels(ids); setModel(id); const match=keys.find(k => k.models.some(m => m.id === id)); const candidates=groups.filter(g => g.models.some(m => m.id === id)).sort((a,b) => ratio(a.ratio)-ratio(b.ratio) || a.name.localeCompare(b.name)); if (match) { setProvisionId(match.provisionId); setSelectedGroup(match.group); setNotice(`已找到该模型的已有 Key：${match.group || '未命名分组'}。`); } else if (candidates.length) { setProvisionId(''); setSelectedGroup(candidates[0].name); setNotice(`未找到该模型的已有 Key，已自动选择最低倍率分组：${candidates[0].name}。启动时将自动创建 Key。`); } else { setProvisionId(''); setSelectedGroup(''); setNotice('没有找到支持该模型的可用分组。'); } }}>{providers.map(provider => <optgroup key={provider} label={provider.toUpperCase()}>{visible.filter(id => id.split(/[-/:]/)[0].toLowerCase() === provider).map(id => <option key={id} value={id}>{id}</option>)}</optgroup>)}</select><p className="router-model-count">已选择 {selectedModels.length} 个映射模型{selectedModels.length ? ` · 映射第一行 ${selectedModels[0]}` : ''}</p><p className="field-note">按住 Ctrl（Windows）或 Command（Mac）可选择多个映射模型；映射模型会出现在 Codex 的 /model 菜单中。</p></div>
+      <div className="field-block"><label htmlFor="router-default-model">Codex 默认请求模型</label><input id="router-default-model" value={defaultModel} disabled={locked || !selectedModels.length} placeholder={primaryModel || '留空时使用映射第一行'} onChange={e => setDefaultModel(e.target.value)} /><p className="field-note">留空时默认使用映射第一行。填写不在映射中的模型后，Codex 仍可直接请求它，但不会出现在 /model 菜单中。</p></div>
+      <div className="router-mapping"><span>菜单显示名<br /><strong>{status.running ? status.alias : effectiveDefaultModel || '等待选择'}</strong></span><ArrowRight size={22} /><span>实际请求模型<br /><strong>{status.running ? status.model : effectiveDefaultModel || '等待选择'}</strong></span></div>
+      <p className="field-note">模型列表汇总账号所有可用分组，并按供应商分类；当前选择的分组 Key 必须实际拥有映射模型权限。默认请求模型可以填写菜单外的模型，直接请求仍会转发。</p>
     </section>
     <section className="router-card">
       <h3>3 · 一键启动，回到 Codex 开始使用</h3>
