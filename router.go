@@ -30,6 +30,7 @@ type RouterRequest struct {
 	Models         []string `json:"models,omitempty"`
 	UseExistingKey bool     `json:"useExistingKey"`
 	Client         string   `json:"client"` // codex or claude
+	ClaudeOneM     bool     `json:"claudeOneM,omitempty"`
 }
 type RouterStatus struct {
 	Running    bool     `json:"running"`
@@ -387,6 +388,23 @@ func (a *App) startClaudeRouter(r RouterRequest, key, path, home string, listene
 		defaultModel = strings.TrimSpace(r.Model)
 	}
 	env["ANTHROPIC_MODEL"] = defaultModel
+	// Claude Code enables its extended context path through these environment
+	// variables. CC Switch uses 1,000,000 tokens for the user-facing 1M mode.
+	if r.ClaudeOneM {
+		env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = "1000000"
+		env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = "1000000"
+	} else {
+		delete(env, "CLAUDE_CODE_MAX_CONTEXT_TOKENS")
+		delete(env, "CLAUDE_CODE_AUTO_COMPACT_WINDOW")
+	}
+	// Claude Code exposes these role defaults in its model picker. Mapping all
+	// selected models keeps the menu useful while the request body remains the
+	// source of truth for the model sent upstream.
+	if selected := uniqueModelIDs(r.Models); len(selected) > 0 {
+		env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = selected[0]
+		env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = selected[minInt(1, len(selected)-1)]
+		env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = selected[minInt(2, len(selected)-1)]
+	}
 	installed, err := marshalJSON(root)
 	if err != nil {
 		listener.Close()
@@ -720,4 +738,11 @@ func uniqueModelIDs(values []string) []string {
 		}
 	}
 	return result
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

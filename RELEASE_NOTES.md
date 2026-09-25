@@ -49,3 +49,10 @@
 - Claude Code 路由使用同一默认模型，并增加上游 503 自动重试，降低临时供应商不可用导致的失败。
 
 验证：`GOMAXPROCS=4 go test -p 4 ./...`、`npm run build --prefix frontend`、`git diff --check`。
+# v0.2.37 · Claude 多模型与 1M 上下文
+
+- Claude Code 路由支持开启 1M 上下文，写入 `CLAUDE_CODE_MAX_CONTEXT_TOKENS` 和 `CLAUDE_CODE_AUTO_COMPACT_WINDOW`。
+- Claude 路由支持多个可用模型，并同步到 Sonnet、Opus、Haiku 默认模型映射；请求中的真实模型仍按选择转发。
+- 增加默认模型和上下文配置回归测试。
+
+验证：`GOMAXPROCS=4 go test -p 4 ./...`、`npm run build --prefix frontend`、`git diff --check`。

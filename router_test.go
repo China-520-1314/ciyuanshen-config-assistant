@@ -188,7 +188,7 @@ func isolatedRouterApp(t *testing.T) (*App, string) {
 		if r.URL.String() != defaultGatewayURL+"/models" {
 			t.Errorf("unexpected URL: %s", r.URL)
 		}
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"claude-test"},{"id":"alpha"},{"id":"beta"}]}`)), Header: make(http.Header)}, nil
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"claude-test"},{"id":"alpha"},{"id":"beta"},{"id":"gamma"}]}`)), Header: make(http.Header)}, nil
 	})}
 	t.Cleanup(func() {
 		if a.router != nil {
@@ -301,6 +301,31 @@ func TestRouterRecoveryPreservesModelMappings(t *testing.T) {
 		t.Fatalf("model mappings were not recovered: %+v", status)
 	}
 	if _, err := restarted.StopModelRouter(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestClaudeRouterWritesOneMAndRoleMappings(t *testing.T) {
+	a, _ := isolatedRouterApp(t)
+	home, _ := os.UserHomeDir()
+	path := filepath.Join(home, ".claude", "settings.json")
+	request := RouterRequest{APIKey: "test", Model: "alpha", DefaultModel: "beta", Models: []string{"alpha", "beta", "gamma"}, ClaudeOneM: true, Client: "claude"}
+	if _, err := a.StartModelRouter(request); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		t.Fatal(err)
+	}
+	env := root["env"].(map[string]any)
+	if env["ANTHROPIC_MODEL"] != "beta" || env["ANTHROPIC_DEFAULT_SONNET_MODEL"] != "alpha" || env["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "beta" || env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] != "gamma" || env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] != "1000000" || env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] != "1000000" {
+		t.Fatalf("unexpected Claude routing env: %#v", env)
+	}
+	if _, err := a.StopModelRouter(); err != nil {
 		t.Fatal(err)
 	}
 }

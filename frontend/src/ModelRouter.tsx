@@ -6,7 +6,7 @@ type Status = { running: boolean; model: string; alias: string; models?: string[
 type Group = { name: string; description: string; ratio: string; models: { id: string }[] };
 type Key = { provisionId: string; group: string; groupDescription?: string; name?: string; models: { id: string }[]; existing?: boolean };
 type AccountOptions = { groups: Group[]; existingKeys?: Key[] };
-type Request = { apiKey: string; provisionId: string; model: string; defaultModel?: string; models?: string[]; useExistingKey: boolean; client?: string };
+type Request = { apiKey: string; provisionId: string; model: string; defaultModel?: string; models?: string[]; useExistingKey: boolean; client?: string; claudeOneM?: boolean };
 type RouterBridge = {
   GetRouterModels(request: Request): Promise<{ models: { id: string }[] }>;
   GetModelRouterStatus(): Promise<Status>;
@@ -32,6 +32,7 @@ export default function ModelRouter({ onLogin }: { onLogin?: () => void }) {
   const [model, setModel] = useState('');
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
   const [defaultModel, setDefaultModel] = useState('');
+  const [claudeOneM, setClaudeOneM] = useState(false);
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
@@ -67,7 +68,7 @@ export default function ModelRouter({ onLogin }: { onLogin?: () => void }) {
     if (loadingOptions && action === 'start') { setError('请等待分组刷新完成后启动，模型仍可继续选择。'); return; }
     const api = bridge(); if (!api) { setError('请在桌面安装版中使用本地路由'); return; }
     setBusy(action); setError(''); setNotice('');
-    const request = { apiKey: key, provisionId, model: defaultModel.trim() || selectedModels[0] || model, defaultModel: defaultModel.trim(), models: selectedModels, useExistingKey: existing, client };
+    const request = { apiKey: key, provisionId, model: defaultModel.trim() || selectedModels[0] || model, defaultModel: defaultModel.trim(), models: selectedModels, useExistingKey: existing, client, claudeOneM };
     try {
       if (action === 'models') {
         setModels([]); setModel('');
@@ -106,6 +107,7 @@ export default function ModelRouter({ onLogin }: { onLogin?: () => void }) {
     {existing && <div role="status" aria-live="polite"><p>{loadingOptions ? (models.length ? '正在刷新模型和分组，可继续选择已有模型…' : '正在自动获取账号模型和分组，请稍候…') : '切换页面会保留模型列表和选择；需要更新时请点击刷新。'}</p><button className="secondary-button" disabled={loadingOptions || Boolean(busy) || status.running} onClick={() => void loadAutomaticOptions()}><RefreshCw size={15} className={loadingOptions ? 'spin' : ''} />{loadingOptions ? '获取中…' : '刷新模型和分组'}</button></div>}
     <section className="router-card">
       <h3>选择要接入的客户端</h3><div className="field-block"><label htmlFor="router-client">路由客户端</label><select id="router-client" value={client} disabled={locked} onChange={e=>setClient(e.target.value as 'codex'|'claude')}><option value="codex">Codex</option><option value="claude">Claude Code CLI / 插件</option></select><p className="field-note">Claude Code 会通过 Anthropic Messages API 连接本地路由；启动后请重新打开 Claude Code。</p></div>
+      {client === 'claude' && <div className="field-block"><label><input type="checkbox" checked={claudeOneM} disabled={locked} onChange={e => setClaudeOneM(e.target.checked)} /> 启用 Claude 1M 上下文</label><p className="field-note">开启后写入 Claude Code 的 1,000,000 token 上下文和自动压缩配置；是否真正可用仍取决于上游模型和账号权限。</p></div>}
       <h3>1 · 选择用于连接的 Key</h3>
       <fieldset className="router-choices" disabled={loadingOptions}>
         <label><input type="radio" name="router-key-source" checked={mode === 'auto'} disabled={locked} onChange={() => { setMode('auto'); setKey(''); resetModels(); }} />自动模式：从账号模型和分组中选择</label>
@@ -120,7 +122,7 @@ export default function ModelRouter({ onLogin }: { onLogin?: () => void }) {
     <section className="router-card">
       <h3>2 · 选择真正回答你的模型</h3>
       <div className="field-block"><label htmlFor="router-model">模型映射（可多选）</label><select className="router-model-select" id="router-model" multiple size={Math.min(16, Math.max(8, visible.length))} value={selectedModels} disabled={locked || !models.length} onChange={e => { const ids=Array.from(e.target.selectedOptions).map(o=>o.value); const id=ids[0] || ''; setSelectedModels(ids); setModel(id); const match=keys.find(k => k.models.some(m => m.id === id)); const candidates=groups.filter(g => g.models.some(m => m.id === id)).sort((a,b) => ratio(a.ratio)-ratio(b.ratio) || a.name.localeCompare(b.name)); if (match) { setProvisionId(match.provisionId); setSelectedGroup(match.group); setNotice(`已找到该模型的已有 Key：${match.group || '未命名分组'}。`); } else if (candidates.length) { setProvisionId(''); setSelectedGroup(candidates[0].name); setNotice(`未找到该模型的已有 Key，已自动选择最低倍率分组：${candidates[0].name}。启动时将自动创建 Key。`); } else { setProvisionId(''); setSelectedGroup(''); setNotice('没有找到支持该模型的可用分组。'); } }}>{providers.map(provider => <optgroup key={provider} label={provider.toUpperCase()}>{visible.filter(id => id.split(/[-/:]/)[0].toLowerCase() === provider).map(id => <option key={id} value={id}>{id}</option>)}</optgroup>)}</select><p className="router-model-count">已选择 {selectedModels.length} 个映射模型{selectedModels.length ? ` · 映射第一行 ${selectedModels[0]}` : ''}</p><p className="field-note">按住 Ctrl（Windows）或 Command（Mac）可选择多个映射模型；映射模型会出现在 Codex 的 /model 菜单中。</p></div>
-      <div className="field-block"><label htmlFor="router-default-model">Codex 默认请求模型</label><input id="router-default-model" value={defaultModel} disabled={locked || !selectedModels.length} placeholder={primaryModel || '留空时使用映射第一行'} onChange={e => setDefaultModel(e.target.value)} /><p className="field-note">留空时默认使用映射第一行。填写不在映射中的模型后，Codex 仍可直接请求它，但不会出现在 /model 菜单中。</p></div>
+      <div className="field-block"><label htmlFor="router-default-model">{client === 'claude' ? '默认请求模型' : 'Codex 默认请求模型'}</label><input id="router-default-model" value={defaultModel} disabled={locked || !selectedModels.length} placeholder={primaryModel || '留空时使用映射第一行'} onChange={e => setDefaultModel(e.target.value)} /><p className="field-note">留空时默认使用映射第一行。选择多个模型后，Claude Code 会同步到 Sonnet、Opus、Haiku 模型映射。</p></div>
       <div className="router-mapping"><span>菜单显示名<br /><strong>{status.running ? status.alias : effectiveDefaultModel || '等待选择'}</strong></span><ArrowRight size={22} /><span>实际请求模型<br /><strong>{status.running ? status.model : effectiveDefaultModel || '等待选择'}</strong></span></div>
       <p className="field-note">模型列表汇总账号所有可用分组，并按供应商分类；当前选择的分组 Key 必须实际拥有映射模型权限。默认请求模型可以填写菜单外的模型，直接请求仍会转发。</p>
     </section>
