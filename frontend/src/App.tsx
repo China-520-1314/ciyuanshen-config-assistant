@@ -1067,7 +1067,7 @@ function App() {
         }
       }
       setToolOptions(options);
-      setSetupGroup(options.groups[0]?.name || '');
+      setSetupGroup((clientId === 'codex' ? options.groups.find((item) => item.name === 'auto') : undefined)?.name || options.groups[0]?.name || '');
       const suggested = options.existingKeys?.[0];
       if (suggested) {
         setAccountKeySource('existing');
@@ -1682,7 +1682,7 @@ function ToolSetupModal({ setup, account, options, group, keyValue, showKey, val
         </section>
         <section className={`account-key-path account-key-path-new ${accountKeySource === 'new' ? 'selected' : ''}`} aria-labelledby="new-key-heading">
           <div className="account-key-path-heading"><div><h3 id="new-key-heading">新建 Key</h3><p>按所选分组创建一个仅限该工具可用模型的新 Key。</p></div><button className="path-select-button" type="button" onClick={() => onAccountKeySourceChange('new')} disabled={busy === 'groups' || busy === 'key'}>{accountKeySource === 'new' ? '当前选择' : '使用此方式'}</button></div>
-          <div className="field-block"><label htmlFor="group-select">新建 Key 分组</label><div className="select-row"><select id="group-select" value={group} onChange={(event) => onGroupChange(event.target.value)} disabled={busy === 'groups' || busy === 'key'}>{options?.groups.map((item) => <option key={item.name} value={item.name}>{item.name} · {item.ratio ? `${item.ratio}x` : '倍率待定'} · {item.models.length} 个模型</option>)}</select><button className="icon-button" title="刷新分组" aria-label="刷新分组" onClick={onReloadGroups} disabled={busy === 'groups' || busy === 'key'}><RefreshCw size={16} className={busy === 'groups' ? 'spin' : ''} /></button></div><span className="field-note">{selectedGroup?.description || '暂无分组说明'}</span></div>
+          <div className="field-block"><label htmlFor="group-select">新建 Key 分组</label><div className="select-row"><select id="group-select" value={group} onChange={(event) => onGroupChange(event.target.value)} disabled={busy === 'groups' || busy === 'key'}>{options?.groups.map((item) => <option key={item.name} value={item.name}>{item.name}{setup.clientId === 'codex' && item.name === 'auto' ? '（推荐）' : ''} · {item.ratio ? `${item.ratio}x` : '倍率待定'} · {item.models.length} 个模型</option>)}</select><button className="icon-button" title="刷新分组" aria-label="刷新分组" onClick={onReloadGroups} disabled={busy === 'groups' || busy === 'key'}><RefreshCw size={16} className={busy === 'groups' ? 'spin' : ''} /></button></div><span className="field-note">{selectedGroup?.description || '暂无分组说明'}</span></div>
           <button className="primary-button full-width" onClick={onCreateKey} disabled={busy === 'groups' || busy === 'key' || !group || accountKeySource !== 'new'}><ShieldCheck size={17} />{busy === 'key' ? '正在创建 Key' : '创建新的 Key'}</button>
           {showNewConfigurationStep && configurationStep}
         </section>

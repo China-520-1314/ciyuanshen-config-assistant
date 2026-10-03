@@ -481,7 +481,7 @@ func (a *App) accountToolOptions(clientID string, includeExisting bool) (ToolOpt
 		if groupName != "" {
 			groupDescriptions[groupName] = description
 		}
-		if groupName == "" || groupName == "auto" {
+		if groupName == "" || (groupName == "auto" && clientID != "codex") || !toolGroupAllowed(clientID, groupName, description) {
 			continue
 		}
 		models, err := a.fetchDashboardGroupModels(accessToken, groupName)
@@ -504,7 +504,12 @@ func (a *App) accountToolOptions(clientID string, includeExisting bool) (ToolOpt
 			Models:      models,
 		})
 	}
-	sort.Slice(result.Groups, func(i, j int) bool { return result.Groups[i].Name < result.Groups[j].Name })
+	sort.Slice(result.Groups, func(i, j int) bool {
+		if clientID == "codex" && (result.Groups[i].Name == "auto" || result.Groups[j].Name == "auto") {
+			return result.Groups[i].Name == "auto"
+		}
+		return result.Groups[i].Name < result.Groups[j].Name
+	})
 	if includeExisting {
 		candidates, candidatesErr := a.findExistingToolKeys(accessToken, clientID, groupDescriptions)
 		if candidatesErr != nil {
@@ -756,7 +761,8 @@ func (a *App) findExistingToolKeys(accessToken, clientID string, groupDescriptio
 	available := make([]dashboardToken, 0, len(tokens))
 	ids := make([]int, 0, len(tokens))
 	for _, token := range tokens {
-		if token.ID <= 0 || !dashboardTokenAvailable(token) {
+		groupName := strings.TrimSpace(token.Group)
+		if token.ID <= 0 || !dashboardTokenAvailable(token) || !toolGroupAllowed(clientID, groupName, groupDescriptions[groupName]) {
 			continue
 		}
 		available = append(available, token)
@@ -1124,7 +1130,7 @@ func filterModelsForClient(clientID string, models []Model) []Model {
 		case "claude-desktop":
 			matches = isClaudeDesktopCompatibleModel(name)
 		case "codex":
-			matches = strings.HasPrefix(name, "gpt")
+			matches = strings.HasPrefix(name, "gpt") && !strings.Contains(name, "image") && !strings.Contains(name, "生图")
 		case "gemini":
 			matches = strings.HasPrefix(name, "gemini")
 		case "grok":
@@ -1137,6 +1143,22 @@ func filterModelsForClient(clientID string, models []Model) []Model {
 		}
 	}
 	return filtered
+}
+
+// Image-only groups do not provide the conversation model Codex needs, even
+// when their model lists also contain GPT aliases. Apply this to both newly
+// created keys and the existing-key picker.
+func toolGroupAllowed(clientID, name, description string) bool {
+	if clientID != "codex" {
+		return true
+	}
+	name = strings.ToLower(strings.TrimSpace(name))
+	for _, marker := range []string{"gpt-image", "生图", "绘图", "图像生成", "图片生成"} {
+		if strings.Contains(name, marker) {
+			return false
+		}
+	}
+	return !strings.Contains(description, "生图专用") && !strings.Contains(description, "绘图专用")
 }
 
 func uniqueModels(models []Model) []Model {

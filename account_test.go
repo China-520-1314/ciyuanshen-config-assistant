@@ -18,6 +18,8 @@ import (
 func TestFilterModelsForClient(t *testing.T) {
 	models := []Model{
 		{ID: "gpt-5.6-sol"},
+		{ID: "gpt-image-2"},
+		{ID: "gpt-image-2.5-sunburst"},
 		{ID: "claude-sonnet-4-5"},
 		{ID: "gemini-2.5-pro"},
 		{ID: "grok-4"},
@@ -28,9 +30,9 @@ func TestFilterModelsForClient(t *testing.T) {
 		"codex":    {"gpt-5.6-sol"},
 		"gemini":   {"gemini-2.5-pro"},
 		"grok":     {"grok-4"},
-		"opencode": {"claude-sonnet-4-5", "gemini-2.5-pro", "gpt-5.6-sol", "grok-4"},
-		"openclaw": {"claude-sonnet-4-5", "gemini-2.5-pro", "gpt-5.6-sol", "grok-4"},
-		"hermes":   {"claude-sonnet-4-5", "gemini-2.5-pro", "gpt-5.6-sol", "grok-4"},
+		"opencode": {"claude-sonnet-4-5", "gemini-2.5-pro", "gpt-5.6-sol", "gpt-image-2", "gpt-image-2.5-sunburst", "grok-4"},
+		"openclaw": {"claude-sonnet-4-5", "gemini-2.5-pro", "gpt-5.6-sol", "gpt-image-2", "gpt-image-2.5-sunburst", "grok-4"},
+		"hermes":   {"claude-sonnet-4-5", "gemini-2.5-pro", "gpt-5.6-sol", "gpt-image-2", "gpt-image-2.5-sunburst", "grok-4"},
 	}
 	for clientID, expected := range cases {
 		filtered := filterModelsForClient(clientID, models)
@@ -464,6 +466,84 @@ func TestGetAccountToolOptionsRecommendsExistingKeyWithoutLeakingIt(t *testing.T
 	}
 	if strings.Contains(string(encoded), "secret-existing") {
 		t.Fatalf("existing key leaked through options: %s", encoded)
+	}
+}
+
+func TestCodexOptionsHideImageGroupsAndCreateAutoKey(t *testing.T) {
+	app := NewApp()
+	app.account = dashboardSession{AccessToken: "dashboard-session", ExpiresAt: time.Now().Add(time.Hour)}
+	var createPayload map[string]any
+	app.client = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/api/user/self/groups":
+			return testDashboardResponse(request, map[string]any{
+				"auto":            map[string]any{"desc": "自动选择可用线路", "ratio": 1},
+				"aaa-gpt":         map[string]any{"desc": "GPT 对话", "ratio": 1},
+				"gpt-image-2生图专用": map[string]any{"desc": "生图专用", "ratio": 0.01},
+				"image-only":      map[string]any{"desc": "图片模型", "ratio": 1},
+			}), nil
+		case request.Method == http.MethodGet && request.URL.Path == "/api/user/models":
+			group := request.URL.Query().Get("group")
+			if group == "gpt-image-2生图专用" {
+				t.Fatal("Codex should skip the image group before fetching models")
+			}
+			if group == "image-only" {
+				return testDashboardResponse(request, []string{"gpt-image-2"}), nil
+			}
+			return testDashboardResponse(request, []string{"gpt-5.6-sol", "gpt-image-2", "claude-sonnet-test"}), nil
+		case request.Method == http.MethodGet && request.URL.Path == "/api/token/":
+			return testDashboardResponse(request, map[string]any{
+				"page": 1, "page_size": 100, "total": 2,
+				"items": []dashboardToken{
+					{ID: 88, Name: "工作 Key", Status: 1, ExpiredTime: -1, UnlimitedQuota: true, Group: "auto"},
+					{ID: 89, Name: "生图 Key", Status: 1, ExpiredTime: -1, UnlimitedQuota: true, Group: "gpt-image-2生图专用"},
+				},
+			}), nil
+		case request.Method == http.MethodPost && request.URL.Path == "/api/token/batch/keys":
+			var payload struct {
+				IDs []int `json:"ids"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			for _, id := range payload.IDs {
+				if id == 89 {
+					t.Fatal("image group key should not be fetched")
+				}
+			}
+			return testDashboardResponse(request, map[string]any{"keys": map[string]string{"88": "secret-existing"}}), nil
+		case request.Method == http.MethodPost && request.URL.Path == "/api/token/":
+			if err := json.NewDecoder(request.Body).Decode(&createPayload); err != nil {
+				t.Fatal(err)
+			}
+			return testDashboardResponse(request, map[string]int{"id": 90}), nil
+		case request.Method == http.MethodPost && request.URL.Path == "/api/token/90/key":
+			return testDashboardResponse(request, map[string]string{"key": "secret-new"}), nil
+		case request.Method == http.MethodGet && request.URL.Path == "/v1/models":
+			return testRawJSONResponse(request, `{"data":[{"id":"gpt-5.6-sol"},{"id":"gpt-image-2"}]}`), nil
+		default:
+			return nil, fmt.Errorf("unexpected request: %s %s", request.Method, request.URL)
+		}
+	})}
+	options, err := app.GetAccountToolOptions("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(options.Groups) != 2 || options.Groups[0].Name != "auto" || len(options.Groups[0].Models) != 1 || options.Groups[0].Models[0].ID != "gpt-5.6-sol" {
+		t.Fatalf("unexpected Codex groups: %#v", options.Groups)
+	}
+	if len(options.ExistingKeys) != 1 || options.ExistingKeys[0].Group != "auto" {
+		t.Fatalf("unexpected Codex keys: %#v", options.ExistingKeys)
+	}
+	key, err := app.CreateToolKey(ToolKeyRequest{ClientID: "codex", Group: "auto"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if createPayload["group"] != "auto" || createPayload["model_limits"] != "gpt-5.6-sol" || key.Group != "auto" || len(key.Models) != 1 {
+		t.Fatalf("auto key not configured for Codex conversations: payload=%#v result=%#v", createPayload, key)
+	}
+	if _, err := app.CreateToolKey(ToolKeyRequest{ClientID: "codex", Group: "gpt-image-2生图专用"}); err == nil {
+		t.Fatal("image group accepted for Codex key creation")
 	}
 }
 
