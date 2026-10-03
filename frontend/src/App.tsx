@@ -158,11 +158,6 @@ type ClientConnectionResult = {
 };
 type ConnectionCheckReport = { results: ClientConnectionResult[]; checkedAt: string };
 type SetupState = { clientId: ClientId; mode: 'account' | 'manual' };
-type CodexExperimentalSettings = {
-  contextManagementExperimentalMode: boolean;
-  tokenBudgetEnabled: boolean;
-  tokenBudgetUseHistoryNotesExtension: boolean;
-};
 type ClientConfigurationFile = { path: string; exists: boolean; content: string };
 type ClientConfigurationView = { clientId: ClientId; clientName: string; files: ClientConfigurationFile[]; secretsRedacted: boolean };
 type ToolLifecycleInfo = {
@@ -247,11 +242,6 @@ const customWallpaperStorageKey = 'ciyuanshen-config-assistant.custom-wallpaper'
 const themeTransparencyStorageKey = 'ciyuanshen-config-assistant.theme-transparency';
 const updateProgressEvent = 'ciyuanshen:update-progress';
 const defaultThemeTransparency: ThemeTransparency = { skin: 100, content: 100 };
-const defaultCodexExperimentalSettings = (): CodexExperimentalSettings => ({
-  contextManagementExperimentalMode: true,
-  tokenBudgetEnabled: true,
-  tokenBudgetUseHistoryNotesExtension: true,
-});
 const themeDefinitions: ThemeDefinition[] = [
   { id: 'ciyuan', name: '词元神青', subtitle: '清爽工作台', source: '词元神', swatches: ['#173735', '#0c766d', '#f4f7f7', '#e4f3f0'] },
   { id: 'anime', name: '冬日人物', subtitle: '动漫人物 · 柔和青', source: 'FrenzyExists/wallpapers', sourceURL: 'https://github.com/FrenzyExists/wallpapers', wallpaper: animeWallpaper, swatches: ['#406b70', '#d97c9f', '#e9f2ef', '#b9e4de'] },
@@ -346,77 +336,6 @@ function readUpdateProgress(value: unknown): UpdateProgress | null {
     totalBytes: typeof progress.totalBytes === 'number' && Number.isFinite(progress.totalBytes) ? Math.max(0, progress.totalBytes) : 0,
     percent: typeof progress.percent === 'number' && Number.isFinite(progress.percent) ? Math.min(100, Math.max(0, Math.round(progress.percent))) : 0,
   };
-}
-
-function readCodexBoolean(value: string) {
-  const match = value.trim().match(/^(true|false)\b/i);
-  return match ? match[1].toLowerCase() === 'true' : undefined;
-}
-
-function readInlineCodexBoolean(value: string, key: string) {
-  const match = value.match(new RegExp(`(?:^|[,{])\\s*${key}\\s*=\\s*(true|false)\\b`, 'i'));
-  return match ? match[1].toLowerCase() === 'true' : undefined;
-}
-
-// Missing values deliberately remain enabled so existing configs gain the
-// new Codex defaults without changing an option the user explicitly disabled.
-function readCodexExperimentalSettings(content: string): CodexExperimentalSettings {
-  const settings = defaultCodexExperimentalSettings();
-  let table = '';
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#')) continue;
-    const tableMatch = line.match(/^\[\s*([^\]]+)\s*\]$/);
-    if (tableMatch) {
-      table = tableMatch[1].trim();
-      continue;
-    }
-    const assignment = line.match(/^([A-Za-z0-9_.-]+)\s*=\s*(.+)$/);
-    if (!assignment) continue;
-    const [, key, value] = assignment;
-    if (key === 'context_management.experimental_mode') {
-      const parsed = readCodexBoolean(value);
-      if (parsed !== undefined) settings.contextManagementExperimentalMode = parsed;
-      continue;
-    }
-    if (key === 'token_budget.enabled') {
-      const parsed = readCodexBoolean(value);
-      if (parsed !== undefined) settings.tokenBudgetEnabled = parsed;
-      continue;
-    }
-    if (key === 'token_budget.use_history_notes_extension') {
-      const parsed = readCodexBoolean(value);
-      if (parsed !== undefined) settings.tokenBudgetUseHistoryNotesExtension = parsed;
-      continue;
-    }
-    if (key === 'context_management' && value.trim().startsWith('{')) {
-      const parsed = readInlineCodexBoolean(value, 'experimental_mode');
-      if (parsed !== undefined) settings.contextManagementExperimentalMode = parsed;
-      continue;
-    }
-    if (key === 'token_budget' && value.trim().startsWith('{')) {
-      const enabled = readInlineCodexBoolean(value, 'enabled');
-      const history = readInlineCodexBoolean(value, 'use_history_notes_extension');
-      if (enabled !== undefined) settings.tokenBudgetEnabled = enabled;
-      if (history !== undefined) settings.tokenBudgetUseHistoryNotesExtension = history;
-      continue;
-    }
-    if (table === 'context_management' && key === 'experimental_mode') {
-      const parsed = readCodexBoolean(value);
-      if (parsed !== undefined) settings.contextManagementExperimentalMode = parsed;
-      continue;
-    }
-    if (table === 'token_budget' && key === 'enabled') {
-      const parsed = readCodexBoolean(value);
-      if (parsed !== undefined) settings.tokenBudgetEnabled = parsed;
-      continue;
-    }
-    if (table === 'token_budget' && key === 'use_history_notes_extension') {
-      const parsed = readCodexBoolean(value);
-      if (parsed !== undefined) settings.tokenBudgetUseHistoryNotesExtension = parsed;
-    }
-  }
-  return settings;
 }
 
 const tabTitles: Record<TabId, string> = {
@@ -532,7 +451,6 @@ function App() {
   const [provision, setProvision] = useState<ToolKeyResult | null>(null);
   const [accountKeySource, setAccountKeySource] = useState<'existing' | 'new'>('existing');
   const [setupModel, setSetupModel] = useState('');
-  const [codexExperimentalSettings, setCodexExperimentalSettings] = useState<CodexExperimentalSettings>(defaultCodexExperimentalSettings);
   const [setupBusy, setSetupBusy] = useState('');
   const [setupMessage, setSetupMessage] = useState<{ tone: NoticeTone; text: string } | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
@@ -550,7 +468,6 @@ function App() {
   const [configurationBusy, setConfigurationBusy] = useState(false);
   const [configurationError, setConfigurationError] = useState<string | null>(null);
   const [revealConfigurationSecrets, setRevealConfigurationSecrets] = useState(false);
-  const codexSettingsRequest = useRef(0);
   const availableThemes = themeDefinitions;
   const activeTheme = availableThemes.find((item) => item.id === theme) || themeDefinitions[0];
   const wallpaper = theme === 'custom' ? customWallpaper : activeTheme.wallpaper || '';
@@ -1015,7 +932,6 @@ function App() {
   }
 
   function resetSetup() {
-	  codexSettingsRequest.current += 1;
     setToolOptions(null);
     setSetupGroup('');
     setSetupKey('');
@@ -1024,7 +940,6 @@ function App() {
     setProvision(null);
     setAccountKeySource('existing');
     setSetupModel('');
-    setCodexExperimentalSettings(defaultCodexExperimentalSettings());
     setSetupBusy('');
     setSetupMessage(null);
   }
@@ -1033,22 +948,7 @@ function App() {
     configureAnchor.current = anchor;
     resetSetup();
     setSetup({ clientId, mode });
-    if (clientId === 'codex') void loadCodexExperimentalSettings();
     if (mode === 'account') void loadToolOptions(clientId);
-  }
-
-  async function loadCodexExperimentalSettings() {
-    const request = ++codexSettingsRequest.current;
-    if (!inWails()) return;
-    try {
-      const result = await GetClientConfiguration('codex', false);
-      if (request !== codexSettingsRequest.current) return;
-      const view = result as ClientConfigurationView;
-      const config = view.files.find((file) => /(?:^|[\\/])config\.toml$/i.test(file.path));
-      setCodexExperimentalSettings(readCodexExperimentalSettings(config?.content || ''));
-    } catch {
-      if (request === codexSettingsRequest.current) setCodexExperimentalSettings(defaultCodexExperimentalSettings());
-    }
   }
 
   async function loadToolOptions(clientId: ClientId) {
@@ -1126,7 +1026,6 @@ function App() {
     if (!setup) return;
     resetSetup();
     setSetup({ ...setup, mode });
-    if (setup.clientId === 'codex') void loadCodexExperimentalSettings();
     if (mode === 'account') void loadToolOptions(setup.clientId);
   }
 
@@ -1200,7 +1099,6 @@ function App() {
             provisionId: provision.provisionId,
             clientId: setup.clientId,
             model: setupModel,
-            ...(setup.clientId === 'codex' ? { codexExperimentalSettings } : {}),
           }))
           : mockConfigure(setup.clientId)
         : inWails()
@@ -1208,7 +1106,6 @@ function App() {
             clientId: setup.clientId,
             apiKey: setupKey.trim(),
             model: setupModel,
-            ...(setup.clientId === 'codex' ? { codexExperimentalSettings } : {}),
           }))
           : mockConfigure(setup.clientId);
       const configured = result as ConfigureResult;
@@ -1265,7 +1162,6 @@ function App() {
     if (target) {
       resetSetup();
       setSetup({ clientId: target, mode: 'account' });
-      if (target === 'codex') void loadCodexExperimentalSettings();
       void loadToolOptions(target);
     }
   }
@@ -1490,7 +1386,7 @@ function App() {
       </div>
 
       {actionNotice && <ActionNotice {...actionNotice} />}
-      {setup && <ToolSetupModal setup={setup} account={account} options={toolOptions} group={setupGroup} keyValue={setupKey} showKey={showSetupKey} validation={setupValidation} provision={provision} accountKeySource={accountKeySource} model={setupModel} codexExperimentalSettings={codexExperimentalSettings} busy={setupBusy} message={setupMessage} onClose={() => { setSetup(null); resetSetup(); }} onModeChange={switchSetupMode} onGroupChange={(value) => { setAccountKeySource('new'); setSetupGroup(value); setSetupValidation(null); setProvision(null); setSetupModel(''); setSetupMessage(null); }} onKeyChange={(value) => { setSetupKey(value); setSetupValidation(null); setProvision(null); setSetupModel(''); setSetupMessage(null); }} onExistingKeyChange={chooseExistingAccountKey} onAccountKeySourceChange={chooseAccountKeySource} onShowKey={() => setShowSetupKey((current) => !current)} onModelChange={setSetupModel} onCodexExperimentalSettingsChange={(patch) => setCodexExperimentalSettings((current) => ({ ...current, ...patch }))} onCreateKey={() => void createAccountKey()} onValidateKey={() => void validateManualKey()} onConfigure={() => void configureSelectedTool()} onLogin={() => openLogin(setup.clientId)} onReloadGroups={() => void loadToolOptions(setup.clientId)} />}
+      {setup && <ToolSetupModal setup={setup} account={account} options={toolOptions} group={setupGroup} keyValue={setupKey} showKey={showSetupKey} validation={setupValidation} provision={provision} accountKeySource={accountKeySource} model={setupModel} busy={setupBusy} message={setupMessage} onClose={() => { setSetup(null); resetSetup(); }} onModeChange={switchSetupMode} onGroupChange={(value) => { setAccountKeySource('new'); setSetupGroup(value); setSetupValidation(null); setProvision(null); setSetupModel(''); setSetupMessage(null); }} onKeyChange={(value) => { setSetupKey(value); setSetupValidation(null); setProvision(null); setSetupModel(''); setSetupMessage(null); }} onExistingKeyChange={chooseExistingAccountKey} onAccountKeySourceChange={chooseAccountKeySource} onShowKey={() => setShowSetupKey((current) => !current)} onModelChange={setSetupModel} onCreateKey={() => void createAccountKey()} onValidateKey={() => void validateManualKey()} onConfigure={() => void configureSelectedTool()} onLogin={() => openLogin(setup.clientId)} onReloadGroups={() => void loadToolOptions(setup.clientId)} />}
       {configurationClient && <ConfigurationViewerModal clientId={configurationClient} view={configurationView} busy={configurationBusy} error={configurationError} revealSecrets={revealConfigurationSecrets} onClose={() => { setConfigurationClient(null); setConfigurationView(null); setConfigurationError(null); setRevealConfigurationSecrets(false); }} onReload={() => void loadClientConfiguration(configurationClient, revealConfigurationSecrets)} onToggleSecrets={toggleConfigurationSecrets} />}
       {loginOpen && <AccountLoginModal username={loginUsername} password={loginPassword} rememberLogin={rememberLogin} code={twoFactorCode} requiresTwoFactor={Boolean(twoFactorFlow)} showPassword={showLoginPassword} busy={loginBusy} message={loginMessage} onUsername={setLoginUsername} onPassword={setLoginPassword} onRememberLogin={setRememberLogin} onCode={setTwoFactorCode} onTogglePassword={() => setShowLoginPassword((current) => !current)} onClose={() => { setLoginOpen(false); setLoginMessage(null); setTwoFactorFlow(''); }} onSubmit={() => void (twoFactorFlow ? submitTwoFactor() : submitLogin())} onRegister={() => void openExternal(signUpURL)} onForgotPassword={() => void openExternal(forgotPasswordURL)} />}
       {confirmation && <ConfirmModal title={confirmation.title} message={confirmation.message} confirmLabel={confirmation.confirmLabel} tone={confirmation.tone} onCancel={() => settleConfirmation(false)} onConfirm={() => settleConfirmation(true)} />}
@@ -1630,7 +1526,7 @@ function ClientCard({ clientId, status, models, model, modelsLoading, modelError
   </article>;
 }
 
-function ToolSetupModal({ setup, account, options, group, keyValue, showKey, validation, provision, accountKeySource, model, codexExperimentalSettings, busy, message, onClose, onModeChange, onGroupChange, onKeyChange, onExistingKeyChange, onAccountKeySourceChange, onShowKey, onModelChange, onCodexExperimentalSettingsChange, onCreateKey, onValidateKey, onConfigure, onLogin, onReloadGroups }: {
+function ToolSetupModal({ setup, account, options, group, keyValue, showKey, validation, provision, accountKeySource, model, busy, message, onClose, onModeChange, onGroupChange, onKeyChange, onExistingKeyChange, onAccountKeySourceChange, onShowKey, onModelChange, onCreateKey, onValidateKey, onConfigure, onLogin, onReloadGroups }: {
   setup: SetupState;
   account: AccountState;
   options: ToolOptionsResponse | null;
@@ -1641,7 +1537,6 @@ function ToolSetupModal({ setup, account, options, group, keyValue, showKey, val
   provision: ToolKeyResult | null;
   accountKeySource: 'existing' | 'new';
   model: string;
-  codexExperimentalSettings: CodexExperimentalSettings;
   busy: string;
   message: { tone: NoticeTone; text: string } | null;
   onClose: () => void;
@@ -1652,7 +1547,6 @@ function ToolSetupModal({ setup, account, options, group, keyValue, showKey, val
   onAccountKeySourceChange: (source: 'existing' | 'new') => void;
   onShowKey: () => void;
   onModelChange: (value: string) => void;
-  onCodexExperimentalSettingsChange: (patch: Partial<CodexExperimentalSettings>) => void;
   onCreateKey: () => void;
   onValidateKey: () => void;
   onConfigure: () => void;
@@ -1691,19 +1585,9 @@ function ToolSetupModal({ setup, account, options, group, keyValue, showKey, val
       <div className="field-block"><label htmlFor="manual-key">API Key</label><div className="key-input-wrap"><KeyRound size={17} /><input id="manual-key" type={showKey ? 'text' : 'password'} value={keyValue} placeholder="粘贴 API Key" autoComplete="off" onChange={(event) => onKeyChange(event.target.value)} /><button className="input-action" title={showKey ? '隐藏 Key' : '显示 Key'} aria-label={showKey ? '隐藏 Key' : '显示 Key'} onClick={onShowKey}>{showKey ? <EyeOff size={17} /> : <Eye size={17} />}</button></div></div>
       {!keyReady && <button className="primary-button full-width" onClick={onValidateKey} disabled={busy === 'validate'}><Activity size={17} />{busy === 'validate' ? '检测中' : '检测 Key'}</button>}
     </div>}
-    {setup.clientId === 'codex' && <CodexExperimentalSettingsPanel settings={codexExperimentalSettings} onChange={onCodexExperimentalSettingsChange} />}
     {message && <div className={`setup-status ${message.tone}`}><span>{message.tone === 'success' ? <CheckCircle2 size={16} /> : message.tone === 'error' ? <AlertTriangle size={16} /> : <CircleDashed size={16} />}</span>{message.text}</div>}
     {setup.mode === 'manual' && configurationStep}
   </section></div>;
-}
-
-function CodexExperimentalSettingsPanel({ settings, onChange }: { settings: CodexExperimentalSettings; onChange: (patch: Partial<CodexExperimentalSettings>) => void }) {
-  return <fieldset className="codex-settings">
-    <legend>Codex 选项</legend>
-    <label className="codex-settings-option"><input type="checkbox" checked={settings.contextManagementExperimentalMode} onChange={(event) => onChange({ contextManagementExperimentalMode: event.target.checked })} /><span>启用实验性上下文管理</span></label>
-    <label className="codex-settings-option"><input type="checkbox" checked={settings.tokenBudgetEnabled} onChange={(event) => onChange({ tokenBudgetEnabled: event.target.checked })} /><span>启用 Token 预算</span></label>
-    <label className="codex-settings-option"><input type="checkbox" checked={settings.tokenBudgetUseHistoryNotesExtension} onChange={(event) => onChange({ tokenBudgetUseHistoryNotesExtension: event.target.checked })} /><span>使用历史笔记扩展</span></label>
-  </fieldset>;
 }
 
 function ConfigurationViewerModal({ clientId, view, busy, error, revealSecrets, onClose, onReload, onToggleSecrets }: {

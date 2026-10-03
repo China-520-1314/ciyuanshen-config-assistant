@@ -1,3 +1,10 @@
+# v0.2.39 · 清理 Codex 实验配置
+
+- Codex 一键配置不再写入 `context_management.experimental_mode`、`token_budget.enabled` 和 `token_budget.use_history_notes_extension`，并移除界面中的三个对应开关。
+- 重新配置时自动清理旧版本留下的三项，支持内联、点号和表格写法；保留已有模型、推理深度、服务等级、网络搜索及其他自定义字段。
+- 更新安装后，请再次执行 Codex 一键配置以清理旧文件；写入前仍会备份原配置。
+- 验证：Go 全量测试和前端构建；回归测试覆盖旧配置清理、其他字段保留及重复执行。
+
 # v0.2.38 · Codex 分组推荐修复
 
 - Codex 一键配置隐藏 GPT 生图专用分组及对应的已有 Key，模型列表排除 `gpt-image` 等生图模型。

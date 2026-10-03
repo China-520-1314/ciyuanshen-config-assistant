@@ -38,7 +38,7 @@ const (
 
 // appVersion is a variable so release builds can inject their tag with
 // -ldflags "-X main.appVersion=..." while local builds keep a useful default.
-var appVersion = "0.2.38"
+var appVersion = "0.2.39"
 
 type InstallUpdateResult struct {
 	Success     bool   `json:"success"`
@@ -130,9 +130,8 @@ type ConfigurationRequest struct {
 	CodexExperimentalSettings *CodexExperimentalSettings `json:"codexExperimentalSettings,omitempty"`
 }
 
-// CodexExperimentalSettings controls optional Codex capabilities exposed by
-// the one-click configuration dialog. A nil value keeps all options enabled
-// for callers from older app versions.
+// CodexExperimentalSettings is retained for compatibility with old bridge
+// requests. These retired fields are no longer written into Codex config.
 type CodexExperimentalSettings struct {
 	ContextManagementExperimentalMode   bool `json:"contextManagementExperimentalMode"`
 	TokenBudgetEnabled                  bool `json:"tokenBudgetEnabled"`

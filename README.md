@@ -68,13 +68,13 @@ Codex 显示 `gpt-5.6-terra` 兼容别名，助手页面同时显示实际目标
 
 选择 Codex 时会先备份 `~/.codex/config.toml` 和 `~/.codex/auth.json`。如果已有 `config.toml`，助手会保留用户原来的 provider 名称（可以是 `custom`、`ciyuanshen` 或其他名称），让 `model_provider`、`[model_providers.<名称>]` 和表内 `name` 三处保持一致；遇到旧版本留下的重复 provider 表会在能确认属于当前 provider 时合并，并清理重复字段，同时保留真正无关的 provider 表。对于 `ciyuanshen` provider，`base_url` 会统一修正为 `https://api.ciyuanshen.top/v1`；已有模型、推理强度、注释和其他表段保持不变，缺失字段才按模板补齐。新文件默认使用 `gpt-5.6-terra`、`model_reasoning_effort = "max"`、实时网络搜索和 `https://api.ciyuanshen.top/v1` Responses 服务商，认证文件写入选定 API Key。
 
-Codex 配置弹窗默认勾选三个可切换选项：
+Codex 一键配置不再写入下列三个选项，并在重新配置时清理旧版本留下的值：
 
 - `context_management = { experimental_mode = true }`
 - `token_budget.enabled = true`
 - `token_budget.use_history_notes_extension = true`
 
-用户可在写入前取消任一选项。已有的内联配置、点号配置或 `[context_management]`、`[token_budget]` 表会就地补全和更新，不会产生重复 TOML 表。
+清理支持内联配置、点号配置和 `[context_management]`、`[token_budget]` 表，保留其他自定义字段。模型、推理强度、服务等级、网络搜索等已有配置仍按原规则保留。配置弹窗已移除对应开关。
 
 ## 更新检查
 
