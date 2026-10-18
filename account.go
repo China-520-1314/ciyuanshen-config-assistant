@@ -1021,20 +1021,34 @@ func (a *App) consumeLoginResponse(raw []byte, fallbackUsername string) (Account
 		return AccountLoginResult{}, errors.New(envelope.Message)
 	}
 	var payload struct {
-		RequiresTwoFactor bool   `json:"require_2fa"`
-		FlowToken         string `json:"flow_token"`
-		ExpiresAt         int64  `json:"access_expires_at"`
-		AccessToken       string `json:"access_token"`
-		User              struct {
+		RequiresTwoFactor    bool `json:"require_2fa"`
+		RequiresVerification bool `json:"require_verification"`
+		Methods              []struct {
+			Method    string `json:"method"`
+			Available bool   `json:"available"`
+		} `json:"methods"`
+		FlowToken   string `json:"flow_token"`
+		ExpiresAt   int64  `json:"access_expires_at"`
+		AccessToken string `json:"access_token"`
+		User        struct {
 			Username string `json:"username"`
 		} `json:"user"`
 	}
 	if err := json.Unmarshal(envelope.Data, &payload); err != nil {
 		return AccountLoginResult{}, errors.New("词元神登录数据格式无法识别")
 	}
-	if payload.RequiresTwoFactor {
+	if payload.RequiresTwoFactor || payload.RequiresVerification {
 		if strings.TrimSpace(payload.FlowToken) == "" {
 			return AccountLoginResult{}, errors.New("两步验证会话无效")
+		}
+		if payload.RequiresVerification && len(payload.Methods) > 0 {
+			available := false
+			for _, method := range payload.Methods {
+				available = available || (method.Method == "2fa" && method.Available)
+			}
+			if !available {
+				return AccountLoginResult{}, errors.New("当前账号没有可用的验证器或备用码验证方式，请在词元神网站检查安全设置")
+			}
 		}
 		return AccountLoginResult{RequiresTwoFactor: true, FlowToken: payload.FlowToken, Username: fallbackUsername}, nil
 	}

@@ -323,7 +323,7 @@ func TestConfigureCodexUsesNewDefaultModelForEmptyConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(operationFor(t, operations, filepath.Join(home, ".codex", "config.toml")).Content)
-	if !strings.Contains(content, `model = "gpt-5.6-sol"`) || !strings.Contains(content, `model_reasoning_effort = "medium"`) {
+	if !strings.Contains(content, `model = "gpt-6.1-sol"`) || !strings.Contains(content, `model_reasoning_effort = "medium"`) {
 		t.Fatalf("empty Codex config did not receive the new default model:\n%s", content)
 	}
 	if strings.Contains(content, "review_model") {
@@ -386,6 +386,7 @@ base_url = "https://example.test/v1"
 		`followUpQueueMode = "queue"`,
 		`enabled-reasoning-efforts = [ "low", "medium", "high", "xhigh", "ultra", "max" ]`,
 		`localeOverride = "zh-CN"`,
+		`conversationDetailMode = "STEPS_PROSE"`,
 	} {
 		if !strings.Contains(patched, expected) {
 			t.Fatalf("Codex desktop configuration is missing %q:\n%s", expected, patched)
@@ -400,12 +401,16 @@ base_url = "https://example.test/v1"
 	}
 }
 
-func TestPatchCodexConfigCompletesDesktopDefaultsWithoutOverwritingExistingValues(t *testing.T) {
+func TestPatchCodexConfigEnforcesDesktopPreferencesAndPreservesOtherValues(t *testing.T) {
 	existing := `model_provider = "ciyuanshen"
 
 [desktop]
 followUpQueueMode = "immediate"
-enabled-reasoning-efforts = [ "low" ]
+enabled-reasoning-efforts = [
+  "low",
+]
+localeOverride = "en-US"
+conversationDetailMode = "COMPACT"
 custom_desktop_option = true
 
 [desktop.custom_file_handlers.editor]
@@ -417,7 +422,8 @@ name = "ciyuanshen"
 	patched := patchCodexConfig(existing, "")
 	for _, expected := range []string{
 		`followUpQueueMode = "immediate"`,
-		`enabled-reasoning-efforts = [ "low" ]`,
+		`enabled-reasoning-efforts = [ "low", "medium", "high", "xhigh", "ultra", "max" ]`,
+		`conversationDetailMode = "STEPS_PROSE"`,
 		`custom_desktop_option = true`,
 		`[desktop.custom_file_handlers.editor]`,
 		`label = "Editor"`,
@@ -429,6 +435,9 @@ name = "ciyuanshen"
 	}
 	if strings.Count(patched, "followUpQueueMode =") != 1 || strings.Count(patched, "enabled-reasoning-efforts =") != 1 {
 		t.Fatalf("existing desktop value was duplicated:\n%s", patched)
+	}
+	if again := patchCodexConfig(patched, ""); again != patched {
+		t.Fatal("desktop configuration is not idempotent")
 	}
 	var decoded map[string]any
 	if err := toml.Unmarshal([]byte(patched), &decoded); err != nil {

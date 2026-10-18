@@ -157,7 +157,7 @@ func configureCodexWithSettings(home, key, model string, settings CodexExperimen
 	}, nil
 }
 
-const codexDefaultModel = "gpt-5.6-sol"
+const codexDefaultModel = "gpt-6.1-sol"
 
 func defaultCodexExperimentalSettings() CodexExperimentalSettings {
 	// Retained for compatibility with older desktop bridge requests. These
@@ -179,7 +179,7 @@ type codexTemplateField struct {
 
 var codexTopLevelTemplate = []codexTemplateField{
 	{Key: "model_provider", Value: `"ciyuanshen"`},
-	{Key: "model", Value: `"gpt-5.6-sol"`},
+	{Key: "model", Value: `"gpt-6.1-sol"`},
 	{Key: "model_reasoning_effort", Value: `"medium"`},
 	{Key: "disable_response_storage", Value: "true"},
 	{Key: "preferred_auth_method", Value: `"apikey"`},
@@ -198,6 +198,7 @@ var codexDesktopTemplate = []codexTemplateField{
 	{Key: "followUpQueueMode", Value: `"queue"`},
 	{Key: "enabled-reasoning-efforts", Value: `[ "low", "medium", "high", "xhigh", "ultra", "max" ]`},
 	{Key: "localeOverride", Value: `"zh-CN"`},
+	{Key: "conversationDetailMode", Value: `"STEPS_PROSE"`},
 }
 
 type codexTableBlock struct {
@@ -514,8 +515,7 @@ func patchCodexProviderBlocks(blocks []codexTableBlock, providerName string, has
 	return filtered, newIndex
 }
 
-// patchCodexDesktopBlocks keeps existing desktop preferences intact and only
-// fills the options needed by the desktop Codex experience.
+// patchCodexDesktopBlocks applies the managed desktop preferences.
 func patchCodexDesktopBlocks(blocks []codexTableBlock) []codexTableBlock {
 	for index := range blocks {
 		if blocks[index].Name != "desktop" {
@@ -543,17 +543,34 @@ func codexDesktopBlockLines(existing []string) []string {
 	}
 	patched := make([]string, 0, len(lines)+len(codexDesktopTemplate))
 	present := make(map[string]bool, len(codexDesktopTemplate))
-	for index, line := range lines {
+	for index := 0; index < len(lines); index++ {
+		line := lines[index]
 		if index == 0 {
 			patched = append(patched, "[desktop]")
 			continue
 		}
 		key, _, ok := codexAssignment(line)
 		if ok && managed[key] {
+			if key != "followUpQueueMode" {
+				// Parse the complete assignment so multiline arrays/strings are
+				// replaced without leaving their continuation lines behind.
+				assignment := line
+				var decoded map[string]any
+				for toml.Unmarshal([]byte(assignment), &decoded) != nil && index+1 < len(lines) {
+					index++
+					assignment += "\n" + lines[index]
+				}
+			}
 			if present[key] {
 				continue
 			}
 			present[key] = true
+			for _, field := range codexDesktopTemplate {
+				if field.Key == key && key != "followUpQueueMode" {
+					line = key + " = " + field.Value
+					break
+				}
+			}
 		}
 		patched = append(patched, line)
 	}

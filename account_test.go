@@ -15,6 +15,71 @@ import (
 	"github.com/zalando/go-keyring"
 )
 
+func TestAccountTwoFactorLogin(t *testing.T) {
+	for _, flag := range []string{"require_2fa", "require_verification"} {
+		for _, code := range []string{"123456", "backup-code"} {
+			t.Run(flag+"/"+code, func(t *testing.T) {
+				app := NewApp()
+				const salt = "login-test"
+				sum := sha256.Sum256([]byte(salt + "0"))
+				attempts := 0
+				app.client = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+					switch request.URL.Path {
+					case "/api/captcha/altcha/challenge":
+						return testRawJSONResponse(request, fmt.Sprintf(`{"algorithm":"SHA-256","challenge":"%s","maxnumber":1,"salt":"%s","signature":"signature"}`, hex.EncodeToString(sum[:]), salt)), nil
+					case "/api/user/login":
+						return testDashboardResponse(request, map[string]any{flag: true, "flow_token": "pending-login", "methods": []map[string]any{{"method": "2fa", "available": true}}}), nil
+					case "/api/user/login/2fa":
+						var payload map[string]string
+						if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+							t.Fatal(err)
+						}
+						if request.Method != http.MethodPost || payload["flow_token"] != "pending-login" || request.Header.Get("Authorization") != "" {
+							t.Fatal("invalid verification request")
+						}
+						attempts++
+						if attempts == 1 {
+							return testRawJSONResponse(request, `{"success":false,"message":"验证码错误"}`), nil
+						}
+						if payload["code"] != code {
+							t.Fatalf("unexpected code: %q", payload["code"])
+						}
+						return testDashboardResponse(request, map[string]any{"access_token": "verified-session", "access_expires_at": time.Now().Add(time.Hour).Unix(), "user": map[string]string{"username": "顶级牛马"}}), nil
+					default:
+						t.Fatalf("unexpected request: %s", request.URL.Path)
+						return nil, nil
+					}
+				})}
+				result, err := app.LoginAccount(AccountLoginRequest{Username: "顶级牛马", Password: "fixture-password"})
+				if err != nil || !result.RequiresTwoFactor || result.SignedIn || result.FlowToken != "pending-login" || app.account.AccessToken != "" {
+					t.Fatalf("challenge not recognized: %#v, %v", result, err)
+				}
+				if _, err := app.VerifyAccountTwoFactor(AccountTwoFactorRequest{FlowToken: result.FlowToken, Code: "invalid"}); err == nil || app.account.AccessToken != "" {
+					t.Fatal("invalid code must not establish a session")
+				}
+				result, err = app.VerifyAccountTwoFactor(AccountTwoFactorRequest{FlowToken: result.FlowToken, Code: " " + code + " "})
+				if err != nil || !result.SignedIn || result.RequiresTwoFactor || result.Username != "顶级牛马" || app.account.AccessToken != "verified-session" || result.ExpiresAt.IsZero() {
+					t.Fatalf("verification failed: %#v, %v", result, err)
+				}
+			})
+		}
+	}
+}
+
+func TestAccountVerificationRejectsInvalidChallenges(t *testing.T) {
+	for _, raw := range []string{
+		`{"success":true,"data":{"require_verification":true}}`,
+		`{"success":true,"data":{"require_2fa":true}}`,
+		`{"success":true,"data":{"require_verification":true,"flow_token":"pending","methods":[{"method":"passkey","available":true}]}}`,
+		`{"success":true,"data":{"require_verification":true,"flow_token":"pending","methods":[{"method":"2fa","available":false}]}}`,
+	} {
+		app := NewApp()
+		if _, err := app.consumeLoginResponse([]byte(raw), "alice"); err == nil || app.account.AccessToken != "" {
+			t.Fatalf("invalid challenge accepted: %s", raw)
+		}
+	}
+}
+
 func TestFilterModelsForClient(t *testing.T) {
 	models := []Model{
 		{ID: "gpt-5.6-sol"},

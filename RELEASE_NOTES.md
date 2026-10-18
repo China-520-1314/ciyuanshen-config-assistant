@@ -1,3 +1,10 @@
+# v0.2.40 · 两步验证登录修复与 Codex 默认配置
+
+- 修复新版词元神登录返回 `require_verification` 时无法进入两步验证的问题，兼容旧版 `require_2fa`，支持验证器代码和备用码。
+- 保存密码后启动助手，如账号需要两步验证，会直接显示验证码输入框；验证码错误时可重试。
+- Codex 默认模型更新为 `gpt-6.1-sol`，保留已有配置中的模型选择。
+- Codex 一键配置固定中文、`STEPS_PROSE` 对话详情，以及 low、medium、high、xhigh、ultra、max 推理选项。
+
 # v0.2.39 · 清理 Codex 实验配置
 
 - Codex 一键配置不再写入 `context_management.experimental_mode`、`token_budget.enabled` 和 `token_budget.use_history_notes_extension`，并移除界面中的三个对应开关。

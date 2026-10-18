@@ -209,7 +209,7 @@ const clientCopy: Record<ClientId, { short: string; badge: string }> = {
 const recommendedModels: Record<ClientId, string> = {
   claude: 'claude-sonnet-4-5',
   'claude-desktop': 'claude-sonnet-4-5',
-  codex: 'gpt-5.6-sol',
+  codex: 'gpt-6.1-sol',
   gemini: 'gemini-2.5-pro',
   grok: 'grok-4',
   opencode: 'gpt-5.6-sol',
@@ -594,6 +594,11 @@ function App() {
               if (!renewed.requiresTwoFactor && renewed.signedIn) {
                 setAccount(await GetAccountState());
                 void refreshAccountState(false);
+              } else if (renewed.requiresTwoFactor) {
+                setTwoFactorFlow(renewed.flowToken);
+                setTwoFactorCode('');
+                setLoginMessage('请输入验证器代码或备用码');
+                setLoginOpen(true);
               }
             } catch {
               // Saved credentials may have expired; the normal login dialog remains available.
@@ -2017,7 +2022,7 @@ function mockToolValidation(clientId: ClientId): ToolKeyValidationResult {
 }
 
 function mockToolModels(clientId: ClientId): Model[] {
-  const all = [{ id: 'gpt-5.6-terra' }, { id: 'gpt-5.6-sol' }, { id: 'claude-sonnet-4-5' }, { id: 'gemini-2.5-pro' }, { id: 'grok-4' }];
+  const all = [{ id: 'gpt-6.1-sol' }, { id: 'gpt-5.6-terra' }, { id: 'gpt-5.6-sol' }, { id: 'claude-sonnet-4-5' }, { id: 'gemini-2.5-pro' }, { id: 'grok-4' }];
   if (clientId === 'claude' || clientId === 'claude-desktop') return all.filter((model) => model.id.startsWith('claude'));
   if (clientId === 'codex') return all.filter((model) => model.id.startsWith('gpt'));
   if (clientId === 'gemini') return all.filter((model) => model.id.startsWith('gemini'));
