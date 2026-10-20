@@ -68,7 +68,7 @@ Codex 显示 `gpt-5.6-terra` 兼容别名，助手页面同时显示实际目标
 
 选择 Codex 时会先备份 `~/.codex/config.toml` 和 `~/.codex/auth.json`。如果已有 `config.toml`，助手会保留用户原来的 provider 名称（可以是 `custom`、`ciyuanshen` 或其他名称），让 `model_provider`、`[model_providers.<名称>]` 和表内 `name` 三处保持一致；遇到旧版本留下的重复 provider 表会在能确认属于当前 provider 时合并，并清理重复字段，同时保留真正无关的 provider 表。对于 `ciyuanshen` provider，`base_url` 会统一修正为 `https://api.ciyuanshen.top/v1`；已有模型、推理强度、注释和其他表段保持不变，缺失字段才按模板补齐。新文件未指定模型时默认使用 `gpt-6.1-sol`、`model_reasoning_effort = "medium"`、实时网络搜索和 `https://api.ciyuanshen.top/v1` Responses 服务商，认证文件写入选定 API Key。
 
-每次配置都会固定写入 `[desktop]` 下的 `localeOverride = "zh-CN"`、`conversationDetailMode = "STEPS_PROSE"` 和 `enabled-reasoning-efforts = [ "low", "medium", "high", "xhigh", "ultra", "max" ]`；已有的其他桌面偏好会保留。
+每次配置都会固定写入 `[desktop]` 下的 `localeOverride = "zh-CN"`、`conversationDetailMode = "STEPS_COMMANDS"`、`fast_mode = true` 和 `enabled-reasoning-efforts = [ "low", "medium", "high", "xhigh", "ultra", "max" ]`；已有的其他桌面偏好会保留。配置界面的 Fast 加速默认不勾选：勾选才写入顶层 `service_tier = "fast"`，未勾选会移除已有的顶层 `service_tier`。开启后模型速度 x1.5，消耗 x2 或 x2.5。
 
 Codex 一键配置不再写入下列三个选项，并在重新配置时清理旧版本留下的值：
 

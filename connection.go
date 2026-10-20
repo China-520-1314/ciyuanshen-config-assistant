@@ -531,7 +531,7 @@ func verifyCodexConfiguration(home, key string) error {
 	if err != nil {
 		return err
 	}
-	for _, field := range []string{"model", "model_reasoning_effort", "preferred_auth_method", "service_tier", "web_search"} {
+	for _, field := range []string{"model", "model_reasoning_effort", "preferred_auth_method", "web_search"} {
 		if _, err := requiredNonEmptyString(config, field); err != nil {
 			return err
 		}

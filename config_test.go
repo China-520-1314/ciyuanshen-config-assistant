@@ -208,7 +208,6 @@ func TestConfigureCodexAddsDefaultsAndPreservesExistingConfig(t *testing.T) {
 		`model_reasoning_effort = "medium"`,
 		`disable_response_storage = true`,
 		`preferred_auth_method = "apikey"`,
-		`service_tier = "fast"`,
 		`web_search = "live"`,
 		`[model_providers.old]`,
 		`base_url = "https://old.example"`,
@@ -238,7 +237,6 @@ func TestCodexRemovesRetiredOptionsAndPreservesOtherSettings(t *testing.T) {
 	const base = `model_provider = "ciyuanshen"
 model = "gpt-6.1-sol"
 model_reasoning_effort = "high"
-service_tier = "fast"
 web_search = "live"
 notify = ["notify.exe", "turn-ended"]
 
@@ -316,6 +314,33 @@ use_history_notes_extension = true
 	}
 }
 
+func TestCodexFastTierRequiresExplicitOptIn(t *testing.T) {
+	for _, existing := range []string{"", "service_tier = \"fast\"\n", "service_tier = \"flex\"\nservice_tier = \"fast\"\n"} {
+		for _, enabled := range []bool{false, true} {
+			settings := CodexExperimentalSettings{FastMode: enabled}
+			patched := patchCodexConfigWithSettings(existing, "", settings)
+			var root map[string]any
+			if err := toml.Unmarshal([]byte(patched), &root); err != nil {
+				t.Fatal(err)
+			}
+			value, exists := root["service_tier"]
+			if exists != enabled || (enabled && value != "fast") {
+				t.Fatalf("Fast opt-in %v produced tier %v", enabled, value)
+			}
+			desktop := root["desktop"].(map[string]any)
+			if desktop["fast_mode"] != true || desktop["conversationDetailMode"] != "STEPS_COMMANDS" {
+				t.Fatalf("unexpected desktop settings: %#v", desktop)
+			}
+			if again := patchCodexConfigWithSettings(patched, "", settings); again != patched {
+				t.Fatal("Fast configuration is not idempotent")
+			}
+			if strings.Contains(patchCodexConfig(patched, ""), "service_tier") {
+				t.Fatal("unchecked configuration must clear a previous Fast tier")
+			}
+		}
+	}
+}
+
 func TestConfigureCodexUsesNewDefaultModelForEmptyConfig(t *testing.T) {
 	home := isolateHome(t)
 	operations, err := configureCodex(home, "new-key", "")
@@ -352,7 +377,6 @@ custom = true
 		`disable_response_storage = false`,
 		`model_reasoning_effort = "medium"`,
 		`preferred_auth_method = "apikey"`,
-		`service_tier = "fast"`,
 		`web_search = "live"`,
 		`[model_providers.user-provider]`,
 		`name = "user-provider"`,
@@ -386,7 +410,8 @@ base_url = "https://example.test/v1"
 		`followUpQueueMode = "queue"`,
 		`enabled-reasoning-efforts = [ "low", "medium", "high", "xhigh", "ultra", "max" ]`,
 		`localeOverride = "zh-CN"`,
-		`conversationDetailMode = "STEPS_PROSE"`,
+		`conversationDetailMode = "STEPS_COMMANDS"`,
+		`fast_mode = true`,
 	} {
 		if !strings.Contains(patched, expected) {
 			t.Fatalf("Codex desktop configuration is missing %q:\n%s", expected, patched)
@@ -423,7 +448,7 @@ name = "ciyuanshen"
 	for _, expected := range []string{
 		`followUpQueueMode = "immediate"`,
 		`enabled-reasoning-efforts = [ "low", "medium", "high", "xhigh", "ultra", "max" ]`,
-		`conversationDetailMode = "STEPS_PROSE"`,
+		`conversationDetailMode = "STEPS_COMMANDS"`,
 		`custom_desktop_option = true`,
 		`[desktop.custom_file_handlers.editor]`,
 		`label = "Editor"`,

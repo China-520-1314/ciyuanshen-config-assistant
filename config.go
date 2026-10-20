@@ -183,7 +183,6 @@ var codexTopLevelTemplate = []codexTemplateField{
 	{Key: "model_reasoning_effort", Value: `"medium"`},
 	{Key: "disable_response_storage", Value: "true"},
 	{Key: "preferred_auth_method", Value: `"apikey"`},
-	{Key: "service_tier", Value: `"fast"`},
 	{Key: "web_search", Value: `"live"`},
 }
 
@@ -198,7 +197,8 @@ var codexDesktopTemplate = []codexTemplateField{
 	{Key: "followUpQueueMode", Value: `"queue"`},
 	{Key: "enabled-reasoning-efforts", Value: `[ "low", "medium", "high", "xhigh", "ultra", "max" ]`},
 	{Key: "localeOverride", Value: `"zh-CN"`},
-	{Key: "conversationDetailMode", Value: `"STEPS_PROSE"`},
+	{Key: "conversationDetailMode", Value: `"STEPS_COMMANDS"`},
+	{Key: "fast_mode", Value: "true"},
 }
 
 type codexTableBlock struct {
@@ -214,8 +214,8 @@ func patchCodexConfig(existing, selectedModel string) string {
 	return patchCodexConfigWithSettings(existing, selectedModel, defaultCodexExperimentalSettings())
 }
 
-// patchCodexConfigWithSettings preserves unrelated TOML and removes retired
-// experimental fields. The settings argument remains for old bridge callers.
+// patchCodexConfigWithSettings applies the Fast opt-in, preserves unrelated
+// TOML and removes retired experimental fields.
 func patchCodexConfigWithSettings(existing, selectedModel string, settings CodexExperimentalSettings) string {
 	lines := []string(nil)
 	if existing != "" {
@@ -235,6 +235,7 @@ func patchCodexConfigWithSettings(existing, selectedModel string, settings Codex
 	explicitProviderName := codexTopLevelProviderName(prefix)
 	providerName := codexProviderName(prefix, blocks)
 	prefix = patchCodexTopLevel(prefix, providerName, selectedModel)
+	prefix = patchCodexServiceTier(prefix, settings.FastMode)
 	prefix, blocks = removeCodexExperimentalOptions(prefix, blocks)
 	blocks = patchCodexDesktopBlocks(blocks)
 	blocks, providerIndex := patchCodexProviderBlocks(blocks, providerName, explicitProviderName != "")
@@ -415,7 +416,6 @@ func patchCodexTopLevel(lines []string, providerName, selectedModel string) []st
 		"model_reasoning_effort":   `"medium"`,
 		"disable_response_storage": "true",
 		"preferred_auth_method":    `"apikey"`,
-		"service_tier":             `"fast"`,
 		"web_search":               `"live"`,
 	}
 	managed := make(map[string]bool, len(values))
@@ -446,6 +446,21 @@ func patchCodexTopLevel(lines []string, providerName, selectedModel string) []st
 		}
 	}
 	return insertCodexBeforeTrailingBlankLines(patched, missing)
+}
+
+func patchCodexServiceTier(lines []string, enabled bool) []string {
+	patched := make([]string, 0, len(lines)+1)
+	for _, line := range lines {
+		key, _, ok := codexAssignment(line)
+		if ok && key == "service_tier" {
+			continue
+		}
+		patched = append(patched, line)
+	}
+	if enabled {
+		patched = insertCodexBeforeTrailingBlankLines(patched, []string{`service_tier = "fast"`})
+	}
+	return patched
 }
 
 func patchCodexProviderBlocks(blocks []codexTableBlock, providerName string, hasExplicitProvider bool) ([]codexTableBlock, int) {

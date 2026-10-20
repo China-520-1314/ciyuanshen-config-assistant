@@ -1,3 +1,9 @@
+# v0.2.41 · Fast 加速可选配置
+
+- Codex 配置新增 Fast 加速勾选项，默认不勾选，提示模型速度 x1.5、消耗 x2 或 x2.5；适用于已有 Key、新建 Key 和手动 Key。
+- 勾选后写入顶层 `service_tier = "fast"`；未勾选时移除旧配置中的顶层 `service_tier`，避免默认启用加速消耗。
+- `[desktop]` 固定写入 `conversationDetailMode = "STEPS_COMMANDS"` 和 `fast_mode = true`。
+
 # v0.2.40 · 两步验证登录修复与 Codex 默认配置
 
 - 修复新版词元神登录返回 `require_verification` 时无法进入两步验证的问题，兼容旧版 `require_2fa`，支持验证器代码和备用码。

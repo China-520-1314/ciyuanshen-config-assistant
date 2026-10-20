@@ -312,6 +312,7 @@ export namespace main {
 	    }
 	}
 	export class CodexExperimentalSettings {
+	    fastMode: boolean;
 	    contextManagementExperimentalMode: boolean;
 	    tokenBudgetEnabled: boolean;
 	    tokenBudgetUseHistoryNotesExtension: boolean;
@@ -323,6 +324,7 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.contextManagementExperimentalMode = source["contextManagementExperimentalMode"];
+	        this.fastMode = source["fastMode"];
 	        this.tokenBudgetEnabled = source["tokenBudgetEnabled"];
 	        this.tokenBudgetUseHistoryNotesExtension = source["tokenBudgetUseHistoryNotesExtension"];
 	    }
