@@ -38,7 +38,7 @@ const (
 
 // appVersion is a variable so release builds can inject their tag with
 // -ldflags "-X main.appVersion=..." while local builds keep a useful default.
-var appVersion = "0.2.41"
+var appVersion = "0.2.42"
 
 type InstallUpdateResult struct {
 	Success     bool   `json:"success"`
@@ -130,13 +130,14 @@ type ConfigurationRequest struct {
 	CodexExperimentalSettings *CodexExperimentalSettings `json:"codexExperimentalSettings,omitempty"`
 }
 
-// CodexExperimentalSettings includes the opt-in Fast tier. Retired fields
+// CodexExperimentalSettings includes opt-in service tiers. Retired fields
 // remain for compatibility with old bridge requests and are never written.
 type CodexExperimentalSettings struct {
-	FastMode                            bool `json:"fastMode"`
-	ContextManagementExperimentalMode   bool `json:"contextManagementExperimentalMode"`
-	TokenBudgetEnabled                  bool `json:"tokenBudgetEnabled"`
-	TokenBudgetUseHistoryNotesExtension bool `json:"tokenBudgetUseHistoryNotesExtension"`
+	ServiceTier                         string `json:"serviceTier"`
+	FastMode                            bool   `json:"fastMode"`
+	ContextManagementExperimentalMode   bool   `json:"contextManagementExperimentalMode"`
+	TokenBudgetEnabled                  bool   `json:"tokenBudgetEnabled"`
+	TokenBudgetUseHistoryNotesExtension bool   `json:"tokenBudgetUseHistoryNotesExtension"`
 }
 
 type FilePreview struct {

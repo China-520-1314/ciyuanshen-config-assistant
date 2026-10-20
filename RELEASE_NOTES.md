@@ -1,3 +1,10 @@
+# v0.2.42 · Fast / Ultrafast 加速选择
+
+- Codex 模型加速可选择不开启、Fast 或 Ultrafast，默认不开启；适用于已有 Key、新建 Key 和手动 Key。
+- Fast 提示改为“模型推理速度 x1.5，消耗 x2 或 x2.5”。
+- Ultrafast 写入 `service_tier = "ultrafast"`，提示适用于 GPT-6 Astra、GPT-6.1 Sol，两款模型官方 API 单价均为标准价的 6 倍。
+- 切换加速方式会替换旧的顶层 `service_tier`，选择不开启会移除该字段。
+
 # v0.2.41 · Fast 加速可选配置
 
 - Codex 配置新增 Fast 加速勾选项，默认不勾选，提示模型速度 x1.5、消耗 x2 或 x2.5；适用于已有 Key、新建 Key 和手动 Key。

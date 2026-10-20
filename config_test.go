@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -338,6 +339,49 @@ func TestCodexFastTierRequiresExplicitOptIn(t *testing.T) {
 				t.Fatal("unchecked configuration must clear a previous Fast tier")
 			}
 		}
+	}
+}
+
+func TestCodexServiceTierSelection(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		settings CodexExperimentalSettings
+		want     string
+	}{
+		{"standard", CodexExperimentalSettings{ServiceTier: "default"}, ""},
+		{"fast", CodexExperimentalSettings{ServiceTier: "fast"}, "fast"},
+		{"ultrafast", CodexExperimentalSettings{ServiceTier: "ultrafast"}, "ultrafast"},
+		{"legacy fast", CodexExperimentalSettings{FastMode: true}, "fast"},
+		{"explicit standard overrides legacy", CodexExperimentalSettings{ServiceTier: "default", FastMode: true}, ""},
+		{"explicit ultrafast overrides legacy", CodexExperimentalSettings{ServiceTier: "ultrafast", FastMode: true}, "ultrafast"},
+		{"invalid tier", CodexExperimentalSettings{ServiceTier: "invalid"}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, existingTier := range []string{"fast", "ultrafast"} {
+				home := isolateHome(t)
+				path := filepath.Join(home, ".codex", "config.toml")
+				writeFixture(t, path, "model = \"user-model\"\nservice_tier = "+strconv.Quote(existingTier)+"\n")
+				operations, err := configureCodexWithSettings(home, "fixture-key", "", tc.settings)
+				if err != nil {
+					t.Fatal(err)
+				}
+				patched := string(operationFor(t, operations, path).Content)
+				var root map[string]any
+				if err := toml.Unmarshal([]byte(patched), &root); err != nil {
+					t.Fatal(err)
+				}
+				value, exists := root["service_tier"]
+				if exists != (tc.want != "") || (exists && value != tc.want) {
+					t.Fatalf("tier = %v, want %q", value, tc.want)
+				}
+				if root["model"] != "user-model" {
+					t.Fatal("existing model changed")
+				}
+				if again := patchCodexConfigWithSettings(patched, "", tc.settings); again != patched {
+					t.Fatal("service tier is not idempotent")
+				}
+			}
+		})
 	}
 }
 

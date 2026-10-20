@@ -235,7 +235,7 @@ func patchCodexConfigWithSettings(existing, selectedModel string, settings Codex
 	explicitProviderName := codexTopLevelProviderName(prefix)
 	providerName := codexProviderName(prefix, blocks)
 	prefix = patchCodexTopLevel(prefix, providerName, selectedModel)
-	prefix = patchCodexServiceTier(prefix, settings.FastMode)
+	prefix = patchCodexServiceTier(prefix, settings)
 	prefix, blocks = removeCodexExperimentalOptions(prefix, blocks)
 	blocks = patchCodexDesktopBlocks(blocks)
 	blocks, providerIndex := patchCodexProviderBlocks(blocks, providerName, explicitProviderName != "")
@@ -448,7 +448,7 @@ func patchCodexTopLevel(lines []string, providerName, selectedModel string) []st
 	return insertCodexBeforeTrailingBlankLines(patched, missing)
 }
 
-func patchCodexServiceTier(lines []string, enabled bool) []string {
+func patchCodexServiceTier(lines []string, settings CodexExperimentalSettings) []string {
 	patched := make([]string, 0, len(lines)+1)
 	for _, line := range lines {
 		key, _, ok := codexAssignment(line)
@@ -457,8 +457,13 @@ func patchCodexServiceTier(lines []string, enabled bool) []string {
 		}
 		patched = append(patched, line)
 	}
-	if enabled {
-		patched = insertCodexBeforeTrailingBlankLines(patched, []string{`service_tier = "fast"`})
+	tier := settings.ServiceTier
+	// Keep old bridge callers working; an explicit tier takes precedence.
+	if tier == "" && settings.FastMode {
+		tier = "fast"
+	}
+	if tier == "fast" || tier == "ultrafast" {
+		patched = insertCodexBeforeTrailingBlankLines(patched, []string{"service_tier = " + strconv.Quote(tier)})
 	}
 	return patched
 }

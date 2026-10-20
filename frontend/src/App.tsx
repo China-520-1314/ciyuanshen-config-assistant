@@ -451,7 +451,7 @@ function App() {
   const [provision, setProvision] = useState<ToolKeyResult | null>(null);
   const [accountKeySource, setAccountKeySource] = useState<'existing' | 'new'>('existing');
   const [setupModel, setSetupModel] = useState('');
-  const [codexFastMode, setCodexFastMode] = useState(false);
+  const [codexServiceTier, setCodexServiceTier] = useState('default');
   const [setupBusy, setSetupBusy] = useState('');
   const [setupMessage, setSetupMessage] = useState<{ tone: NoticeTone; text: string } | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
@@ -938,7 +938,7 @@ function App() {
   }
 
   function resetSetup() {
-    setCodexFastMode(false);
+    setCodexServiceTier('default');
     setToolOptions(null);
     setSetupGroup('');
     setSetupKey('');
@@ -1106,7 +1106,7 @@ function App() {
             provisionId: provision.provisionId,
             clientId: setup.clientId,
             model: setupModel,
-            codexExperimentalSettings: new main.CodexExperimentalSettings({ fastMode: codexFastMode }),
+            codexExperimentalSettings: new main.CodexExperimentalSettings({ serviceTier: codexServiceTier }),
           }))
           : mockConfigure(setup.clientId)
         : inWails()
@@ -1114,7 +1114,7 @@ function App() {
             clientId: setup.clientId,
             apiKey: setupKey.trim(),
             model: setupModel,
-            codexExperimentalSettings: new main.CodexExperimentalSettings({ fastMode: codexFastMode }),
+            codexExperimentalSettings: new main.CodexExperimentalSettings({ serviceTier: codexServiceTier }),
           }))
           : mockConfigure(setup.clientId);
       const configured = result as ConfigureResult;
@@ -1395,7 +1395,7 @@ function App() {
       </div>
 
       {actionNotice && <ActionNotice {...actionNotice} />}
-{setup && <ToolSetupModal setup={setup} account={account} options={toolOptions} group={setupGroup} keyValue={setupKey} showKey={showSetupKey} validation={setupValidation} provision={provision} accountKeySource={accountKeySource} model={setupModel} fastMode={codexFastMode} onFastModeChange={setCodexFastMode} busy={setupBusy} message={setupMessage} onClose={() => { setSetup(null); resetSetup(); }} onModeChange={switchSetupMode} onGroupChange={(value) => { setAccountKeySource('new'); setSetupGroup(value); setSetupValidation(null); setProvision(null); setSetupModel(''); setSetupMessage(null); }} onKeyChange={(value) => { setSetupKey(value); setSetupValidation(null); setProvision(null); setSetupModel(''); setSetupMessage(null); }} onExistingKeyChange={chooseExistingAccountKey} onAccountKeySourceChange={chooseAccountKeySource} onShowKey={() => setShowSetupKey((current) => !current)} onModelChange={setSetupModel} onCreateKey={() => void createAccountKey()} onValidateKey={() => void validateManualKey()} onConfigure={() => void configureSelectedTool()} onLogin={() => openLogin(setup.clientId)} onReloadGroups={() => void loadToolOptions(setup.clientId)} />}
+      {setup && <ToolSetupModal setup={setup} account={account} options={toolOptions} group={setupGroup} keyValue={setupKey} showKey={showSetupKey} validation={setupValidation} provision={provision} accountKeySource={accountKeySource} model={setupModel} serviceTier={codexServiceTier} onServiceTierChange={setCodexServiceTier} busy={setupBusy} message={setupMessage} onClose={() => { setSetup(null); resetSetup(); }} onModeChange={switchSetupMode} onGroupChange={(value) => { setAccountKeySource('new'); setSetupGroup(value); setSetupValidation(null); setProvision(null); setSetupModel(''); setSetupMessage(null); }} onKeyChange={(value) => { setSetupKey(value); setSetupValidation(null); setProvision(null); setSetupModel(''); setSetupMessage(null); }} onExistingKeyChange={chooseExistingAccountKey} onAccountKeySourceChange={chooseAccountKeySource} onShowKey={() => setShowSetupKey((current) => !current)} onModelChange={setSetupModel} onCreateKey={() => void createAccountKey()} onValidateKey={() => void validateManualKey()} onConfigure={() => void configureSelectedTool()} onLogin={() => openLogin(setup.clientId)} onReloadGroups={() => void loadToolOptions(setup.clientId)} />}
       {configurationClient && <ConfigurationViewerModal clientId={configurationClient} view={configurationView} busy={configurationBusy} error={configurationError} revealSecrets={revealConfigurationSecrets} onClose={() => { setConfigurationClient(null); setConfigurationView(null); setConfigurationError(null); setRevealConfigurationSecrets(false); }} onReload={() => void loadClientConfiguration(configurationClient, revealConfigurationSecrets)} onToggleSecrets={toggleConfigurationSecrets} />}
       {loginOpen && <AccountLoginModal username={loginUsername} password={loginPassword} rememberLogin={rememberLogin} code={twoFactorCode} requiresTwoFactor={Boolean(twoFactorFlow)} showPassword={showLoginPassword} busy={loginBusy} message={loginMessage} onUsername={setLoginUsername} onPassword={setLoginPassword} onRememberLogin={setRememberLogin} onCode={setTwoFactorCode} onTogglePassword={() => setShowLoginPassword((current) => !current)} onClose={() => { setLoginOpen(false); setLoginMessage(null); setTwoFactorFlow(''); }} onSubmit={() => void (twoFactorFlow ? submitTwoFactor() : submitLogin())} onRegister={() => void openExternal(signUpURL)} onForgotPassword={() => void openExternal(forgotPasswordURL)} />}
       {confirmation && <ConfirmModal title={confirmation.title} message={confirmation.message} confirmLabel={confirmation.confirmLabel} tone={confirmation.tone} onCancel={() => settleConfirmation(false)} onConfirm={() => settleConfirmation(true)} />}
@@ -1535,10 +1535,10 @@ function ClientCard({ clientId, status, models, model, modelsLoading, modelError
   </article>;
 }
 
-function ToolSetupModal({ setup, account, options, group, keyValue, showKey, validation, provision, accountKeySource, model, busy, message, fastMode, onFastModeChange, onClose, onModeChange, onGroupChange, onKeyChange, onExistingKeyChange, onAccountKeySourceChange, onShowKey, onModelChange, onCreateKey, onValidateKey, onConfigure, onLogin, onReloadGroups }: {
+function ToolSetupModal({ setup, account, options, group, keyValue, showKey, validation, provision, accountKeySource, model, busy, message, serviceTier, onServiceTierChange, onClose, onModeChange, onGroupChange, onKeyChange, onExistingKeyChange, onAccountKeySourceChange, onShowKey, onModelChange, onCreateKey, onValidateKey, onConfigure, onLogin, onReloadGroups }: {
   setup: SetupState;
-  fastMode: boolean;
-  onFastModeChange: (value: boolean) => void;
+  serviceTier: string;
+  onServiceTierChange: (value: string) => void;
   account: AccountState;
   options: ToolOptionsResponse | null;
   group: string;
@@ -1569,7 +1569,7 @@ function ToolSetupModal({ setup, account, options, group, keyValue, showKey, val
   const hasExistingKeys = Boolean(options?.existingKeys?.length);
   const selectedExistingKey = accountKeySource === 'existing' ? provision?.existing ? provision : options?.existingKeys?.[0] : undefined;
   const keyReady = Boolean(validation && validation.models.length > 0);
-  const configurationStep = validation && validation.models.length > 0 ? <div className="model-step"><div className="field-block"><label htmlFor="default-model">默认模型</label><select id="default-model" value={model} onChange={(event) => onModelChange(event.target.value)}>{validation.models.map((option) => <option key={option.id} value={option.id}>{option.id}</option>)}</select></div>{setup.clientId === 'codex' && <label className="remember-login"><input type="checkbox" checked={fastMode} disabled={busy === 'configure'} onChange={(event) => onFastModeChange(event.target.checked)} />开启 Fast 加速（模型速度 x1.5，消耗 x2 或 x2.5）</label>}<div className="model-step-footer"><span>{provision?.existing ? `使用账号已有 Key${provision.name ? `「${provision.name}」` : ''}` : provision ? '新建 Key 已限制为该工具可用模型' : '仅使用当前输入的 Key 完成本次配置'}</span><button className="primary-button" onClick={onConfigure} disabled={busy === 'configure' || !model}><ClipboardCheck size={17} />{busy === 'configure' ? '备份并配置中' : '确认并一键配置'}</button></div></div> : null;
+  const configurationStep = validation && validation.models.length > 0 ? <div className="model-step"><div className="field-block"><label htmlFor="default-model">默认模型</label><select id="default-model" value={model} onChange={(event) => onModelChange(event.target.value)}>{validation.models.map((option) => <option key={option.id} value={option.id}>{option.id}</option>)}</select></div>{setup.clientId === 'codex' && <div className="field-block"><label htmlFor="codex-service-tier">模型加速</label><select id="codex-service-tier" value={serviceTier} disabled={busy === 'configure'} onChange={(event) => onServiceTierChange(event.target.value)}><option value="default">不开启（标准）</option><option value="fast">Fast · 模型推理速度 x1.5，消耗 x2 或 x2.5</option><option value="ultrafast">Ultrafast · 官方 API 单价为标准价的 6 倍</option></select><span className="field-note">{serviceTier === 'ultrafast' ? 'Ultrafast 适用于 GPT-6 Astra、GPT-6.1 Sol；两款模型官方 API 单价均为标准价的 6 倍。' : serviceTier === 'fast' ? 'Fast：模型推理速度 x1.5，消耗 x2 或 x2.5。' : '默认不开启模型加速。'}</span></div>}<div className="model-step-footer"><span>{provision?.existing ? `使用账号已有 Key${provision.name ? `「${provision.name}」` : ''}` : provision ? '新建 Key 已限制为该工具可用模型' : '仅使用当前输入的 Key 完成本次配置'}</span><button className="primary-button" onClick={onConfigure} disabled={busy === 'configure' || !model}><ClipboardCheck size={17} />{busy === 'configure' ? '备份并配置中' : '确认并一键配置'}</button></div></div> : null;
   const showExistingConfigurationStep = setup.mode === 'account' && accountKeySource === 'existing' && Boolean(provision?.existing);
   const showNewConfigurationStep = setup.mode === 'account' && accountKeySource === 'new' && Boolean(provision && !provision.existing);
   return <div className="modal-backdrop" role="presentation"><section className="setup-modal" role="dialog" aria-modal="true" aria-labelledby="setup-title">
