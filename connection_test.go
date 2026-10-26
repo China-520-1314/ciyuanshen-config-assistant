@@ -130,6 +130,19 @@ func TestReadConfiguredClientAPIKeyForAllSupportedClients(t *testing.T) {
 	}
 }
 
+func TestClaudeConfigurationAcceptsCcSwitchAPIKeyField(t *testing.T) {
+	home := isolateHome(t)
+	path := filepath.Join(home, ".claude", "settings.json")
+	writeFixture(t, path, `{"env":{"ANTHROPIC_BASE_URL":"https://api.ciyuanshen.top","ANTHROPIC_API_KEY":"stored-key"}}`)
+	key, err := readConfiguredClientAPIKey(home, "claude")
+	if err != nil || key != "stored-key" {
+		t.Fatalf("API-key style Claude config was not accepted: key=%q err=%v", key, err)
+	}
+	if err := verifyManagedClientConfiguration(home, "claude", "stored-key"); err != nil {
+		t.Fatalf("API-key style Claude config failed verification: %v", err)
+	}
+}
+
 func TestCheckClientConnectionsVerifiesConfigAndGateway(t *testing.T) {
 	home := isolateHome(t)
 	operations, err := configureCodex(home, "test-key", "ignored")

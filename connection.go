@@ -106,7 +106,13 @@ func readConfiguredClientAPIKey(home, target string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return requiredNonEmptyString(env, "ANTHROPIC_AUTH_TOKEN")
+		// cc-switch supports both Claude credential field names. Prefer the
+		// bearer token used by our writer, but accept API-key configs when
+		// checking an existing installation.
+		if token, tokenErr := requiredNonEmptyString(env, "ANTHROPIC_AUTH_TOKEN"); tokenErr == nil {
+			return token, nil
+		}
+		return requiredNonEmptyString(env, "ANTHROPIC_API_KEY")
 	case "claude-desktop":
 		paths, ok := claudeDesktopPaths(home)
 		if !ok {
@@ -464,7 +470,12 @@ func verifyClaudeConfiguration(home, key string) error {
 	if err := requiredString(env, "ANTHROPIC_BASE_URL", claudeGatewayURL); err != nil {
 		return err
 	}
-	return requiredString(env, "ANTHROPIC_AUTH_TOKEN", key)
+	if tokenErr := requiredString(env, "ANTHROPIC_AUTH_TOKEN", key); tokenErr == nil {
+		return nil
+	} else if apiErr := requiredString(env, "ANTHROPIC_API_KEY", key); apiErr != nil {
+		return tokenErr
+	}
+	return nil
 }
 
 func verifyClaudeDesktopConfiguration(home, key string) error {
