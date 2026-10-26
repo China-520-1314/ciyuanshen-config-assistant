@@ -38,6 +38,10 @@ func updateConfiguredClientModel(home, target, model string) error {
 			break
 		}
 		env["ANTHROPIC_MODEL"] = model
+		env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = model
+		env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = model
+		env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = model
+		env["CLAUDE_CODE_SUBAGENT_MODEL"] = model
 		var content []byte
 		content, err = marshalJSON(root)
 		operation = newOperation(target, path, configJSON, content)

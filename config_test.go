@@ -104,8 +104,19 @@ func TestConfigureClaudePreservesExistingSettings(t *testing.T) {
 	if env["ANTHROPIC_MODEL"] != "gpt-test" || env["OLD_VALUE"] != "keep" {
 		t.Fatalf("existing/model values were not preserved: %#v", env)
 	}
+	if env["CLAUDE_CODE_SUBAGENT_MODEL"] != "gpt-test" {
+		t.Fatalf("subagent model was not configured: %#v", env)
+	}
 	if _, exists := env["ANTHROPIC_API_KEY"]; exists {
 		t.Fatal("legacy ANTHROPIC_API_KEY should be removed")
+	}
+	onboarding := operationFor(t, operations, filepath.Join(home, ".claude.json"))
+	var onboardingRoot map[string]any
+	if err := json.Unmarshal(onboarding.Content, &onboardingRoot); err != nil {
+		t.Fatal(err)
+	}
+	if onboardingRoot["hasCompletedOnboarding"] != true {
+		t.Fatalf("Claude onboarding flag was not written: %#v", onboardingRoot)
 	}
 }
 
@@ -681,8 +692,8 @@ func TestConfigureAllSupportedClientsFromEmptyFiles(t *testing.T) {
 			t.Fatalf("%s output did not validate: %v", operation.ClientID, err)
 		}
 	}
-	if len(operations) != 9 {
-		t.Fatalf("expected 9 file operations, got %d", len(operations))
+	if len(operations) != 10 {
+		t.Fatalf("expected 10 file operations, got %d", len(operations))
 	}
 	for _, target := range targets {
 		if err := verifyManagedClientConfiguration(home, target, "test-key"); err != nil {

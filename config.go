@@ -127,11 +127,30 @@ func configureClaude(home, key, model string) ([]fileOperation, error) {
 	env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = model
 	env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = model
 	env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = model
+	// Keep background tasks and subagents on the selected upstream model too.
+	// Claude Code reads this alias independently from the three tier defaults.
+	env["CLAUDE_CODE_SUBAGENT_MODEL"] = model
 	content, err := marshalJSON(root)
 	if err != nil {
 		return nil, fmt.Errorf("生成 Claude Code 配置失败：%w", err)
 	}
-	return []fileOperation{newOperation("claude", path, configJSON, content)}, nil
+	// Claude Code stores the first-run acknowledgement separately from
+	// settings.json. Writing it makes the one-click flow complete on a fresh
+	// installation while preserving all unrelated account/session fields.
+	onboardingPath := filepath.Join(home, ".claude.json")
+	onboarding, err := readJSONMap(onboardingPath)
+	if err != nil {
+		return nil, fmt.Errorf("读取 Claude Code 首次启动配置失败：%w", err)
+	}
+	onboarding["hasCompletedOnboarding"] = true
+	onboardingContent, err := marshalJSON(onboarding)
+	if err != nil {
+		return nil, fmt.Errorf("生成 Claude Code 首次启动配置失败：%w", err)
+	}
+	return []fileOperation{
+		newOperation("claude", path, configJSON, content),
+		newOperation("claude", onboardingPath, configJSON, onboardingContent),
+	}, nil
 }
 
 func configureCodex(home, key, model string) ([]fileOperation, error) {
