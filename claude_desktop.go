@@ -13,8 +13,11 @@ import (
 // configuration. These paths follow the profile layout used by Claude Desktop
 // and CC Switch on Windows and macOS.
 const (
-	claudeDesktopProfileID   = "ciyuanshen-config-assistant"
-	claudeDesktopProfileName = "词元神配置助手"
+	// Claude Desktop validates saved configuration IDs as UUIDs. Use the same
+	// stable format as cc-switch so newer Desktop builds accept the profile.
+	claudeDesktopProfileID       = "00000000-0000-4000-8000-000000157210"
+	legacyClaudeDesktopProfileID = "ciyuanshen-config-assistant"
+	claudeDesktopProfileName     = "词元神配置助手"
 )
 
 type claudeDesktopPathSet struct {
@@ -156,8 +159,11 @@ func claudeDesktopMetaContent(path string) ([]byte, error) {
 	filtered := make([]any, 0, len(entries)+1)
 	for _, entry := range entries {
 		item, ok := entry.(map[string]any)
-		if ok && fmt.Sprint(item["id"]) == claudeDesktopProfileID {
-			continue
+		if ok {
+			id := fmt.Sprint(item["id"])
+			if id == claudeDesktopProfileID || id == legacyClaudeDesktopProfileID {
+				continue
+			}
 		}
 		filtered = append(filtered, entry)
 	}
