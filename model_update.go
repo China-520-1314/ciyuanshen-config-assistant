@@ -15,7 +15,7 @@ import (
 // It deliberately bypasses the full configuration transaction: the caller has
 // already validated the stored API key and requested model, and this operation
 // must not create a backup for a small model update.
-func updateConfiguredClientModel(home, target, model string) error {
+func updateConfiguredClientModel(home, target, model string, availableModels ...[]string) error {
 	model = strings.TrimSpace(model)
 	if model == "" {
 		return errors.New("请选择默认模型")
@@ -56,7 +56,11 @@ func updateConfiguredClientModel(home, target, model string) error {
 			err = readErr
 			break
 		}
-		root["inferenceModels"] = []any{model}
+		available := []string{}
+		if len(availableModels) > 0 {
+			available = availableModels[0]
+		}
+		root["inferenceModels"] = claudeDesktopInferenceModels(model, available)
 		var content []byte
 		content, err = marshalJSON(root)
 		operation = newOperation(target, paths.Profile, configJSON, content)

@@ -127,6 +127,7 @@ type ConfigurationRequest struct {
 	APIKey                    string                     `json:"apiKey"`
 	Targets                   []string                   `json:"targets"`
 	Models                    map[string]string          `json:"models"`
+	ClaudeDesktopModels       []string                   `json:"claudeDesktopModels,omitempty"`
 	CodexExperimentalSettings *CodexExperimentalSettings `json:"codexExperimentalSettings,omitempty"`
 }
 

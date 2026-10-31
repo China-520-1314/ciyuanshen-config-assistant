@@ -888,6 +888,7 @@ func (a *App) ConfigureTool(request ToolConfigurationRequest) ConfigureResult {
 		APIKey:                    strings.TrimSpace(request.APIKey),
 		Targets:                   []string{clientID},
 		Models:                    map[string]string{clientID: strings.TrimSpace(request.Model)},
+		ClaudeDesktopModels:       claudeDesktopModelIDs(validated.Models),
 		CodexExperimentalSettings: request.CodexExperimentalSettings,
 	})
 }
@@ -911,6 +912,7 @@ func (a *App) ConfigureProvisionedTool(request ProvisionedToolConfigurationReque
 		APIKey:                    provision.Key,
 		Targets:                   []string{clientID},
 		Models:                    map[string]string{clientID: strings.TrimSpace(request.Model)},
+		ClaudeDesktopModels:       claudeDesktopModelIDs(provision.Models),
 		CodexExperimentalSettings: request.CodexExperimentalSettings,
 	})
 	if result.Success {
@@ -948,7 +950,7 @@ func (a *App) ConfigureExistingTool(request ExistingToolConfigurationRequest) Co
 		result.Error = err.Error()
 		return result
 	}
-	if err := updateConfiguredClientModel(home, clientID, request.Model); err != nil {
+	if err := updateConfiguredClientModel(home, clientID, request.Model, claudeDesktopModelIDs(validated.Models)); err != nil {
 		result.Error = err.Error()
 		return result
 	}

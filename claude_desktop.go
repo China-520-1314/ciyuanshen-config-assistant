@@ -13,9 +13,8 @@ import (
 // configuration. These paths follow the profile layout used by Claude Desktop
 // and CC Switch on Windows and macOS.
 const (
-	// Claude Desktop validates saved configuration IDs as UUIDs. Use the same
-	// stable format as cc-switch so newer Desktop builds accept the profile.
-	claudeDesktopProfileID       = "00000000-0000-4000-8000-000000157210"
+	// Claude Desktop requires a UUID, and this ID must not collide with CC Switch.
+	claudeDesktopProfileID       = "8c2b5c3d-8e50-4d92-9a4a-7e96c6d8b10f"
 	legacyClaudeDesktopProfileID = "ciyuanshen-config-assistant"
 	claudeDesktopProfileName     = "词元神配置助手"
 )
@@ -92,7 +91,7 @@ func claudeDesktopExecutablePaths(home string) []string {
 	}
 }
 
-func configureClaudeDesktop(home, key, model string) ([]fileOperation, error) {
+func configureClaudeDesktop(home, key, model string, availableModels []string) ([]fileOperation, error) {
 	paths, ok := claudeDesktopPaths(home)
 	if !ok {
 		return nil, errors.New("Claude Code客户端仅支持 Windows 和 macOS")
@@ -109,7 +108,7 @@ func configureClaudeDesktop(home, key, model string) ([]fileOperation, error) {
 	if err != nil {
 		return nil, fmt.Errorf("读取 Claude Code客户端第三方配置失败：%w", err)
 	}
-	profile, err := claudeDesktopProfileContent(paths.Profile, key, model)
+	profile, err := claudeDesktopProfileContent(paths.Profile, key, model, availableModels)
 	if err != nil {
 		return nil, fmt.Errorf("生成 Claude Code客户端配置失败：%w", err)
 	}
@@ -135,7 +134,33 @@ func claudeDesktopDeploymentModeContent(path string) ([]byte, error) {
 	return marshalJSON(root)
 }
 
-func claudeDesktopProfileContent(path, key, model string) ([]byte, error) {
+const maxClaudeDesktopModels = 200
+
+func claudeDesktopModelIDs(models []Model) []string {
+	ids := make([]string, 0, len(models))
+	for _, model := range models {
+		ids = append(ids, model.ID)
+	}
+	return ids
+}
+
+func claudeDesktopInferenceModels(selected string, available []string) []any {
+	result := []any{selected}
+	seen := map[string]bool{selected: true}
+	for _, id := range available {
+		id = strings.TrimSpace(id)
+		if len(result) >= maxClaudeDesktopModels {
+			break
+		}
+		if !seen[id] && isClaudeDesktopCompatibleModel(id) {
+			result = append(result, id)
+			seen[id] = true
+		}
+	}
+	return result
+}
+
+func claudeDesktopProfileContent(path, key, model string, availableModels []string) ([]byte, error) {
 	root, err := readJSONMap(path)
 	if err != nil {
 		return nil, err
@@ -146,7 +171,7 @@ func claudeDesktopProfileContent(path, key, model string) ([]byte, error) {
 	root["inferenceGatewayAuthScheme"] = "bearer"
 	root["inferenceGatewayBaseUrl"] = claudeGatewayURL
 	root["inferenceProvider"] = "gateway"
-	root["inferenceModels"] = []any{model}
+	root["inferenceModels"] = claudeDesktopInferenceModels(model, availableModels)
 	return marshalJSON(root)
 }
 
@@ -177,6 +202,7 @@ func claudeDesktopMetaContent(path string) ([]byte, error) {
 
 func isClaudeDesktopCompatibleModel(model string) bool {
 	model = strings.ToLower(strings.TrimSpace(model))
+	model = strings.TrimPrefix(model, "anthropic/")
 	return strings.HasPrefix(model, "claude-sonnet-") ||
 		strings.HasPrefix(model, "claude-opus-") ||
 		strings.HasPrefix(model, "claude-haiku-") ||

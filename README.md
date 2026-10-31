@@ -13,6 +13,8 @@
 - OpenClaw
 - Hermes Agent
 
+Claude Desktop 一键配置会从所选 Key 的实际可用模型中写入最多 200 个 Claude 模型到 `inferenceModels`，所选默认模型排在首位；在助手中切换默认模型时会刷新该列表。客户端需要重新启动才能读取新配置。配置助手使用独立的 3P profile ID，避免与 CC-Switch 的 profile 冲突。
+
 配置地址按客户端协议固定为：
 
 - GPT、Grok、Codex 及 OpenAI 兼容工具：`https://api.ciyuanshen.top/v1`

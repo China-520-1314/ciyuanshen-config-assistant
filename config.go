@@ -74,7 +74,7 @@ func buildConfiguration(request ConfigurationRequest) ([]fileOperation, []string
 		case "claude":
 			targetOperations, err = configureClaude(home, key, model)
 		case "claude-desktop":
-			targetOperations, err = configureClaudeDesktop(home, key, model)
+			targetOperations, err = configureClaudeDesktop(home, key, model, request.ClaudeDesktopModels)
 		case "codex":
 			targetOperations, err = configureCodexWithSettings(home, key, model, codexSettings)
 		case "gemini":
