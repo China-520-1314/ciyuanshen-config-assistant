@@ -1,4 +1,4 @@
-# v0.2.48 · Claude Desktop 模型映射
+# v0.2.49 · Claude Desktop 模型映射
 
 - 模型路由页面新增 Claude Desktop 客户端，可选择词元神中的任意对话模型。
 - Claude Desktop 配置写入安全的 Sonnet、Opus、Haiku、Fable 角色名称，助手本地路由按选择顺序映射到实际模型和对应 Key 分组。
