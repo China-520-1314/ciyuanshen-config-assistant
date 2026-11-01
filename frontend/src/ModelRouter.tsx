@@ -45,6 +45,7 @@ export default function ModelRouter({ onLogin }: { onLogin?: () => void }) {
     return () => { active = false; window.clearInterval(timer); };
   }, []);
   const existing = mode === 'auto';
+  const clientLabel = client === 'claude-desktop' ? 'Claude Desktop' : client === 'claude' ? 'Claude Code' : 'Codex';
   function resetModels() { setModels([]); setModel(''); setSelectedModels([]); setDefaultModel(''); setError(''); setNotice(''); setSelectedGroup(''); setProvisionId(''); }
   async function loadAutomaticOptions() {
     const api = bridge(); if (!api) return;
@@ -86,10 +87,10 @@ export default function ModelRouter({ onLogin }: { onLogin?: () => void }) {
           startRequest = { ...request, provisionId: created.provisionId };
         }
         setStatus(await api.StartModelRouter(startRequest)); setKey('');
-        setNotice('路由已启动。请关闭并重新打开 Codex 客户端，再新建对话后使用。期间请保持助手运行。');
+        setNotice(`路由已启动。请${client === 'claude-desktop' ? '完全退出' : '关闭'}并重新打开 ${clientLabel}，再新建对话后使用。期间请保持助手运行。`);
       } else {
         setStatus(await api.StopModelRouter());
-        setNotice('已停止路由并恢复原配置。请重新打开 Codex。');
+        setNotice(`已停止路由并恢复原配置。请重新打开 ${clientLabel}。`);
       }
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(''); }

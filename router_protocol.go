@@ -227,11 +227,23 @@ func anthropicToChat(in map[string]any, model string) (map[string]any, error) {
 			messages = append(messages, map[string]any{"role": "system", "content": content})
 		}
 	}
-	for _, raw := range arr(in["messages"]) {
+	for index, raw := range arr(in["messages"]) {
 		message := obj(raw)
 		role := str(message["role"])
+		// Desktop gateway histories may embed system/developer instructions
+		// in messages instead of using only Anthropic's top-level system field.
+		// Normalize these to the gateway's portable Chat system role, keeping
+		// their position and content rather than rejecting the entire turn.
+		if role == "system" || role == "developer" {
+			content, err := anthropicContent(message["content"])
+			if err != nil {
+				return nil, err
+			}
+			messages = append(messages, map[string]any{"role": "system", "content": content})
+			continue
+		}
 		if role != "user" && role != "assistant" {
-			return nil, errors.New("Anthropic 消息角色无效")
+			return nil, fmt.Errorf("Anthropic messages[%d] 消息角色 %q 无效；支持 user、assistant、system、developer", index, role)
 		}
 		blocks := arr(message["content"])
 		if blocks == nil {
@@ -295,10 +307,12 @@ func anthropicToChat(in map[string]any, model string) (map[string]any, error) {
 				messages = appendAnthropicAssistantMessage(messages, contentParts, toolCalls)
 			}
 		} else {
+			// Chat requires tool replies immediately after assistant tool_calls,
+			// before ordinary text from the same Anthropic user turn.
+			messages = append(messages, toolResults...)
 			if len(contentParts) > 0 {
 				messages = append(messages, map[string]any{"role": role, "content": contentParts})
 			}
-			messages = append(messages, toolResults...)
 		}
 	}
 	if len(messages) == 0 {
@@ -343,6 +357,11 @@ func anthropicToChat(in map[string]any, model string) (map[string]any, error) {
 }
 
 func appendAnthropicAssistantMessage(messages []any, content any, calls []any) []any {
+	if parts, ok := content.([]any); ok && len(parts) == 0 {
+		// A tool-only Chat assistant message has null content, not an empty
+		// multimodal array (which strict compatible providers reject).
+		content = nil
+	}
 	assistant := map[string]any{"role": "assistant", "content": content}
 	if len(calls) > 0 {
 		assistant["tool_calls"] = calls
@@ -353,10 +372,20 @@ func appendAnthropicAssistantMessage(messages []any, content any, calls []any) [
 			previousContent := previous["content"]
 			if previousContent == nil || previousContent == "" {
 				previous["content"] = content
-			} else if previousParts := arr(previousContent); previousParts != nil {
-				previous["content"] = append(previousParts, arr(content)...)
+			} else if content != nil && content != "" {
+				// Histories can mix string content with content-block arrays.
+				// Convert both sides before merging so neither turn is dropped.
+				parts := func(v any) []any {
+					if text, ok := v.(string); ok {
+						return []any{map[string]any{"type": "text", "text": text}}
+					}
+					return arr(v)
+				}
+				previous["content"] = append(parts(previousContent), parts(content)...)
 			}
-			previous["tool_calls"] = append(arr(previous["tool_calls"]), calls...)
+			if len(calls) > 0 {
+				previous["tool_calls"] = append(arr(previous["tool_calls"]), calls...)
+			}
 			return messages
 		}
 	}

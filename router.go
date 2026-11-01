@@ -756,23 +756,31 @@ func (p *modelRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // returns an Anthropic-shaped response, allowing Claude Code to use any
 // upstream model through the same local router.
 func (p *modelRouter) serveAnthropic(w http.ResponseWriter, r *http.Request) {
-	raw, _ := io.ReadAll(http.MaxBytesReader(w, r.Body, 16<<20))
+	raw, readErr := io.ReadAll(http.MaxBytesReader(w, r.Body, 16<<20))
 	var in map[string]any
-	if json.Unmarshal(raw, &in) != nil {
-		routeError(w, 400, "Anthropic 请求格式错误")
+	if readErr != nil || json.Unmarshal(raw, &in) != nil || in == nil {
+		p.fail("Anthropic 请求格式错误或超过 16MB")
+		routeAnthropicError(w, 400, "Anthropic 请求格式错误或超过 16MB")
 		return
 	}
 	p.mu.Lock()
 	p.status.Requests++
 	model, upstream, key := p.status.Model, p.upstream, p.key
+	responseModel := str(in["model"])
+	if responseModel == "" {
+		responseModel = p.status.Alias
+		if responseModel == "" {
+			responseModel = model
+		}
+	}
 	if requested := str(in["model"]); requested != "" {
-		model = requested
 		model = mappedRouterModel(requested, p.routes)
 	}
 	p.mu.Unlock()
 	converted, convertErr := anthropicToChat(in, model)
 	if convertErr != nil {
-		routeError(w, 400, convertErr.Error())
+		p.fail(convertErr.Error())
+		routeAnthropicError(w, 400, convertErr.Error())
 		return
 	}
 	stream := in["stream"] == true
@@ -782,7 +790,8 @@ func (p *modelRouter) serveAnthropic(w http.ResponseWriter, r *http.Request) {
 	for attempt := 0; attempt < 3; attempt++ {
 		up, requestErr := http.NewRequestWithContext(r.Context(), "POST", upstream+"/chat/completions", bytes.NewReader(body))
 		if requestErr != nil {
-			routeError(w, 502, "上游地址无效")
+			p.fail("上游地址无效")
+			routeAnthropicError(w, 502, "上游地址无效")
 			return
 		}
 		up.Header.Set("Content-Type", "application/json")
@@ -798,63 +807,29 @@ func (p *modelRouter) serveAnthropic(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		p.fail("上游连接失败")
-		routeError(w, 502, "上游连接失败")
+		routeAnthropicError(w, 502, "上游连接失败")
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		upstreamMessage := readUpstreamError(resp.Body)
 		p.fail(fmt.Sprintf("上游返回 HTTP %d: %s", resp.StatusCode, upstreamMessage))
-		routeError(w, resp.StatusCode, fmt.Sprintf("上游返回 HTTP %d：%s", resp.StatusCode, upstreamMessage))
+		routeAnthropicError(w, resp.StatusCode, fmt.Sprintf("上游返回 HTTP %d：%s", resp.StatusCode, upstreamMessage))
 		return
 	}
 	var out map[string]any
-	if json.NewDecoder(resp.Body).Decode(&out) != nil {
-		routeError(w, 502, "上游响应格式错误")
+	if json.NewDecoder(io.LimitReader(resp.Body, 32<<20)).Decode(&out) != nil {
+		p.fail("上游响应格式错误")
+		routeAnthropicError(w, 502, "上游响应格式错误")
 		return
 	}
-	content := ""
-	toolCalls := []any{}
-	if choices, ok := out["choices"].([]any); ok && len(choices) > 0 {
-		if c, ok := choices[0].(map[string]any); ok {
-			if m, ok := c["message"].(map[string]any); ok {
-				content = str(m["content"])
-				toolCalls = arr(m["tool_calls"])
-			}
-		}
-	}
-	if stream {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		writeAnthropicEvent(w, "message_start", map[string]any{"type": "message_start", "message": map[string]any{"id": "msg_local_router", "type": "message", "role": "assistant", "model": model, "content": []any{}, "stop_reason": nil, "stop_sequence": nil, "usage": map[string]any{"input_tokens": 0, "output_tokens": 0}}})
-		writeAnthropicEvent(w, "content_block_start", map[string]any{"type": "content_block_start", "index": 0, "content_block": map[string]any{"type": "text", "text": ""}})
-		if content != "" {
-			writeAnthropicEvent(w, "content_block_delta", map[string]any{"type": "content_block_delta", "index": 0, "delta": map[string]any{"type": "text_delta", "text": content}})
-		}
-		writeAnthropicEvent(w, "content_block_stop", map[string]any{"type": "content_block_stop", "index": 0})
-		writeAnthropicEvent(w, "message_delta", map[string]any{"type": "message_delta", "delta": map[string]any{"stop_reason": "end_turn", "stop_sequence": nil}, "usage": map[string]any{"output_tokens": 0}})
-		writeAnthropicEvent(w, "message_stop", map[string]any{"type": "message_stop"})
+	message, err := chatToAnthropic(out, responseModel)
+	if err != nil {
+		p.fail(err.Error())
+		routeAnthropicError(w, 502, err.Error())
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	responseContent := []any{}
-	if content != "" {
-		responseContent = append(responseContent, map[string]any{"type": "text", "text": content})
-	}
-	for _, raw := range toolCalls {
-		call := obj(raw)
-		fn := obj(call["function"])
-		var input map[string]any
-		if json.Unmarshal([]byte(str(fn["arguments"])), &input) != nil {
-			input = map[string]any{}
-		}
-		responseContent = append(responseContent, map[string]any{"type": "tool_use", "id": str(call["id"]), "name": str(fn["name"]), "input": input})
-	}
-	stopReason := "end_turn"
-	if len(toolCalls) > 0 {
-		stopReason = "tool_use"
-	}
-	json.NewEncoder(w).Encode(map[string]any{"id": "msg_local_router", "type": "message", "role": "assistant", "model": model, "content": responseContent, "stop_reason": stopReason, "stop_sequence": nil, "usage": map[string]any{"input_tokens": 0, "output_tokens": 0}})
+	writeAnthropicResponse(w, message, stream)
 }
 
 func readUpstreamError(body io.Reader) string {
