@@ -242,8 +242,8 @@ func isolatedRouterApp(t *testing.T) (*App, string) {
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"claude-test"},{"id":"alpha"},{"id":"beta"},{"id":"gamma"}]}`)), Header: make(http.Header)}, nil
 	})}
 	t.Cleanup(func() {
-		if a.router != nil {
-			_ = a.router.server.Close()
+		for _, p := range a.routers {
+			_ = p.server.Close()
 		}
 	})
 	return a, filepath.Join(home, ".codex", "config.toml")
@@ -319,8 +319,8 @@ func TestRouterRecoveryAfterAssistantRestart(t *testing.T) {
 	}
 	// Simulate the first assistant process disappearing without its shutdown
 	// hook. The local listener is still alive and the recovery journal remains.
-	oldProxy := a.router
-	a.router = nil
+	oldProxy := a.routers["codex"]
+	delete(a.routers, "codex")
 	restarted := NewApp()
 	status := restarted.GetModelRouterStatus()
 	if !status.Running || status.Model != "claude-test" {
@@ -345,7 +345,7 @@ func TestRouterRecoveryPreservesModelMappings(t *testing.T) {
 	if _, err := a.StartModelRouter(request); err != nil {
 		t.Fatal(err)
 	}
-	a.router = nil
+	delete(a.routers, "codex")
 	restarted := NewApp()
 	status := restarted.GetModelRouterStatus()
 	if !status.Running || status.Model != "beta" || len(status.Models) != 2 || status.Models[0] != "alpha" || status.Models[1] != "beta" {
@@ -481,9 +481,9 @@ func TestRouterCodexCLIContract(t *testing.T) {
 	if _, err := a.StartModelRouter(RouterRequest{APIKey: "test", Model: "claude-test"}); err != nil {
 		t.Fatal(err)
 	}
-	a.router.mu.Lock()
-	a.router.upstream = upstream.URL
-	a.router.mu.Unlock()
+	a.routers["codex"].mu.Lock()
+	a.routers["codex"].upstream = upstream.URL
+	a.routers["codex"].mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, binary, "exec", "--skip-git-repo-check", "--ephemeral", "-s", "read-only", "-C", filepath.Dir(filepath.Dir(path)), "This is a local protocol fixture. Print the tool marker with text() and then reply with the fixture marker.")

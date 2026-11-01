@@ -75,3 +75,6 @@ export function StopModelRouter():Promise<main.RouterStatus>;
 export function ValidateToolKey(arg1:main.ToolKeyValidationRequest):Promise<main.ToolKeyValidationResult>;
 
 export function VerifyAccountTwoFactor(arg1:main.AccountTwoFactorRequest):Promise<main.AccountLoginResult>;
+
+export function GetModelRouterStatuses():Promise<Record<string,main.RouterStatus>>;
+export function StopClientModelRouter(arg1:string):Promise<main.RouterStatus>;

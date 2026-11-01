@@ -755,7 +755,11 @@ export namespace main {
 	    }
 	}
 	export class RouterStatus {
-	    running: boolean;
+	    client: string;
+        recoverable: boolean;
+        supported: boolean;
+        models?: string[];
+        running: boolean;
 	    model: string;
 	    alias: string;
 	    address: string;
@@ -770,7 +774,11 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.running = source["running"];
+	        this.client = source["client"];
+        this.recoverable = source["recoverable"];
+        this.supported = source["supported"];
+        this.models = source["models"];
+        this.running = source["running"];
 	        this.model = source["model"];
 	        this.alias = source["alias"];
 	        this.address = source["address"];

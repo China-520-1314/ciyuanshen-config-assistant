@@ -149,3 +149,6 @@ export function ValidateToolKey(arg1) {
 export function VerifyAccountTwoFactor(arg1) {
   return window['go']['main']['App']['VerifyAccountTwoFactor'](arg1);
 }
+
+export function GetModelRouterStatuses() { return window['go']['main']['App']['GetModelRouterStatuses'](); }
+export function StopClientModelRouter(client) { return window['go']['main']['App']['StopClientModelRouter'](client); }

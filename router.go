@@ -33,17 +33,22 @@ type RouterRequest struct {
 	ClaudeOneM     bool     `json:"claudeOneM,omitempty"`
 }
 type RouterStatus struct {
-	Running    bool     `json:"running"`
-	Model      string   `json:"model"`
-	Alias      string   `json:"alias"`
-	Models     []string `json:"models,omitempty"`
-	Address    string   `json:"address"`
-	Requests   int      `json:"requests"`
-	Failures   int      `json:"failures"`
-	LastError  string   `json:"lastError"`
-	BackupPath string   `json:"backupPath"`
+	Client      string   `json:"client"`
+	Recoverable bool     `json:"recoverable"`
+	Supported   bool     `json:"supported"`
+	Running     bool     `json:"running"`
+	Model       string   `json:"model"`
+	Alias       string   `json:"alias"`
+	Models      []string `json:"models,omitempty"`
+	Address     string   `json:"address"`
+	Requests    int      `json:"requests"`
+	Failures    int      `json:"failures"`
+	LastError   string   `json:"lastError"`
+	BackupPath  string   `json:"backupPath"`
 }
 type routerJournal struct {
+	Client          string `json:"client,omitempty"`
+	storagePath     string
 	Path            string            `json:"path"`
 	Original        []byte            `json:"original"`
 	Installed       []byte            `json:"installed"`
@@ -68,18 +73,100 @@ type modelRouter struct {
 	journal              routerJournal
 }
 
-func routerJournalPath() string {
-	return filepath.Join(filepath.Dir(backupRoot()), "router-recovery.json")
+var routerClients = []string{"codex", "claude", "claude-desktop"}
+
+func normalizeRouterClient(client string) (string, error) {
+	client = strings.ToLower(strings.TrimSpace(client))
+	if client == "" {
+		client = "codex"
+	}
+	if !containsString(routerClients, client) {
+		return "", errors.New("不支持的路由客户端")
+	}
+	return client, nil
 }
 
-// Called while holding operation; do not acquire routerMu in this helper.
+func routerJournalPath(clients ...string) string {
+	name := "router-recovery.json"
+	if len(clients) > 0 && clients[0] != "" && clients[0] != "codex" {
+		name = "router-recovery-" + clients[0] + ".json"
+	}
+	return filepath.Join(filepath.Dir(backupRoot()), name)
+}
+
+func journalClient(j routerJournal) string {
+	// The target path also identifies records written before per-client routing.
+	if filepath.Base(j.Path) == claudeDesktopProfileID+".json" {
+		return "claude-desktop"
+	}
+	if filepath.Base(j.Path) == "settings.json" {
+		return "claude"
+	}
+	return "codex"
+}
+
+func journalStoragePath(j routerJournal) string {
+	if j.storagePath != "" {
+		return j.storagePath
+	}
+	return routerJournalPath(journalClient(j))
+}
+
+// Called while holding operation; configuration writes must not overwrite any
+// client whose original configuration is still owned by a recovery record.
 func checkRouterConfigurationUnlocked() error {
-	if _, err := os.Stat(routerJournalPath()); err == nil {
-		return errors.New("请先在模型路由页面停止并恢复配置，再修改客户端配置或恢复备份")
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
+	for _, client := range routerClients {
+		if _, err := os.Stat(routerJournalPath(client)); err == nil {
+			return errors.New("请先在模型路由页面停止并恢复配置，再修改客户端配置或恢复备份")
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 	}
 	return nil
+}
+
+func readClientRouterJournal(client string) (routerJournal, error) {
+	j, err := readRouterJournal(client)
+	if err == nil {
+		if journalClient(j) == client {
+			return j, nil
+		}
+		if client != "codex" {
+			return routerJournal{}, errors.New("路由恢复记录的客户端不匹配")
+		}
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return routerJournal{}, err
+	}
+	if client != "codex" {
+		legacy, legacyErr := readRouterJournal()
+		if legacyErr == nil && journalClient(legacy) == client {
+			return legacy, nil
+		}
+		if legacyErr != nil && !errors.Is(legacyErr, os.ErrNotExist) {
+			return routerJournal{}, legacyErr
+		}
+	}
+	return routerJournal{}, os.ErrNotExist
+}
+
+// Must be called under routerMu (start helpers are also used by isolated tests).
+func (a *App) registerRouter(client string, p *modelRouter) {
+	if a.routers == nil {
+		a.routers = make(map[string]*modelRouter)
+	}
+	if len(p.routes) > 0 {
+		actual := make([]string, 0, len(p.models))
+		for _, id := range p.models {
+			actual = append(actual, p.routes[id])
+		}
+		p.status.Models = actual
+	}
+	p.status.Client = client
+	p.status.Supported = true
+	p.status.Recoverable = true
+	p.status.BackupPath = journalStoragePath(p.journal)
+	a.routers[client] = p
 }
 
 func (a *App) routerKey(r RouterRequest) (string, error) {
@@ -129,42 +216,70 @@ func (a *App) GetRouterModels(r RouterRequest) (ModelResponse, error) {
 	}
 	return a.fetchGatewayModels(key)
 }
+func (a *App) routerStatusUnlocked(client string) RouterStatus {
+	if proxy := a.routers[client]; proxy != nil {
+		proxy.mu.Lock()
+		defer proxy.mu.Unlock()
+		status := proxy.status
+		status.Models = append([]string(nil), status.Models...)
+		return status
+	}
+	s := RouterStatus{Client: client, Supported: client != "claude-desktop" || claudeDesktopSupported(), Alias: routerAlias, BackupPath: routerJournalPath(client)}
+	if journal, err := readClientRouterJournal(client); err == nil {
+		s.Recoverable = true
+		s.BackupPath = journalStoragePath(journal)
+		s.Address = "http://" + journal.Address
+		s.Model, s.Models = routerModelsFromJournal(journal)
+		s.Alias = s.Model
+		if journal.Alias != "" {
+			s.Alias = journal.Alias
+		}
+		if routerAddressReachable(journal.Address) {
+			s.Running = true
+			s.LastError = "路由由其他窗口启动；可停止并恢复此客户端配置"
+		} else {
+			s.LastError = "发现上次路由的恢复记录，请先恢复此客户端配置"
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		s.LastError = "无法读取恢复记录：" + err.Error()
+	}
+	return s
+}
+
+func (a *App) GetModelRouterStatuses() map[string]RouterStatus {
+	a.routerMu.Lock()
+	defer a.routerMu.Unlock()
+	result := make(map[string]RouterStatus, len(routerClients))
+	for _, client := range routerClients {
+		result[client] = a.routerStatusUnlocked(client)
+	}
+	return result
+}
+
+// Retained for existing callers; the dashboard uses per-client statuses.
 func (a *App) GetModelRouterStatus() RouterStatus {
 	a.routerMu.Lock()
 	defer a.routerMu.Unlock()
-	if a.router == nil {
-		s := RouterStatus{Alias: routerAlias, BackupPath: routerJournalPath()}
-		if journal, err := readRouterJournal(); err == nil {
-			s.BackupPath = routerJournalPath()
-			s.Address = "http://" + journal.Address
-			s.Model, s.Models = routerModelsFromJournal(journal)
-			s.Alias = s.Model
-			if journal.Alias != "" {
-				s.Alias = journal.Alias
-			}
-			if routerAddressReachable(journal.Address) {
-				s.Running = true
-				s.LastError = "路由仍在运行，但当前助手不是启动它的窗口；点击停止并恢复配置即可接管恢复"
-			} else {
-				s.LastError = "发现上次路由的恢复记录，请点击停止并恢复配置后再启动"
-			}
+	for _, client := range routerClients {
+		status := a.routerStatusUnlocked(client)
+		if status.Running || status.Recoverable || status.LastError != "" {
+			return status
 		}
-		return s
 	}
-	a.router.mu.Lock()
-	defer a.router.mu.Unlock()
-	return a.router.status
+	return a.routerStatusUnlocked("codex")
 }
 
-func readRouterJournal() (routerJournal, error) {
-	raw, err := os.ReadFile(routerJournalPath())
+func readRouterJournal(clients ...string) (routerJournal, error) {
+	path := routerJournalPath(clients...)
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		return routerJournal{}, err
 	}
 	var journal routerJournal
-	if err := json.Unmarshal(raw, &journal); err != nil {
+	if err = json.Unmarshal(raw, &journal); err != nil {
 		return routerJournal{}, err
 	}
+	journal.storagePath = path
 	return journal, nil
 }
 
@@ -183,7 +298,13 @@ func routerModelsFromJournal(j routerJournal) (string, []string) {
 		if model == "" {
 			model = strings.TrimSpace(j.Routes[j.Alias])
 		}
-		return model, uniqueModelIDs(j.Models)
+		actual := make([]string, 0, len(j.Models))
+		for _, id := range j.Models {
+			if target := j.Routes[id]; target != "" {
+				actual = append(actual, target)
+			}
+		}
+		return model, uniqueModelIDs(actual)
 	}
 	if len(j.Models) > 0 {
 		model := strings.TrimSpace(j.DefaultModel)
@@ -206,11 +327,25 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 	defer a.routerMu.Unlock()
 	a.operation.Lock()
 	defer a.operation.Unlock()
-	if a.router != nil {
-		return RouterStatus{}, errors.New("路由已启动；更换模型前请先停止并恢复配置")
-	}
-	if err := checkRouterConfigurationUnlocked(); err != nil {
+	client, err := normalizeRouterClient(r.Client)
+	if err != nil {
 		return RouterStatus{}, err
+	}
+	r.Client = client
+	if a.routers[client] != nil {
+		return RouterStatus{}, errors.New("此客户端路由已启动；请先停止后更换模型")
+	}
+	if _, err = readClientRouterJournal(client); err == nil {
+		return RouterStatus{}, errors.New("此客户端存在恢复记录，请先停止并恢复配置")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return RouterStatus{}, err
+	}
+	// A pre-v0.2.54 record occupies the old shared slot. Do not overwrite it
+	// when starting Codex while the legacy record belongs to another client.
+	if client == "codex" {
+		if _, err = os.Stat(routerJournalPath()); err == nil {
+			return RouterStatus{}, errors.New("请先恢复旧版路由记录后启动 Codex")
+		}
 	}
 	key, err := a.routerKey(r)
 	if err != nil {
@@ -242,15 +377,8 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 	if err != nil {
 		return RouterStatus{}, err
 	}
-	if custom := os.Getenv("CODEX_HOME"); custom != "" && filepath.Clean(custom) != filepath.Join(home, ".codex") {
+	if custom := os.Getenv("CODEX_HOME"); client == "codex" && custom != "" && filepath.Clean(custom) != filepath.Join(home, ".codex") {
 		return RouterStatus{}, errors.New("检测到自定义 CODEX_HOME，请先恢复默认目录后使用一键路由")
-	}
-	client := strings.ToLower(strings.TrimSpace(r.Client))
-	if client == "" {
-		client = "codex"
-	}
-	if client != "codex" && client != "claude" && client != "claude-desktop" {
-		return RouterStatus{}, errors.New("不支持的路由客户端")
 	}
 	path := filepath.Join(home, ".codex", "config.toml")
 	if client == "claude" {
@@ -280,6 +408,7 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 	}
 	root, err := readTOMLMap(path)
 	if err != nil {
+		listener.Close()
 		return RouterStatus{}, err
 	}
 	providers := ensureMap(root, "model_providers")
@@ -352,31 +481,34 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 		})
 	}
 	catalog, _ := json.Marshal(map[string]any{"models": catalogModels})
-	if err = atomicWrite(catalogPath, catalog); err != nil {
-		listener.Close()
-		return RouterStatus{}, err
-	}
 	root["model_catalog_json"] = "ciyuanshen-model-catalog.json"
 	installed, err = marshalTOML(root)
 	if err != nil {
 		listener.Close()
 		return RouterStatus{}, err
 	}
-	journal := routerJournal{Path: path, Original: original, Installed: installed, Existed: existed, Address: listener.Addr().String(), CatalogPath: catalogPath, CatalogOriginal: catalogOriginal, CatalogExisted: catalogExisted, Models: selectedModels, DefaultModel: defaultModel}
+	journal := routerJournal{Client: client, Path: path, Original: original, Installed: installed, Existed: existed, Address: listener.Addr().String(), CatalogPath: catalogPath, CatalogOriginal: catalogOriginal, CatalogExisted: catalogExisted, Models: selectedModels, DefaultModel: defaultModel}
 	encoded, _ := json.Marshal(journal)
 	if err = createRouterJournal(encoded); err != nil {
 		listener.Close()
 		return RouterStatus{}, err
 	}
-	if err = atomicWrite(path, installed); err != nil {
+	if err = atomicWrite(catalogPath, catalog); err != nil {
 		listener.Close()
 		_ = os.Remove(routerJournalPath())
+		return RouterStatus{}, err
+	}
+	if err = atomicWrite(path, installed); err != nil {
+		listener.Close()
+		if restoreErr := restoreRouterJournal(journal); restoreErr != nil {
+			return RouterStatus{}, fmt.Errorf("%v；恢复失败：%w", err, restoreErr)
+		}
 		return RouterStatus{}, err
 	}
 	proxy := &modelRouter{key: key, token: token, upstream: defaultGatewayURL, models: selectedModels, routes: map[string]string{}, client: &http.Client{Timeout: 10 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, journal: journal,
 		status: RouterStatus{Running: true, Alias: defaultModel, Model: defaultModel, Models: selectedModels, Address: address, BackupPath: routerJournalPath()}}
 	proxy.server = &http.Server{Handler: proxy, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
-	a.router = proxy
+	a.registerRouter("codex", proxy)
 	go func() {
 		if err := proxy.server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			proxy.mu.Lock()
@@ -437,7 +569,7 @@ func (a *App) startClaudeRouter(r RouterRequest, key, path, home string, listene
 		listener.Close()
 		return RouterStatus{}, err
 	}
-	journal := routerJournal{Path: path, Original: original, Installed: installed, Existed: existed, Address: listener.Addr().String(), Models: uniqueModelIDs(r.Models), DefaultModel: defaultModel}
+	journal := routerJournal{Client: "claude", Path: path, Original: original, Installed: installed, Existed: existed, Address: listener.Addr().String(), Models: uniqueModelIDs(r.Models), DefaultModel: defaultModel}
 	encoded, _ := json.Marshal(journal)
 	if err = createRouterJournal(encoded); err != nil {
 		listener.Close()
@@ -445,12 +577,12 @@ func (a *App) startClaudeRouter(r RouterRequest, key, path, home string, listene
 	}
 	if err = atomicWrite(path, installed); err != nil {
 		listener.Close()
-		_ = os.Remove(routerJournalPath())
+		_ = os.Remove(routerJournalPath("claude"))
 		return RouterStatus{}, err
 	}
-	proxy := &modelRouter{key: key, token: token, upstream: defaultGatewayURL, models: uniqueModelIDs(r.Models), routes: map[string]string{}, client: &http.Client{Timeout: 10 * time.Minute}, journal: journal, status: RouterStatus{Running: true, Alias: defaultModel, Model: defaultModel, Models: uniqueModelIDs(r.Models), Address: "http://" + listener.Addr().String(), BackupPath: routerJournalPath()}}
+	proxy := &modelRouter{key: key, token: token, upstream: defaultGatewayURL, models: uniqueModelIDs(r.Models), routes: map[string]string{}, client: &http.Client{Timeout: 10 * time.Minute}, journal: journal, status: RouterStatus{Running: true, Alias: defaultModel, Model: defaultModel, Models: uniqueModelIDs(r.Models), Address: "http://" + listener.Addr().String(), BackupPath: routerJournalPath("claude")}}
 	proxy.server = &http.Server{Handler: proxy, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
-	a.router = proxy
+	a.registerRouter("claude", proxy)
 	go func() {
 		if err := proxy.server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			proxy.mu.Lock()
@@ -550,7 +682,7 @@ func (a *App) startClaudeDesktopRouter(r RouterRequest, key, path, home string, 
 		listener.Close()
 		return RouterStatus{}, readErr
 	}
-	journal := routerJournal{Path: path, Original: original, Installed: installed, Existed: existed, Address: listener.Addr().String(), Models: routeIDs, DefaultModel: defaultModel, Alias: defaultAlias, Routes: routes}
+	journal := routerJournal{Client: "claude-desktop", Path: path, Original: original, Installed: installed, Existed: existed, Address: listener.Addr().String(), Models: routeIDs, DefaultModel: defaultModel, Alias: defaultAlias, Routes: routes}
 	encoded, _ := json.Marshal(journal)
 	if err = createRouterJournal(encoded); err != nil {
 		listener.Close()
@@ -558,12 +690,12 @@ func (a *App) startClaudeDesktopRouter(r RouterRequest, key, path, home string, 
 	}
 	if err = atomicWrite(path, installed); err != nil {
 		listener.Close()
-		_ = os.Remove(routerJournalPath())
+		_ = os.Remove(routerJournalPath("claude-desktop"))
 		return RouterStatus{}, err
 	}
-	proxy := &modelRouter{key: key, token: token, upstream: defaultGatewayURL, models: routeIDs, routes: routes, client: &http.Client{Timeout: 10 * time.Minute}, journal: journal, status: RouterStatus{Running: true, Alias: defaultAlias, Model: defaultModel, Models: routeIDs, Address: "http://" + listener.Addr().String(), BackupPath: routerJournalPath()}}
+	proxy := &modelRouter{key: key, token: token, upstream: defaultGatewayURL, models: routeIDs, routes: routes, client: &http.Client{Timeout: 10 * time.Minute}, journal: journal, status: RouterStatus{Running: true, Alias: defaultAlias, Model: defaultModel, Models: routeIDs, Address: "http://" + listener.Addr().String(), BackupPath: routerJournalPath("claude-desktop")}}
 	proxy.server = &http.Server{Handler: proxy, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
-	a.router = proxy
+	a.registerRouter("claude-desktop", proxy)
 	go func() {
 		if err := proxy.server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			proxy.mu.Lock()
@@ -580,6 +712,10 @@ func (a *App) startClaudeDesktopRouter(r RouterRequest, key, path, home string, 
 // Exclusive creation prevents two assistant processes from taking over Codex.
 func createRouterJournal(encoded []byte) error {
 	path := routerJournalPath()
+	var journal routerJournal
+	if json.Unmarshal(encoded, &journal) == nil {
+		path = journalStoragePath(journal)
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
@@ -612,10 +748,10 @@ func restoreRouterJournal(j routerJournal) error {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	if bytes.Equal(current, j.Original) {
-		return os.Remove(routerJournalPath())
+	if bytes.Equal(current, j.Original) && j.CatalogPath == "" {
+		return os.Remove(journalStoragePath(j))
 	}
-	if !bytes.Equal(current, j.Installed) {
+	if !bytes.Equal(current, j.Installed) && !bytes.Equal(current, j.Original) {
 		// The user explicitly asked to stop the router and restore the original
 		// Codex configuration. Preserve any intervening edits before restoring.
 		conflict := j.Path + ".router-conflict-" + time.Now().Format("20060102-150405")
@@ -643,45 +779,76 @@ func restoreRouterJournal(j routerJournal) error {
 		err = atomicWrite(j.Path, restored)
 	} else {
 		err = os.Remove(j.Path)
+		if errors.Is(err, os.ErrNotExist) {
+			err = nil
+		}
 	}
 	if err != nil {
 		return err
 	}
 	if j.CatalogPath != "" {
 		if j.CatalogExisted {
-			_ = atomicWrite(j.CatalogPath, j.CatalogOriginal)
+			if err = atomicWrite(j.CatalogPath, j.CatalogOriginal); err != nil {
+				return err
+			}
 		} else {
-			_ = os.Remove(j.CatalogPath)
+			if err = os.Remove(j.CatalogPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
 		}
 	}
-	return os.Remove(routerJournalPath())
+	return os.Remove(journalStoragePath(j))
 }
+func (a *App) stopClientRouterUnlocked(client string) (RouterStatus, error) {
+	proxy := a.routers[client]
+	var journal routerJournal
+	if proxy != nil {
+		journal = proxy.journal
+	} else {
+		var err error
+		journal, err = readClientRouterJournal(client)
+		if errors.Is(err, os.ErrNotExist) {
+			return a.routerStatusUnlocked(client), nil
+		}
+		if err != nil {
+			return RouterStatus{}, err
+		}
+	}
+	if err := restoreRouterJournal(journal); err != nil {
+		return RouterStatus{}, err
+	}
+	if proxy != nil {
+		_ = proxy.server.Close()
+		delete(a.routers, client)
+	}
+	return a.routerStatusUnlocked(client), nil
+}
+
+func (a *App) StopClientModelRouter(client string) (RouterStatus, error) {
+	client, err := normalizeRouterClient(client)
+	if err != nil {
+		return RouterStatus{}, err
+	}
+	a.routerMu.Lock()
+	defer a.routerMu.Unlock()
+	a.operation.Lock()
+	defer a.operation.Unlock()
+	return a.stopClientRouterUnlocked(client)
+}
+
+// Shutdown restores every client, even if one of the records cannot restore.
 func (a *App) StopModelRouter() (RouterStatus, error) {
 	a.routerMu.Lock()
 	defer a.routerMu.Unlock()
 	a.operation.Lock()
 	defer a.operation.Unlock()
-	if a.router == nil {
-		j, err := readRouterJournal()
-		if errors.Is(err, os.ErrNotExist) {
-			return RouterStatus{Alias: routerAlias}, nil
+	var failures []error
+	for _, client := range routerClients {
+		if _, err := a.stopClientRouterUnlocked(client); err != nil {
+			failures = append(failures, fmt.Errorf("%s: %w", client, err))
 		}
-		if err != nil {
-			return RouterStatus{}, err
-		}
-		// The original assistant process may have exited without running its
-		// shutdown hook. The journal is the recovery authority; restoring it is
-		// safe even if the orphaned local listener is still accepting requests,
-		// because Codex will immediately stop pointing at that listener.
-		return RouterStatus{Alias: routerAlias, BackupPath: routerJournalPath()}, restoreRouterJournal(j)
 	}
-	proxy := a.router
-	if err := restoreRouterJournal(proxy.journal); err != nil {
-		return RouterStatus{}, err
-	}
-	_ = proxy.server.Close()
-	a.router = nil
-	return RouterStatus{Alias: routerAlias}, nil
+	return RouterStatus{Alias: routerAlias}, errors.Join(failures...)
 }
 func (p *modelRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("Origin") != "" || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+p.token)) != 1 {

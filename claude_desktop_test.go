@@ -122,13 +122,13 @@ func TestClaudeDesktopLabeledProfileLifecycle(t *testing.T) {
 	if len(specs) != 6 || obj(specs[0])["labelOverride"] != "sixth" || profile["custom"] != "keep" {
 		t.Fatalf("bad profile: %#v", profile)
 	}
-	if mappedRouterModel(status.Alias, a.router.routes) != "sixth" {
+	if mappedRouterModel(status.Alias, a.routers["claude-desktop"].routes) != "sixth" {
 		t.Fatal(status)
 	}
 	request := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
-	request.Header.Set("Authorization", "Bearer "+a.router.token)
+	request.Header.Set("Authorization", "Bearer "+a.routers["claude-desktop"].token)
 	response := httptest.NewRecorder()
-	a.router.ServeHTTP(response, request)
+	a.routers["claude-desktop"].ServeHTTP(response, request)
 	catalog := routerInput(t, response.Body.String())
 	if len(arr(catalog["data"])) != 6 || obj(arr(catalog["data"])[0])["display_name"] != "deepseek-v4.1-flash" {
 		t.Fatalf("catalog: %s", response.Body.String())

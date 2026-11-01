@@ -658,3 +658,114 @@ h2 { margin-bottom: 4px; font-size: 17px; font-weight: 700; letter-spacing: 0; }
 .field-block .router-model-choice input { width: 16px; height: 16px; flex: 0 0 16px; padding: 0; accent-color: var(--teal); }
 .router-model-choice span { overflow-wrap: anywhere; }
 .router-model-choice:has(input:checked) { background: var(--surface); color: var(--teal-dark); }
+
+/* Multi-client routing dashboard: shared status, independent workspaces. */
+.router-dashboard { max-width: 1420px; gap: 22px; }
+.router-dashboard-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.router-dashboard-header h2 { margin: 6px 0 10px; font-size: 26px; letter-spacing: -.6px; }
+.router-dashboard-header p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.7; }
+.router-dashboard-header .eyebrow { color: var(--teal); font-size: 11px; letter-spacing: 2px; }
+.router-overview { display: flex; gap: 28px; flex-shrink: 0; padding-left: 25px; border-left: 1px solid var(--line); }
+.router-overview > span { display: grid; gap: 4px; font-size: 11px; color: var(--muted); }
+.router-overview strong { color: var(--ink); font-size: 28px; font-variant-numeric: tabular-nums; }
+.router-overview small { color: var(--muted); font-size: 14px; font-weight: 400; }
+.router-client-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; }
+.router-client-card { display: grid; gap: 6px; min-width: 0; padding: 18px; text-align: left; color: var(--ink); background: var(--content-surface, var(--surface)); border: 1px solid var(--line); border-radius: 14px; transition: border-color .15s, box-shadow .15s; }
+.router-client-card:hover { border-color: var(--focus); }
+.router-client-card.selected { border-color: var(--teal); box-shadow: 0 0 0 1px var(--teal), var(--shadow); }
+.router-client-card:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+.router-client-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 6px; }
+.router-client-icon { display: grid; place-items: center; width: 39px; height: 39px; border-radius: 11px; background: var(--teal-soft); color: var(--teal-dark); }
+.router-client-card > strong { font-size: 16px; }
+.router-client-card > span { font-size: 11px; color: var(--muted); }
+.router-state-pill { padding: 4px 8px; border-radius: 20px; font-size: 10px; color: var(--muted-strong); background: var(--surface-muted); white-space: nowrap; }
+.router-state-pill.running { color: var(--teal-dark); background: var(--teal-soft); }
+.router-state-pill.recovery { color: var(--amber); background: var(--amber-soft); }
+.router-client-model { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 8px; color: var(--muted-strong); font-size: 12px; }
+.router-client-footer { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--line-soft); color: var(--muted); font-size: 10px; }
+.router-workspace { display: grid; grid-template-columns: minmax(0,1.65fr) minmax(280px,1fr); gap: 18px; align-items: start; }
+.router-workspace .router-card { padding: 20px; border-radius: 14px; background: var(--content-surface, var(--surface)); gap: 16px; }
+.router-settings-column { display: grid; gap: 16px; min-width: 0; }
+.router-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-width: 0; }
+.router-section-heading .eyebrow { font-size: 10px; letter-spacing: 1.6px; color: var(--teal); margin-bottom: 5px; }
+.router-section-heading h3 { font-size: 15px; }
+.router-section-heading > svg { color: var(--muted); }
+.router-count-badge { flex-shrink: 0; font-size: 11px; color: var(--teal-dark); background: var(--teal-soft); padding: 5px 9px; border-radius: 7px; }
+.router-model-toolbar { display: flex; gap: 10px; min-width: 0; }
+.router-search { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; height: 40px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--muted); }
+.router-search:focus-within { outline: 2px solid var(--focus); }
+.router-search input { width: 100%; min-width: 0; border: 0; outline: none; color: var(--ink); background: transparent; font-size: 12px; }
+.router-model-toolbar > select { max-width: 135px; min-width: 0; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--muted-strong); background: var(--content-surface, var(--surface)); font-size: 11px; }
+.router-selection-tools { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+.router-selection-tools label, .router-inline-check { display: flex; align-items: center; gap: 6px; }
+.router-selection-tools button { padding: 2px 0; color: var(--teal-dark); border: 0; background: transparent; font-size: 11px; }
+.router-selection-tools > span { margin-right: auto; }
+.router-workspace input[type="checkbox"] { accent-color: var(--teal); width: 15px; height: 15px; flex-shrink: 0; }
+.router-workspace .router-model-checklist { max-height: 520px; min-height: 320px; padding: 4px 0; border: 0; border-radius: 0; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+.router-model-checklist legend { display: flex; gap: 8px; width: 100%; padding: 8px 4px; font-size: 10px; letter-spacing: .6px; }
+.router-model-checklist legend span { color: var(--muted); font-weight: 400; }
+.router-models-card .router-model-choice { display: flex; align-items: center; gap: 10px; padding: 11px 9px; border: 1px solid transparent; border-radius: 8px; font-size: 12px; color: var(--ink); cursor: pointer; margin-bottom: 3px; }
+.router-models-card .router-model-choice:hover { background: var(--surface-soft); }
+.router-models-card .router-model-choice.checked { background: var(--teal-soft); border-color: var(--success-border); color: var(--teal-dark); }
+.router-model-choice > span { min-width: 0; flex: 1; }
+.router-model-choice em { font-size: 9px; font-style: normal; padding: 3px 6px; background: var(--content-surface, var(--surface)); border-radius: 4px; }
+.router-icon-button { display: grid; place-items: center; padding: 7px; background: var(--surface-soft); border: 1px solid var(--line); border-radius: 8px; color: var(--muted-strong); }
+.router-source-tabs { display: flex; padding: 4px; gap: 4px; background: var(--surface-muted); border: 1px solid var(--line-soft); border-radius: 9px; }
+.router-source-tabs button { flex: 1; border: 0; border-radius: 6px; background: transparent; padding: 8px; font-size: 12px; color: var(--muted); }
+.router-source-tabs button.active { color: var(--teal-dark); background: var(--surface); box-shadow: 0 1px 5px rgba(0,0,0,.06); font-weight: 650; }
+.router-card p.router-security-note { display: flex; gap: 6px; align-items: center; font-size: 10px; }
+.router-security-note svg { flex-shrink: 0; color: var(--teal); }
+.router-inline-check { font-size: 11px; color: var(--muted-strong); }
+.router-selected-summary { display: grid; gap: 7px; border-top: 1px solid var(--line-soft); padding-top: 12px; }
+.router-selected-summary > span, .router-selected-summary > small { font-size: 10px; color: var(--muted); }
+.router-selected-summary > div { display: flex; gap: 8px; align-items: center; font-size: 11px; min-width: 0; }
+.router-selected-summary b { font-size: 9px; font-weight: 400; color: var(--muted); background: var(--surface-muted); border-radius: 4px; padding: 3px 5px; }
+.router-selected-summary div > span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.router-selected-summary button { padding: 3px; line-height: 0; border: 0; background: transparent; color: var(--muted); }
+.router-control-bar { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; background: var(--content-surface, var(--surface)); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
+.router-control-summary { display: flex; align-items: center; gap: 12px; margin-right: auto; min-width: 0; }
+.router-control-summary strong { font-size: 13px; }
+.router-control-summary p { font-size: 11px; color: var(--muted); margin: 5px 0 0; }
+.router-status-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line-strong); flex-shrink: 0; }
+.router-status-dot.running { background: var(--teal); box-shadow: 0 0 0 4px var(--teal-soft); }
+.router-control-bar .router-address { flex-basis: 100%; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.router-control-bar .router-error, .router-control-bar .router-notice { width: 100%; margin: 0; font-size: 12px; line-height: 1.6; }
+.router-control-bar .router-notice { display: flex; gap: 8px; align-items: start; color: var(--teal-dark); }
+.router-control-bar .router-notice svg { flex-shrink: 0; margin-top: 2px; }
+.router-empty { display: grid; justify-items: center; align-content: center; min-height: 300px; gap: 12px; text-align: center; padding: 24px; color: var(--muted); }
+.router-empty strong { font-size: 13px; color: var(--muted-strong); }
+.router-empty p { max-width: 260px; font-size: 11px; }
+.router-help { grid-column: 1 / -1; color: var(--muted); font-size: 11px; line-height: 1.8; }
+.router-help summary { cursor: pointer; }
+.router-help p { margin: 8px 0 0; }
+@media (max-width: 1100px) {
+ .router-workspace { grid-template-columns: minmax(0,1.25fr) minmax(260px,1fr); gap: 14px; }
+ .router-workspace .router-card { padding: 16px; }
+ .router-dashboard-header h2 { font-size: 22px; }
+ .router-model-toolbar { flex-wrap: wrap; }
+ .router-search { flex-basis: 100%; }
+ .router-model-toolbar > select { height: 32px; max-width: 100%; width: 100%; }
+}
+@media (max-width: 760px) {
+ .router-dashboard-header { align-items: start; flex-direction: column; gap: 14px; }
+ .router-overview { padding-left: 0; border-left: 0; gap: 25px; }
+ .router-overview > span { display: flex; align-items: baseline; gap: 7px; }
+ .router-overview strong { font-size: 22px; }
+ .router-client-grid { gap: 8px; }
+ .router-client-card { padding: 11px; border-radius: 10px; }
+ .router-client-card > strong { font-size: 12px; }
+ .router-client-icon { width: 30px; height: 30px; }
+ .router-client-top { align-items: start; flex-direction: column; }
+ .router-client-footer { flex-direction: column; gap: 4px; font-size: 9px; }
+ .router-client-model { font-size: 10px; }
+ .router-workspace { grid-template-columns: minmax(0,1fr); }
+ .router-settings-column { grid-template-columns: repeat(2,minmax(0,1fr)); }
+ .router-models-card { order: 1; }
+ .router-settings-column { order: 2; }
+ .router-control-bar { order: 3; }
+ .router-help { order: 4; }
+ .router-control-bar .router-actions { width: 100%; }
+ .router-control-bar .router-actions button { flex: 1; }
+}
+@media (max-width: 500px) { .router-settings-column { grid-template-columns: minmax(0,1fr); } }
+.router-dashboard { color: var(--ink); }
