@@ -38,11 +38,11 @@ Gemini 的 Base URL 不能直接写成 `https://api.ciyuanshen.top/v1`，因为 
 
 1. 选择“使用 Codex 当前的词元神 Key”，或粘贴另一个词元神 Key，点击“读取可用模型”。
 2. 搜索并选择实际模型。列表来自该 Key 的 `/v1/models` 权限，模型需要支持 Chat Completions；完成代码操作还需要支持工具调用。
-3. 选择要接入的客户端。Claude Desktop 会把最多四个实际模型按顺序映射到 Sonnet、Opus、Haiku、Fable 角色名称，再通过本地 Anthropic 路由转发；点击“一键启动并配置客户端”，完全退出并重新打开 Claude Desktop。使用期间保持助手运行。更换模型时先停止，再选择并启动。
+3. 选择要接入的客户端。三个客户端均可直接勾选多个模型；Claude Desktop 支持最多 200 个模型，菜单显示所选实际模型名称，再通过本地 Anthropic 路由转发；点击“一键启动并配置客户端”，完全退出并重新打开 Claude Desktop。使用期间保持助手运行。更换模型时先停止，再选择并启动。
 
 Codex 显示 `gpt-5.6-terra` 兼容别名，助手页面同时显示实际目标模型；本地路由发送给词元神的 `model` 始终为所选目标，不会自行回退到其他模型。网关内部的渠道映射仍由网关决定。模型列表验证不代表上游一定可用，实际请求失败会显示 HTTP 状态或协议错误。
 
-本地服务只监听 `127.0.0.1` 的随机端口，使用独立随机令牌认证，不允许浏览器跨域调用。它将 Codex Responses、Claude Code/Claude Desktop Anthropic Messages 请求转换为词元神 `/v1/chat/completions`；Claude Desktop 的安全 Claude 角色名会在本地映射为所选实际模型。支持流式/非流式文本、图片输入、函数工具、命名空间工具、自由文本工具（包括补丁）以及工具结果回传。目标模型需具备相应能力。当前不支持内置联网搜索、`previous_response_id` 服务端续接、远端压缩等扩展；长对话请新建会话，不支持的输入会明确报错。
+本地服务只监听 `127.0.0.1` 的随机端口，使用独立随机令牌认证，不允许浏览器跨域调用。它将 Codex Responses、Claude Code/Claude Desktop Anthropic Messages 请求转换为词元神 `/v1/chat/completions`；Claude Desktop 使用安全 Claude 路由 ID 转发，以 `inferenceModels[].labelOverride` 显示所选实际模型名称；超过四个模型时生成独立的扩展路由 ID。支持流式/非流式文本、图片输入、函数工具、命名空间工具、自由文本工具（包括补丁）以及工具结果回传。目标模型需具备相应能力。当前不支持内置联网搜索、`previous_response_id` 服务端续接、远端压缩等扩展；长对话请新建会话，不支持的输入会明确报错。
 
 启动时仅临时切换 `~/.codex/config.toml`，保留原文件的完整字节备份，不修改 `auth.json`。上游 Key 仅在内存中使用，写入 Codex 配置的是本机临时令牌。临时配置会关闭联网搜索、请求压缩和部分不兼容的上下文扩展，并取消默认 profile 选择；不要通过命令行 `--profile`/`-c` 再覆盖路由配置。自定义 `CODEX_HOME` 暂不支持一键接管。
 

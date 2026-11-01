@@ -470,17 +470,40 @@ func claudeDesktopRoutes(models []string) (map[string]string, []string) {
 	routes := make(map[string]string)
 	ids := make([]string, 0, len(models))
 	for i, model := range uniqueModelIDs(models) {
-		if i >= len(claudeDesktopRouteIDs) {
-			break
+		id := fmt.Sprintf("claude-sonnet-5-r%d", i-len(claudeDesktopRouteIDs)+2)
+		if i < len(claudeDesktopRouteIDs) {
+			id = claudeDesktopRouteIDs[i]
 		}
-		id := claudeDesktopRouteIDs[i]
 		routes[id] = model
 		ids = append(ids, id)
 	}
 	return routes, ids
 }
 
+// Desktop accepts a safe request ID with an independent menu label. Extra
+// routes follow CC-Switch's claude-sonnet-5-rN convention.
+func claudeDesktopRouterModels(ids []string, routes map[string]string, defaultAlias string) []any {
+	models := make([]any, 0, len(ids))
+	appendModel := func(id string) {
+		models = append(models, map[string]any{"name": id, "labelOverride": routes[id]})
+	}
+	if routes[defaultAlias] != "" {
+		appendModel(defaultAlias)
+	}
+	for _, id := range ids {
+		if id != defaultAlias {
+			appendModel(id)
+		}
+	}
+	return models
+}
+
 func (a *App) startClaudeDesktopRouter(r RouterRequest, key, path, home string, listener net.Listener, selected []string) (RouterStatus, error) {
+	selected = uniqueModelIDs(selected)
+	if len(selected) > maxClaudeDesktopModels {
+		listener.Close()
+		return RouterStatus{}, fmt.Errorf("Claude Desktop 最多支持 %d 个映射模型，请减少选择", maxClaudeDesktopModels)
+	}
 	root, err := readJSONMap(path)
 	if err != nil {
 		listener.Close()
@@ -515,11 +538,7 @@ func (a *App) startClaudeDesktopRouter(r RouterRequest, key, path, home string, 
 	root["inferenceGatewayAuthScheme"] = "bearer"
 	root["inferenceGatewayBaseUrl"] = "http://" + listener.Addr().String()
 	root["inferenceProvider"] = "gateway"
-	models := make([]any, 0, len(routeIDs))
-	for _, id := range routeIDs {
-		models = append(models, id)
-	}
-	root["inferenceModels"] = models
+	root["inferenceModels"] = claudeDesktopRouterModels(routeIDs, routes, defaultAlias)
 	installed, err := marshalJSON(root)
 	if err != nil {
 		listener.Close()
@@ -675,7 +694,11 @@ func (p *modelRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.mu.Unlock()
 		data := make([]any, 0, len(advertised))
 		for _, id := range advertised {
-			data = append(data, map[string]any{"id": id, "object": "model"})
+			item := map[string]any{"id": id, "object": "model"}
+			if label := p.routes[id]; label != "" {
+				item["display_name"] = label
+			}
+			data = append(data, item)
 		}
 		writeRouteJSON(w, map[string]any{"object": "list", "data": data})
 		return
@@ -869,9 +892,11 @@ func mappedRouterModel(requested string, routes map[string]string) string {
 		if !strings.Contains(lower, keyword) {
 			continue
 		}
-		for role, mapped := range routes {
-			if strings.Contains(strings.ToLower(role), keyword) {
-				return mapped
+		// Version aliases must resolve to the canonical role, never a random
+		// extra Sonnet route selected by Go map iteration.
+		for _, role := range claudeDesktopRouteIDs {
+			if strings.Contains(role, keyword) && routes[role] != "" {
+				return routes[role]
 			}
 		}
 	}

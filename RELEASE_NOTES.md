@@ -1,3 +1,13 @@
+# v0.2.53 · 模型名称显示与勾选多模型
+
+- Claude Desktop 模型菜单通过 labelOverride 显示实际模型名，例如 deepseek-v4.1-flash；内部继续使用兼容的 Claude 路由 ID。
+- Claude Desktop 支持最多 200 个映射模型，第五个及之后生成独立路由，不再截断为四个；前后端均校验上限。
+- Codex、Claude Code CLI／插件、Claude Desktop 的模型选择统一改为复选框，支持搜索且保留已勾选模型及选择顺序。
+- 自动 Key／分组选择要求支持全部已选模型，避免只按第一个模型匹配；Desktop 默认模型排在配置首位。
+- 修复多 Sonnet 路由下版本别名可能随机命中其他模型的问题。
+- 验证：Go 全量竞态测试、前端生产构建、浏览器勾选／搜索／200 项上限与客户端切换测试；未在真实 Claude Desktop 上实机验证。
+- 更新后请先停止模型路由，再重新启动配置，并完全退出、重新打开 Claude Desktop。
+
 # v0.2.52 · Claude Desktop 模型映射兼容修复
 
 - 兼容对话历史中的 system／developer 消息，修复本地路由直接返回“Anthropic 消息角色无效”的问题；未知角色会显示具体位置和角色名称。
