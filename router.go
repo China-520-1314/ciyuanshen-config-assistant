@@ -739,7 +739,8 @@ func (p *modelRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		message := fmt.Sprintf("上游返回 HTTP %d，当前分组内支持该模型的供应商暂时不可用；请稍后重试或更换分组", resp.StatusCode)
+		upstreamMessage := readUpstreamError(resp.Body)
+		message := fmt.Sprintf("上游返回 HTTP %d：%s", resp.StatusCode, upstreamMessage)
 		p.fail(message)
 		routeError(w, resp.StatusCode, message)
 		return
@@ -769,19 +770,13 @@ func (p *modelRouter) serveAnthropic(w http.ResponseWriter, r *http.Request) {
 		model = mappedRouterModel(requested, p.routes)
 	}
 	p.mu.Unlock()
-	msgs := []any{}
-	if sys, ok := in["system"].(string); ok && sys != "" {
-		msgs = append(msgs, map[string]any{"role": "system", "content": sys})
-	}
-	if arr, ok := in["messages"].([]any); ok {
-		for _, m := range arr {
-			if mm, ok := m.(map[string]any); ok {
-				msgs = append(msgs, map[string]any{"role": mm["role"], "content": mm["content"]})
-			}
-		}
+	converted, convertErr := anthropicToChat(in, model)
+	if convertErr != nil {
+		routeError(w, 400, convertErr.Error())
+		return
 	}
 	stream := in["stream"] == true
-	body, _ := json.Marshal(map[string]any{"model": model, "messages": msgs, "stream": false, "max_tokens": in["max_tokens"]})
+	body, _ := json.Marshal(converted)
 	var resp *http.Response
 	var err error
 	for attempt := 0; attempt < 3; attempt++ {
@@ -808,8 +803,9 @@ func (p *modelRouter) serveAnthropic(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		p.fail(fmt.Sprintf("上游返回 HTTP %d", resp.StatusCode))
-		routeError(w, resp.StatusCode, "上游模型暂时不可用")
+		upstreamMessage := readUpstreamError(resp.Body)
+		p.fail(fmt.Sprintf("上游返回 HTTP %d: %s", resp.StatusCode, upstreamMessage))
+		routeError(w, resp.StatusCode, fmt.Sprintf("上游返回 HTTP %d：%s", resp.StatusCode, upstreamMessage))
 		return
 	}
 	var out map[string]any
@@ -818,10 +814,12 @@ func (p *modelRouter) serveAnthropic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	content := ""
+	toolCalls := []any{}
 	if choices, ok := out["choices"].([]any); ok && len(choices) > 0 {
 		if c, ok := choices[0].(map[string]any); ok {
 			if m, ok := c["message"].(map[string]any); ok {
 				content = str(m["content"])
+				toolCalls = arr(m["tool_calls"])
 			}
 		}
 	}
@@ -830,14 +828,54 @@ func (p *modelRouter) serveAnthropic(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache")
 		writeAnthropicEvent(w, "message_start", map[string]any{"type": "message_start", "message": map[string]any{"id": "msg_local_router", "type": "message", "role": "assistant", "model": model, "content": []any{}, "stop_reason": nil, "stop_sequence": nil, "usage": map[string]any{"input_tokens": 0, "output_tokens": 0}}})
 		writeAnthropicEvent(w, "content_block_start", map[string]any{"type": "content_block_start", "index": 0, "content_block": map[string]any{"type": "text", "text": ""}})
-		writeAnthropicEvent(w, "content_block_delta", map[string]any{"type": "content_block_delta", "index": 0, "delta": map[string]any{"type": "text_delta", "text": content}})
+		if content != "" {
+			writeAnthropicEvent(w, "content_block_delta", map[string]any{"type": "content_block_delta", "index": 0, "delta": map[string]any{"type": "text_delta", "text": content}})
+		}
 		writeAnthropicEvent(w, "content_block_stop", map[string]any{"type": "content_block_stop", "index": 0})
 		writeAnthropicEvent(w, "message_delta", map[string]any{"type": "message_delta", "delta": map[string]any{"stop_reason": "end_turn", "stop_sequence": nil}, "usage": map[string]any{"output_tokens": 0}})
 		writeAnthropicEvent(w, "message_stop", map[string]any{"type": "message_stop"})
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"id": "msg_local_router", "type": "message", "role": "assistant", "model": model, "content": []any{map[string]any{"type": "text", "text": content}}, "stop_reason": "end_turn", "stop_sequence": nil, "usage": map[string]any{"input_tokens": 0, "output_tokens": 0}})
+	responseContent := []any{}
+	if content != "" {
+		responseContent = append(responseContent, map[string]any{"type": "text", "text": content})
+	}
+	for _, raw := range toolCalls {
+		call := obj(raw)
+		fn := obj(call["function"])
+		var input map[string]any
+		if json.Unmarshal([]byte(str(fn["arguments"])), &input) != nil {
+			input = map[string]any{}
+		}
+		responseContent = append(responseContent, map[string]any{"type": "tool_use", "id": str(call["id"]), "name": str(fn["name"]), "input": input})
+	}
+	stopReason := "end_turn"
+	if len(toolCalls) > 0 {
+		stopReason = "tool_use"
+	}
+	json.NewEncoder(w).Encode(map[string]any{"id": "msg_local_router", "type": "message", "role": "assistant", "model": model, "content": responseContent, "stop_reason": stopReason, "stop_sequence": nil, "usage": map[string]any{"input_tokens": 0, "output_tokens": 0}})
+}
+
+func readUpstreamError(body io.Reader) string {
+	raw, _ := io.ReadAll(io.LimitReader(body, 32<<10))
+	var payload map[string]any
+	if json.Unmarshal(raw, &payload) == nil {
+		if message := str(obj(payload["error"])["message"]); message != "" {
+			return message
+		}
+		if message := str(payload["message"]); message != "" {
+			return message
+		}
+	}
+	message := strings.TrimSpace(string(raw))
+	if message == "" {
+		return "上游未提供错误详情"
+	}
+	if len(message) > 500 {
+		message = message[:500]
+	}
+	return message
 }
 
 func mappedRouterModel(requested string, routes map[string]string) string {

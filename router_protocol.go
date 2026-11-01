@@ -212,6 +212,187 @@ func routeContent(v any) (any, error) {
 	return parts, nil
 }
 
+// anthropicToChat converts Claude Messages content blocks to the OpenAI Chat
+// shape accepted by the CiyuanShen gateway. Claude Desktop sends arrays even
+// for ordinary text and includes tool_use/tool_result blocks during agent
+// turns; forwarding those blocks unchanged causes upstream 4xx/5xx errors.
+func anthropicToChat(in map[string]any, model string) (map[string]any, error) {
+	messages := []any{}
+	if system := in["system"]; system != nil {
+		content, err := anthropicContent(system)
+		if err != nil {
+			return nil, err
+		}
+		if content != nil && content != "" {
+			messages = append(messages, map[string]any{"role": "system", "content": content})
+		}
+	}
+	for _, raw := range arr(in["messages"]) {
+		message := obj(raw)
+		role := str(message["role"])
+		if role != "user" && role != "assistant" {
+			return nil, errors.New("Anthropic 消息角色无效")
+		}
+		blocks := arr(message["content"])
+		if blocks == nil {
+			content, err := anthropicContent(message["content"])
+			if err != nil {
+				return nil, err
+			}
+			if role == "user" {
+				messages = append(messages, map[string]any{"role": role, "content": content})
+			} else {
+				messages = appendAnthropicAssistantMessage(messages, content, nil)
+			}
+			continue
+		}
+		contentParts := []any{}
+		toolCalls := []any{}
+		toolResults := []any{}
+		for _, rawBlock := range blocks {
+			block := obj(rawBlock)
+			switch str(block["type"]) {
+			case "text", "image":
+				converted, err := anthropicContent([]any{block})
+				if err != nil {
+					return nil, err
+				}
+				contentParts = append(contentParts, arr(converted)...)
+			case "thinking", "redacted_thinking":
+				// Reasoning is not portable across Chat Completions providers.
+				// Keep visible thinking text when present, omit redacted blocks.
+				if text := str(block["thinking"]); text != "" {
+					contentParts = append(contentParts, map[string]any{"type": "text", "text": text})
+				}
+			case "tool_use":
+				if role != "assistant" {
+					return nil, errors.New("tool_use 只能出现在 assistant 消息中")
+				}
+				arguments, _ := json.Marshal(block["input"])
+				toolCalls = append(toolCalls, map[string]any{
+					"id":   str(block["id"]),
+					"type": "function",
+					"function": map[string]any{
+						"name":      str(block["name"]),
+						"arguments": string(arguments),
+					},
+				})
+			case "tool_result":
+				if role != "user" {
+					return nil, errors.New("tool_result 只能出现在 user 消息中")
+				}
+				toolContent, err := anthropicContent(block["content"])
+				if err != nil {
+					return nil, err
+				}
+				toolResults = append(toolResults, map[string]any{"role": "tool", "tool_call_id": str(block["tool_use_id"]), "content": toolContent})
+			default:
+				return nil, fmt.Errorf("暂不支持 Anthropic 内容类型 %q", str(block["type"]))
+			}
+		}
+		if role == "assistant" {
+			if len(contentParts) > 0 || len(toolCalls) > 0 {
+				messages = appendAnthropicAssistantMessage(messages, contentParts, toolCalls)
+			}
+		} else {
+			if len(contentParts) > 0 {
+				messages = append(messages, map[string]any{"role": role, "content": contentParts})
+			}
+			messages = append(messages, toolResults...)
+		}
+	}
+	if len(messages) == 0 {
+		return nil, errors.New("对话内容为空")
+	}
+	request := map[string]any{"model": model, "messages": messages, "stream": false}
+	for _, key := range []string{"max_tokens", "temperature", "top_p"} {
+		if value, ok := in[key]; ok {
+			request[key] = value
+		}
+	}
+	if stop, ok := in["stop_sequences"]; ok {
+		request["stop"] = stop
+	}
+	tools := []any{}
+	for _, raw := range arr(in["tools"]) {
+		tool := obj(raw)
+		name := str(tool["name"])
+		if name == "" {
+			return nil, errors.New("Anthropic 工具缺少名称")
+		}
+		parameters := tool["input_schema"]
+		if parameters == nil {
+			parameters = map[string]any{"type": "object", "properties": map[string]any{}}
+		}
+		tools = append(tools, map[string]any{"type": "function", "function": map[string]any{"name": name, "description": str(tool["description"]), "parameters": parameters}})
+	}
+	if len(tools) > 0 {
+		request["tools"] = tools
+	}
+	if choice := obj(in["tool_choice"]); choice != nil {
+		switch str(choice["type"]) {
+		case "auto":
+			request["tool_choice"] = "auto"
+		case "any":
+			request["tool_choice"] = "required"
+		case "tool":
+			request["tool_choice"] = map[string]any{"type": "function", "function": map[string]any{"name": str(choice["name"])}}
+		}
+	}
+	return request, nil
+}
+
+func appendAnthropicAssistantMessage(messages []any, content any, calls []any) []any {
+	assistant := map[string]any{"role": "assistant", "content": content}
+	if len(calls) > 0 {
+		assistant["tool_calls"] = calls
+	}
+	if len(messages) > 0 {
+		previous := obj(messages[len(messages)-1])
+		if previous["role"] == "assistant" {
+			previousContent := previous["content"]
+			if previousContent == nil || previousContent == "" {
+				previous["content"] = content
+			} else if previousParts := arr(previousContent); previousParts != nil {
+				previous["content"] = append(previousParts, arr(content)...)
+			}
+			previous["tool_calls"] = append(arr(previous["tool_calls"]), calls...)
+			return messages
+		}
+	}
+	return append(messages, assistant)
+}
+
+func anthropicContent(value any) (any, error) {
+	if text, ok := value.(string); ok {
+		return text, nil
+	}
+	blocks := arr(value)
+	if blocks == nil {
+		return "", nil
+	}
+	parts := []any{}
+	for _, raw := range blocks {
+		block := obj(raw)
+		switch str(block["type"]) {
+		case "text":
+			parts = append(parts, map[string]any{"type": "text", "text": str(block["text"])})
+		case "image":
+			source := obj(block["source"])
+			if source["type"] == "base64" {
+				parts = append(parts, map[string]any{"type": "image_url", "image_url": map[string]any{"url": "data:" + str(source["media_type"]) + ";base64," + str(source["data"])}})
+			} else if source["type"] == "url" {
+				parts = append(parts, map[string]any{"type": "image_url", "image_url": map[string]any{"url": str(source["url"])}})
+			} else {
+				return nil, errors.New("不支持的 Anthropic 图片来源")
+			}
+		default:
+			return nil, fmt.Errorf("暂不支持 Anthropic 内容类型 %q", str(block["type"]))
+		}
+	}
+	return parts, nil
+}
+
 type routeCall struct{ ID, Name, Arguments string }
 type routeOutput struct {
 	w               http.ResponseWriter

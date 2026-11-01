@@ -112,6 +112,37 @@ func TestClaudeDesktopRouterMapsRoleModelToActualModel(t *testing.T) {
 	}
 }
 
+func TestAnthropicToChatConvertsDesktopBlocksAndTools(t *testing.T) {
+	converted, err := anthropicToChat(routerInput(t, `{"model":"claude-sonnet-5","system":[{"type":"text","text":"system rules"}],"messages":[{"role":"user","content":[{"type":"text","text":"inspect"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"aGVsbG8="}}]},{"role":"assistant","content":[{"type":"tool_use","id":"tool-1","name":"read_file","input":{"path":"a.txt"}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-1","content":[{"type":"text","text":"file contents"}]}]}],"tools":[{"name":"read_file","description":"Read a file","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}}],"tool_choice":{"type":"auto"},"max_tokens":123}`), "gpt-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages := arr(converted["messages"])
+	if converted["model"] != "gpt-test" || len(messages) != 4 || len(arr(converted["tools"])) != 1 {
+		t.Fatalf("unexpected converted request: %#v", converted)
+	}
+	user := obj(messages[1])
+	parts := arr(user["content"])
+	if len(parts) != 2 || str(obj(parts[1])["type"]) != "image_url" {
+		t.Fatalf("image content was not converted: %#v", user)
+	}
+	assistant := obj(messages[2])
+	calls := arr(assistant["tool_calls"])
+	if len(calls) != 1 || str(obj(obj(calls[0])["function"])["name"]) != "read_file" {
+		t.Fatalf("tool use was not converted: %#v", assistant)
+	}
+	result := obj(messages[3])
+	if result["role"] != "tool" || result["tool_call_id"] != "tool-1" || converted["max_tokens"] != float64(123) {
+		t.Fatalf("tool result/limits were not converted: %#v", result)
+	}
+}
+
+func TestReadUpstreamErrorExtractsMessage(t *testing.T) {
+	if got := readUpstreamError(strings.NewReader(`{"error":{"message":"invalid model"}}`)); got != "invalid model" {
+		t.Fatalf("error message = %q", got)
+	}
+}
+
 func TestRouterStreamInterleavedTools(t *testing.T) {
 	var body strings.Builder
 	for _, chunk := range []string{

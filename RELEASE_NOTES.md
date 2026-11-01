@@ -1,3 +1,9 @@
+# v0.2.51 · Claude Desktop 500 修复
+
+- 修复 Claude Desktop 路由仅转发文本、未转换 Anthropic 内容块导致上游 HTTP 500 的问题。
+- 支持文本、图片、工具定义、tool_use/tool_result、停止序列和基础采样参数转换。
+- 上游错误响应现在会保留简短错误详情，便于定位模型或请求格式问题。
+
 # v0.2.50 · Claude Desktop 模型映射
 
 - 模型路由页面新增 Claude Desktop 客户端，可选择词元神中的任意对话模型。
