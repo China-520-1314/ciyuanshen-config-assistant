@@ -29,7 +29,7 @@ type RouterRequest struct {
 	DefaultModel   string   `json:"defaultModel,omitempty"`
 	Models         []string `json:"models,omitempty"`
 	UseExistingKey bool     `json:"useExistingKey"`
-	Client         string   `json:"client"` // codex or claude
+	Client         string   `json:"client"` // codex, claude, or claude-desktop
 	ClaudeOneM     bool     `json:"claudeOneM,omitempty"`
 }
 type RouterStatus struct {
@@ -44,16 +44,18 @@ type RouterStatus struct {
 	BackupPath string   `json:"backupPath"`
 }
 type routerJournal struct {
-	Path            string   `json:"path"`
-	Original        []byte   `json:"original"`
-	Installed       []byte   `json:"installed"`
-	Existed         bool     `json:"existed"`
-	Address         string   `json:"address"`
-	CatalogPath     string   `json:"catalogPath,omitempty"`
-	CatalogOriginal []byte   `json:"catalogOriginal,omitempty"`
-	CatalogExisted  bool     `json:"catalogExisted,omitempty"`
-	Models          []string `json:"models,omitempty"`
-	DefaultModel    string   `json:"defaultModel,omitempty"`
+	Path            string            `json:"path"`
+	Original        []byte            `json:"original"`
+	Installed       []byte            `json:"installed"`
+	Existed         bool              `json:"existed"`
+	Address         string            `json:"address"`
+	CatalogPath     string            `json:"catalogPath,omitempty"`
+	CatalogOriginal []byte            `json:"catalogOriginal,omitempty"`
+	CatalogExisted  bool              `json:"catalogExisted,omitempty"`
+	Models          []string          `json:"models,omitempty"`
+	DefaultModel    string            `json:"defaultModel,omitempty"`
+	Alias           string            `json:"alias,omitempty"`
+	Routes          map[string]string `json:"routes,omitempty"`
 }
 type modelRouter struct {
 	mu                   sync.Mutex
@@ -61,6 +63,7 @@ type modelRouter struct {
 	server               *http.Server
 	key, token, upstream string
 	models               []string
+	routes               map[string]string
 	client               *http.Client
 	journal              routerJournal
 }
@@ -136,6 +139,9 @@ func (a *App) GetModelRouterStatus() RouterStatus {
 			s.Address = "http://" + journal.Address
 			s.Model, s.Models = routerModelsFromJournal(journal)
 			s.Alias = s.Model
+			if journal.Alias != "" {
+				s.Alias = journal.Alias
+			}
 			if routerAddressReachable(journal.Address) {
 				s.Running = true
 				s.LastError = "路由仍在运行，但当前助手不是启动它的窗口；点击停止并恢复配置即可接管恢复"
@@ -172,6 +178,13 @@ func routerAddressReachable(address string) bool {
 }
 
 func routerModelsFromJournal(j routerJournal) (string, []string) {
+	if len(j.Routes) > 0 {
+		model := strings.TrimSpace(j.DefaultModel)
+		if model == "" {
+			model = strings.TrimSpace(j.Routes[j.Alias])
+		}
+		return model, uniqueModelIDs(j.Models)
+	}
 	if len(j.Models) > 0 {
 		model := strings.TrimSpace(j.DefaultModel)
 		if model == "" {
@@ -236,12 +249,18 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 	if client == "" {
 		client = "codex"
 	}
-	if client != "codex" && client != "claude" {
+	if client != "codex" && client != "claude" && client != "claude-desktop" {
 		return RouterStatus{}, errors.New("不支持的路由客户端")
 	}
 	path := filepath.Join(home, ".codex", "config.toml")
 	if client == "claude" {
 		path = firstClientPath("claude", home)
+	} else if client == "claude-desktop" {
+		paths, supported := claudeDesktopPaths(home)
+		if !supported {
+			return RouterStatus{}, errors.New("Claude Desktop模型映射仅支持 Windows 和 macOS")
+		}
+		path = paths.Profile
 	}
 	original, err := os.ReadFile(path)
 	existed := err == nil
@@ -255,6 +274,9 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 	if client == "claude" {
 		r.Models = selectedModels
 		return a.startClaudeRouter(r, key, path, home, listener)
+	}
+	if client == "claude-desktop" {
+		return a.startClaudeDesktopRouter(r, key, path, home, listener, selectedModels)
 	}
 	root, err := readTOMLMap(path)
 	if err != nil {
@@ -351,7 +373,7 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 		_ = os.Remove(routerJournalPath())
 		return RouterStatus{}, err
 	}
-	proxy := &modelRouter{key: key, token: token, upstream: defaultGatewayURL, models: selectedModels, client: &http.Client{Timeout: 10 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, journal: journal,
+	proxy := &modelRouter{key: key, token: token, upstream: defaultGatewayURL, models: selectedModels, routes: map[string]string{}, client: &http.Client{Timeout: 10 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, journal: journal,
 		status: RouterStatus{Running: true, Alias: defaultModel, Model: defaultModel, Models: selectedModels, Address: address, BackupPath: routerJournalPath()}}
 	proxy.server = &http.Server{Handler: proxy, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
 	a.router = proxy
@@ -382,7 +404,12 @@ func (a *App) startClaudeRouter(r RouterRequest, key, path, home string, listene
 	}
 	env := ensureMap(root, "env")
 	env["ANTHROPIC_BASE_URL"] = "http://" + listener.Addr().String() + "/v1"
-	env["ANTHROPIC_AUTH_TOKEN"] = key
+	token, err := createProvisionID()
+	if err != nil {
+		listener.Close()
+		return RouterStatus{}, err
+	}
+	env["ANTHROPIC_AUTH_TOKEN"] = token
 	defaultModel := strings.TrimSpace(r.DefaultModel)
 	if defaultModel == "" {
 		defaultModel = strings.TrimSpace(r.Model)
@@ -410,11 +437,6 @@ func (a *App) startClaudeRouter(r RouterRequest, key, path, home string, listene
 		listener.Close()
 		return RouterStatus{}, err
 	}
-	token, err := createProvisionID()
-	if err != nil {
-		listener.Close()
-		return RouterStatus{}, err
-	}
 	journal := routerJournal{Path: path, Original: original, Installed: installed, Existed: existed, Address: listener.Addr().String(), Models: uniqueModelIDs(r.Models), DefaultModel: defaultModel}
 	encoded, _ := json.Marshal(journal)
 	if err = createRouterJournal(encoded); err != nil {
@@ -426,7 +448,101 @@ func (a *App) startClaudeRouter(r RouterRequest, key, path, home string, listene
 		_ = os.Remove(routerJournalPath())
 		return RouterStatus{}, err
 	}
-	proxy := &modelRouter{key: key, token: token, upstream: defaultGatewayURL, models: uniqueModelIDs(r.Models), client: &http.Client{Timeout: 10 * time.Minute}, journal: journal, status: RouterStatus{Running: true, Alias: defaultModel, Model: defaultModel, Models: uniqueModelIDs(r.Models), Address: "http://" + listener.Addr().String(), BackupPath: routerJournalPath()}}
+	proxy := &modelRouter{key: key, token: token, upstream: defaultGatewayURL, models: uniqueModelIDs(r.Models), routes: map[string]string{}, client: &http.Client{Timeout: 10 * time.Minute}, journal: journal, status: RouterStatus{Running: true, Alias: defaultModel, Model: defaultModel, Models: uniqueModelIDs(r.Models), Address: "http://" + listener.Addr().String(), BackupPath: routerJournalPath()}}
+	proxy.server = &http.Server{Handler: proxy, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
+	a.router = proxy
+	go func() {
+		if err := proxy.server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			proxy.mu.Lock()
+			proxy.status.Running = false
+			proxy.status.LastError = "本地路由停止，请恢复配置后重启"
+			proxy.mu.Unlock()
+		}
+	}()
+	proxy.mu.Lock()
+	defer proxy.mu.Unlock()
+	return proxy.status, nil
+}
+
+var claudeDesktopRouteIDs = []string{"claude-sonnet-5", "claude-opus-5", "claude-haiku-5", "claude-fable-5"}
+
+func claudeDesktopRoutes(models []string) (map[string]string, []string) {
+	routes := make(map[string]string)
+	ids := make([]string, 0, len(models))
+	for i, model := range uniqueModelIDs(models) {
+		if i >= len(claudeDesktopRouteIDs) {
+			break
+		}
+		id := claudeDesktopRouteIDs[i]
+		routes[id] = model
+		ids = append(ids, id)
+	}
+	return routes, ids
+}
+
+func (a *App) startClaudeDesktopRouter(r RouterRequest, key, path, home string, listener net.Listener, selected []string) (RouterStatus, error) {
+	root, err := readJSONMap(path)
+	if err != nil {
+		listener.Close()
+		return RouterStatus{}, err
+	}
+	token, err := createProvisionID()
+	if err != nil {
+		listener.Close()
+		return RouterStatus{}, err
+	}
+	routes, routeIDs := claudeDesktopRoutes(selected)
+	if len(routeIDs) == 0 {
+		listener.Close()
+		return RouterStatus{}, errors.New("请先选择至少一个模型")
+	}
+	defaultModel := strings.TrimSpace(r.DefaultModel)
+	if defaultModel == "" {
+		defaultModel = selected[0]
+	}
+	if !containsString(selected, defaultModel) {
+		listener.Close()
+		return RouterStatus{}, errors.New("Claude Desktop默认模型必须来自已选择的模型映射")
+	}
+	defaultAlias := routeIDs[0]
+	for alias, upstream := range routes {
+		if upstream == defaultModel {
+			defaultAlias = alias
+			break
+		}
+	}
+	root["inferenceGatewayApiKey"] = token
+	root["inferenceGatewayAuthScheme"] = "bearer"
+	root["inferenceGatewayBaseUrl"] = "http://" + listener.Addr().String()
+	root["inferenceProvider"] = "gateway"
+	models := make([]any, 0, len(routeIDs))
+	for _, id := range routeIDs {
+		models = append(models, id)
+	}
+	root["inferenceModels"] = models
+	installed, err := marshalJSON(root)
+	if err != nil {
+		listener.Close()
+		return RouterStatus{}, err
+	}
+	original, readErr := os.ReadFile(path)
+	existed := readErr == nil
+	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+		listener.Close()
+		return RouterStatus{}, readErr
+	}
+	journal := routerJournal{Path: path, Original: original, Installed: installed, Existed: existed, Address: listener.Addr().String(), Models: routeIDs, DefaultModel: defaultModel, Alias: defaultAlias, Routes: routes}
+	encoded, _ := json.Marshal(journal)
+	if err = createRouterJournal(encoded); err != nil {
+		listener.Close()
+		return RouterStatus{}, err
+	}
+	if err = atomicWrite(path, installed); err != nil {
+		listener.Close()
+		_ = os.Remove(routerJournalPath())
+		return RouterStatus{}, err
+	}
+	proxy := &modelRouter{key: key, token: token, upstream: defaultGatewayURL, models: routeIDs, routes: routes, client: &http.Client{Timeout: 10 * time.Minute}, journal: journal, status: RouterStatus{Running: true, Alias: defaultAlias, Model: defaultModel, Models: routeIDs, Address: "http://" + listener.Addr().String(), BackupPath: routerJournalPath()}}
 	proxy.server = &http.Server{Handler: proxy, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
 	a.router = proxy
 	go func() {
@@ -470,7 +586,7 @@ func restoreRouterJournal(j routerJournal) error {
 	if err != nil {
 		return err
 	}
-	if j.Path != filepath.Join(home, ".codex", "config.toml") && filepath.Base(j.Path) != "settings.json" {
+	if j.Path != filepath.Join(home, ".codex", "config.toml") && filepath.Base(j.Path) != "settings.json" && filepath.Base(j.Path) != claudeDesktopProfileID+".json" {
 		return errors.New("恢复记录的配置路径不匹配")
 	}
 	current, err := os.ReadFile(j.Path)
@@ -650,6 +766,7 @@ func (p *modelRouter) serveAnthropic(w http.ResponseWriter, r *http.Request) {
 	model, upstream, key := p.status.Model, p.upstream, p.key
 	if requested := str(in["model"]); requested != "" {
 		model = requested
+		model = mappedRouterModel(requested, p.routes)
 	}
 	p.mu.Unlock()
 	msgs := []any{}
@@ -663,6 +780,7 @@ func (p *modelRouter) serveAnthropic(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	stream := in["stream"] == true
 	body, _ := json.Marshal(map[string]any{"model": model, "messages": msgs, "stream": false, "max_tokens": in["max_tokens"]})
 	var resp *http.Response
 	var err error
@@ -707,8 +825,52 @@ func (p *modelRouter) serveAnthropic(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	if stream {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		writeAnthropicEvent(w, "message_start", map[string]any{"type": "message_start", "message": map[string]any{"id": "msg_local_router", "type": "message", "role": "assistant", "model": model, "content": []any{}, "stop_reason": nil, "stop_sequence": nil, "usage": map[string]any{"input_tokens": 0, "output_tokens": 0}}})
+		writeAnthropicEvent(w, "content_block_start", map[string]any{"type": "content_block_start", "index": 0, "content_block": map[string]any{"type": "text", "text": ""}})
+		writeAnthropicEvent(w, "content_block_delta", map[string]any{"type": "content_block_delta", "index": 0, "delta": map[string]any{"type": "text_delta", "text": content}})
+		writeAnthropicEvent(w, "content_block_stop", map[string]any{"type": "content_block_stop", "index": 0})
+		writeAnthropicEvent(w, "message_delta", map[string]any{"type": "message_delta", "delta": map[string]any{"stop_reason": "end_turn", "stop_sequence": nil}, "usage": map[string]any{"output_tokens": 0}})
+		writeAnthropicEvent(w, "message_stop", map[string]any{"type": "message_stop"})
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"id": "msg_local_router", "type": "message", "role": "assistant", "model": model, "content": []any{map[string]any{"type": "text", "text": content}}, "stop_reason": "end_turn", "stop_sequence": nil, "usage": map[string]any{"input_tokens": 0, "output_tokens": 0}})
+}
+
+func mappedRouterModel(requested string, routes map[string]string) string {
+	if mapped := routes[requested]; mapped != "" {
+		return mapped
+	}
+	normalized := strings.TrimSpace(requested)
+	if strings.HasSuffix(strings.ToLower(normalized), "[1m]") {
+		normalized = strings.TrimSpace(normalized[:len(normalized)-4])
+		if mapped := routes[normalized]; mapped != "" {
+			return mapped
+		}
+	}
+	lower := strings.ToLower(normalized)
+	for _, keyword := range []string{"sonnet", "opus", "haiku", "fable"} {
+		if !strings.Contains(lower, keyword) {
+			continue
+		}
+		for role, mapped := range routes {
+			if strings.Contains(strings.ToLower(role), keyword) {
+				return mapped
+			}
+		}
+	}
+	return requested
+}
+
+func writeAnthropicEvent(w http.ResponseWriter, event string, payload map[string]any) {
+	data, _ := json.Marshal(payload)
+	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 func (p *modelRouter) fail(message string) {
 	p.mu.Lock()
@@ -738,6 +900,15 @@ func uniqueModelIDs(values []string) []string {
 		}
 	}
 	return result
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func minInt(a, b int) int {

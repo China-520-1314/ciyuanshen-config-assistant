@@ -41,3 +41,19 @@ func TestClaudeDesktopInferenceModelsLimit(t *testing.T) {
 		t.Fatalf("expected selected model first and %d total, got %d", maxClaudeDesktopModels, len(models))
 	}
 }
+
+func TestClaudeDesktopRoutesUseSafeAliasesForActualModels(t *testing.T) {
+	routes, ids := claudeDesktopRoutes([]string{"gpt-6.1-sol", "gemini-3-pro", "deepseek-v4"})
+	wantIDs := []string{"claude-sonnet-5", "claude-opus-5", "claude-haiku-5"}
+	if len(ids) != len(wantIDs) {
+		t.Fatalf("route ids = %v, want %v", ids, wantIDs)
+	}
+	for i, id := range wantIDs {
+		if ids[i] != id {
+			t.Fatalf("route %d = %q, want %q", i, ids[i], id)
+		}
+	}
+	if routes["claude-sonnet-5"] != "gpt-6.1-sol" || routes["claude-opus-5"] != "gemini-3-pro" || routes["claude-haiku-5"] != "deepseek-v4" {
+		t.Fatalf("unexpected route mapping: %#v", routes)
+	}
+}

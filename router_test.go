@@ -92,6 +92,26 @@ func TestRouterStreamsAndFailures(t *testing.T) {
 	}
 }
 
+func TestClaudeDesktopRouterMapsRoleModelToActualModel(t *testing.T) {
+	var requestedModel string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		requestedModel = str(body["model"])
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"finish_reason":"stop","message":{"content":"ok"}}]}`)
+	}))
+	defer upstream.Close()
+	p := &modelRouter{token: "local-token", key: "upstream-key", upstream: upstream.URL, routes: map[string]string{"claude-sonnet-5": "gpt-6.1-sol"}, client: upstream.Client(), models: []string{"claude-sonnet-5"}, status: RouterStatus{Model: "gpt-6.1-sol"}}
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"claude-sonnet-5","messages":[{"role":"user","content":"hi"}],"max_tokens":20}`))
+	req.Header.Set("Authorization", "Bearer local-token")
+	recorder := httptest.NewRecorder()
+	p.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK || requestedModel != "gpt-6.1-sol" {
+		t.Fatalf("status=%d model=%q body=%s", recorder.Code, requestedModel, recorder.Body.String())
+	}
+}
+
 func TestRouterStreamInterleavedTools(t *testing.T) {
 	var body strings.Builder
 	for _, chunk := range []string{

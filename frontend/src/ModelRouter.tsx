@@ -22,7 +22,7 @@ const initial: Status = { running: false, model: '', alias: '', models: [], addr
 export default function ModelRouter({ onLogin }: { onLogin?: () => void }) {
   const [status, setStatus] = useState(initial);
   const [mode, setMode] = useState<'auto' | 'manual'>('auto');
-  const [client, setClient] = useState<'codex' | 'claude'>('codex');
+  const [client, setClient] = useState<'codex' | 'claude' | 'claude-desktop'>('codex');
   const [key, setKey] = useState('');
   const [models, setModels] = useState<string[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -103,10 +103,10 @@ export default function ModelRouter({ onLogin }: { onLogin?: () => void }) {
   const modelGroups = groups.filter(group => !primaryModel || group.models.some(item => item.id === primaryModel)).sort((a, b) => ratio(a.ratio) - ratio(b.ratio) || a.name.localeCompare(b.name));
   const modelKeys = keys.filter(item => !primaryModel || item.models.some(candidate => candidate.id === primaryModel));
   return <div className="content-stack narrow-stack router-page">
-    <div className="page-intro"><div><p className="eyebrow">模型路由</p><h2>在 Codex 里使用更多模型</h2><p>选择词元神 Key 和实际模型，一键连接 Claude、Gemini、Grok、DeepSeek 等。</p></div></div>
+    <div className="page-intro"><div><p className="eyebrow">模型路由</p><h2>在客户端里使用更多模型</h2><p>选择词元神 Key 和实际模型，一键连接 Claude、Gemini、Grok、DeepSeek 等。</p></div></div>
     {existing && <div role="status" aria-live="polite"><p>{loadingOptions ? (models.length ? '正在刷新模型和分组，可继续选择已有模型…' : '正在自动获取账号模型和分组，请稍候…') : '切换页面会保留模型列表和选择；需要更新时请点击刷新。'}</p><button className="secondary-button" disabled={loadingOptions || Boolean(busy) || status.running} onClick={() => void loadAutomaticOptions()}><RefreshCw size={15} className={loadingOptions ? 'spin' : ''} />{loadingOptions ? '获取中…' : '刷新模型和分组'}</button></div>}
     <section className="router-card">
-      <h3>选择要接入的客户端</h3><div className="field-block"><label htmlFor="router-client">路由客户端</label><select id="router-client" value={client} disabled={locked} onChange={e=>setClient(e.target.value as 'codex'|'claude')}><option value="codex">Codex</option><option value="claude">Claude Code CLI / 插件</option></select><p className="field-note">Claude Code 会通过 Anthropic Messages API 连接本地路由；启动后请重新打开 Claude Code。</p></div>
+      <h3>选择要接入的客户端</h3><div className="field-block"><label htmlFor="router-client">路由客户端</label><select id="router-client" value={client} disabled={locked} onChange={e=>setClient(e.target.value as 'codex'|'claude'|'claude-desktop')}><option value="codex">Codex</option><option value="claude">Claude Code CLI / 插件</option><option value="claude-desktop">Claude Desktop</option></select><p className="field-note">{client === 'claude-desktop' ? 'Claude Desktop 只接受 Claude 角色名称；助手会把 Sonnet、Opus、Haiku、Fable 映射到所选实际模型。启动后请完全退出并重新打开 Claude Desktop，并保持助手运行。' : 'Claude Code 会通过 Anthropic Messages API 连接本地路由；启动后请重新打开 Claude Code。'}</p></div>
       {client === 'claude' && <div className="field-block"><label><input type="checkbox" checked={claudeOneM} disabled={locked} onChange={e => setClaudeOneM(e.target.checked)} /> 启用 Claude 1M 上下文</label><p className="field-note">开启后写入 Claude Code 的 1,000,000 token 上下文和自动压缩配置；是否真正可用仍取决于上游模型和账号权限。</p></div>}
       <h3>1 · 选择用于连接的 Key</h3>
       <fieldset className="router-choices" disabled={loadingOptions}>
@@ -122,14 +122,14 @@ export default function ModelRouter({ onLogin }: { onLogin?: () => void }) {
     <section className="router-card">
       <h3>2 · 选择真正回答你的模型</h3>
       <div className="field-block"><label htmlFor="router-model">模型映射（可多选）</label><select className="router-model-select" id="router-model" multiple size={Math.min(16, Math.max(8, visible.length))} value={selectedModels} disabled={locked || !models.length} onChange={e => { const ids=Array.from(e.target.selectedOptions).map(o=>o.value); const id=ids[0] || ''; setSelectedModels(ids); setModel(id); const match=keys.find(k => k.models.some(m => m.id === id)); const candidates=groups.filter(g => g.models.some(m => m.id === id)).sort((a,b) => ratio(a.ratio)-ratio(b.ratio) || a.name.localeCompare(b.name)); if (match) { setProvisionId(match.provisionId); setSelectedGroup(match.group); setNotice(`已找到该模型的已有 Key：${match.group || '未命名分组'}。`); } else if (candidates.length) { setProvisionId(''); setSelectedGroup(candidates[0].name); setNotice(`未找到该模型的已有 Key，已自动选择最低倍率分组：${candidates[0].name}。启动时将自动创建 Key。`); } else { setProvisionId(''); setSelectedGroup(''); setNotice('没有找到支持该模型的可用分组。'); } }}>{providers.map(provider => <optgroup key={provider} label={provider.toUpperCase()}>{visible.filter(id => id.split(/[-/:]/)[0].toLowerCase() === provider).map(id => <option key={id} value={id}>{id}</option>)}</optgroup>)}</select><p className="router-model-count">已选择 {selectedModels.length} 个映射模型{selectedModels.length ? ` · 映射第一行 ${selectedModels[0]}` : ''}</p><p className="field-note">按住 Ctrl（Windows）或 Command（Mac）可选择多个映射模型；映射模型会出现在 Codex 的 /model 菜单中。</p></div>
-      <div className="field-block"><label htmlFor="router-default-model">{client === 'claude' ? '默认请求模型' : 'Codex 默认请求模型'}</label><input id="router-default-model" value={defaultModel} disabled={locked || !selectedModels.length} placeholder={primaryModel || '留空时使用映射第一行'} onChange={e => setDefaultModel(e.target.value)} /><p className="field-note">留空时默认使用映射第一行。选择多个模型后，Claude Code 会同步到 Sonnet、Opus、Haiku 模型映射。</p></div>
+      <div className="field-block"><label htmlFor="router-default-model">{client === 'codex' ? 'Codex 默认请求模型' : '默认请求模型'}</label><input id="router-default-model" value={defaultModel} disabled={locked || !selectedModels.length} placeholder={primaryModel || '留空时使用映射第一行'} onChange={e => setDefaultModel(e.target.value)} /><p className="field-note">留空时默认使用映射第一行。Claude Code 会同步到 Sonnet、Opus、Haiku；Claude Desktop 会按选择顺序映射到 Claude 角色名称。</p></div>
       <div className="router-mapping"><span>菜单显示名<br /><strong>{status.running ? status.alias : effectiveDefaultModel || '等待选择'}</strong></span><ArrowRight size={22} /><span>实际请求模型<br /><strong>{status.running ? status.model : effectiveDefaultModel || '等待选择'}</strong></span></div>
-      <p className="field-note">模型列表汇总账号所有可用分组，并按供应商分类；当前选择的分组 Key 必须实际拥有映射模型权限。默认请求模型可以填写菜单外的模型，直接请求仍会转发。</p>
+      <p className="field-note">模型列表汇总账号所有可用分组，并按供应商分类；当前选择的分组 Key 必须实际拥有映射模型权限。Claude Desktop 最多映射四个模型，顺序依次为 Sonnet、Opus、Haiku、Fable。</p>
     </section>
     <section className="router-card">
-      <h3>3 · 一键启动，回到 Codex 开始使用</h3>
-      <p>启动时自动备份并切换 Codex 配置；停止或正常退出助手时恢复。如果配置被其他程序修改，会保留修改和恢复记录。重新打开 Codex、新建对话后生效。</p>
-      <div className="router-actions"><button className="primary-button" disabled={locked || !model || (existing && !provisionId && !selectedGroup) || (!existing && !key.trim())} onClick={() => void run('start')}><Play size={16} />{busy === 'start' ? '启动中…' : '一键启动并配置 Codex'}</button><button className="secondary-button" disabled={Boolean(busy) || (!status.running && !status.lastError)} onClick={() => void run('stop')}><Square size={15} />{busy === 'stop' ? '恢复中…' : '停止并恢复配置'}</button></div>
+      <h3>3 · 一键启动，回到客户端使用</h3>
+      <p>启动时自动备份并切换客户端配置；停止或正常退出助手时恢复。如果配置被其他程序修改，会保留修改和恢复记录。{client === 'claude-desktop' ? '完全退出并重新打开 Claude Desktop 后生效。' : '重新打开客户端、新建对话后生效。'}</p>
+      <div className="router-actions"><button className="primary-button" disabled={locked || !model || (existing && !provisionId && !selectedGroup) || (!existing && !key.trim())} onClick={() => void run('start')}><Play size={16} />{busy === 'start' ? '启动中…' : '一键启动并配置客户端'}</button><button className="secondary-button" disabled={Boolean(busy) || (!status.running && !status.lastError)} onClick={() => void run('stop')}><Square size={15} />{busy === 'stop' ? '恢复中…' : '停止并恢复配置'}</button></div>
       <div className="router-live" role="status"><Activity size={17} /><strong>{status.running ? '运行中' : '未启动'}</strong>{status.running && <span>请求 {status.requests} 次 · 失败 {status.failures} 次</span>}</div>
       {status.running && <p className="field-note">本机地址：{status.address} · 使用期间请保持助手运行。</p>}
       {(error || status.lastError) && <div className="router-error" role="alert">{error || status.lastError}</div>}

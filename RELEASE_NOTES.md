@@ -1,3 +1,11 @@
+# v0.2.48 · Claude Desktop 模型映射
+
+- 模型路由页面新增 Claude Desktop 客户端，可选择词元神中的任意对话模型。
+- Claude Desktop 配置写入安全的 Sonnet、Opus、Haiku、Fable 角色名称，助手本地路由按选择顺序映射到实际模型和对应 Key 分组。
+- 支持 Anthropic Messages 非流式和流式响应，停止路由或助手恢复时自动还原 Claude Desktop profile。
+- Claude Code 路由令牌改为独立的本地令牌，避免把上游 Key 暴露给本地代理配置。
+- 验证：Go 全量测试、路由模型映射测试、前端生产构建。
+
 # v0.2.43 · 加速倍率与分组提示
 
 - UltraFast 统一显示“8倍推理速度，6倍消耗计费”。
