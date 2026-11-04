@@ -43,6 +43,12 @@ func clientDefinitions() []clientDefinition {
 			return []string{filepath.Join(home, ".openclaw", "openclaw.json")}
 		}},
 		{ID: "hermes", Name: "Hermes Agent", Commands: []string{"hermes"}, Kind: configYAML, DownloadURL: "https://github.com/NousResearch/hermes-agent", Paths: hermesPaths},
+		{ID: "deepseek-harness", Name: "DeepSeek Harness", Commands: []string{"dsh", "deepseek-harness"}, Kind: configYAML, DownloadURL: "https://github.com/deepseek-ai/DeepSeek-Harness", Paths: deepSeekHarnessPaths},
+		{ID: "pi", Name: "Pi Coding Agent", Commands: []string{"pi"}, Kind: configJSON5, DownloadURL: "https://github.com/badlogic/pi-mono", Paths: piPaths},
+		{ID: "mcode", Name: "MCode", Commands: []string{"mcode", "minimax"}, Kind: configYAML, DownloadURL: "https://code.minimax.io/", Paths: mcodePaths},
+		{ID: "kimi", Name: "Kimi Code", Commands: []string{"kimi"}, Kind: configTOML, DownloadURL: "https://code.kimi.com/", Paths: kimiPaths},
+		{ID: "antigravity", Name: "Antigravity CLI", Commands: []string{"agy"}, Kind: configJSON, DownloadURL: "https://antigravity.google/cli", Paths: antigravityPaths},
+		{ID: "omp", Name: "Oh My Pi", Commands: []string{"omp", "oh-my-pi"}, Kind: configYAML, DownloadURL: "https://github.com/can1357/oh-my-pi", Paths: ompPaths},
 	}
 }
 
@@ -68,6 +74,80 @@ func hermesPaths(home string) []string {
 	}
 	paths = append(paths, filepath.Join(home, ".hermes", "config.yaml"))
 	return uniquePaths(paths)
+}
+
+func deepSeekHarnessPaths(home string) []string {
+	root := strings.TrimSpace(os.Getenv("DSH_HOME"))
+	if root == "" {
+		root = filepath.Join(home, ".dsh")
+	}
+	return []string{filepath.Join(root, "profiles", "web", "cordis.patch.yml"), filepath.Join(root, "profiles", "desktop", "cordis.patch.yml")}
+}
+
+func piPaths(home string) []string {
+	root := strings.TrimSpace(os.Getenv("PI_CODING_AGENT_DIR"))
+	if root == "" {
+		root = filepath.Join(home, ".pi", "agent")
+	}
+	return []string{filepath.Join(root, "models.json")}
+}
+
+func mcodePaths(home string) []string {
+	root := strings.TrimSpace(os.Getenv("MINIMAX_DATA_DIR"))
+	if root == "" {
+		root = strings.TrimSpace(os.Getenv("MAVIS_DATA_DIR"))
+	}
+	if root == "" {
+		root = filepath.Join(home, ".minimax")
+	}
+	return []string{filepath.Join(root, "config.yaml")}
+}
+
+func kimiPaths(home string) []string {
+	root := strings.TrimSpace(os.Getenv("KIMI_CODE_HOME"))
+	if root == "" {
+		root = filepath.Join(home, ".kimi-code")
+	}
+	return []string{filepath.Join(root, "config.toml")}
+}
+
+func antigravityPaths(home string) []string {
+	return []string{filepath.Join(home, ".ciyuanshen", "antigravity", "antigravity-cli", "settings.json")}
+}
+
+func ompPaths(home string) []string {
+	root := strings.TrimSpace(os.Getenv("PI_CODING_AGENT_DIR"))
+	configDir := strings.TrimSpace(os.Getenv("PI_CONFIG_DIR"))
+	if configDir == "" {
+		configDir = ".omp"
+	}
+	profile := strings.TrimSpace(os.Getenv("OMP_PROFILE"))
+	if profile == "" {
+		profile = strings.TrimSpace(os.Getenv("PI_PROFILE"))
+	}
+	if profile != "" && profile != "default" {
+		// Reject traversal rather than writing outside the native profile directory.
+		if !validOMPProfile(profile) {
+			return nil
+		}
+		root = filepath.Join(home, configDir, "profiles", profile, "agent")
+	}
+	if root == "" {
+		root = filepath.Join(home, configDir, "agent")
+	}
+	models := filepath.Join(root, "models.yml")
+	if _, err := os.Stat(models); os.IsNotExist(err) {
+		if _, err = os.Stat(filepath.Join(root, "models.yaml")); err == nil {
+			models = filepath.Join(root, "models.yaml")
+		}
+	}
+	settings := filepath.Join(root, "config.yml")
+	if _, err := os.Stat(settings); os.IsNotExist(err) {
+		if _, err = os.Stat(filepath.Join(root, "config.yaml")); err == nil {
+			settings = filepath.Join(root, "config.yaml")
+		}
+	}
+	return []string{models, settings}
 }
 
 func scanEnvironment() EnvironmentReport {

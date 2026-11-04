@@ -120,6 +120,7 @@ jobs:
           if-no-files-found: error
 
   build-macos:
+    needs: build-windows
     runs-on: macos-15
     steps:
       - name: Checkout

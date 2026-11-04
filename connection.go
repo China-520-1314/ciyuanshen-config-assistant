@@ -233,6 +233,100 @@ func readConfiguredClientAPIKey(home, target string) (string, error) {
 			return requiredNonEmptyString(provider, "api_key")
 		}
 		return "", errors.New("缺少 ciyuanshen 服务商配置")
+	case "pi":
+		root, err := readJSON5Map(piPaths(home)[0])
+		if err != nil {
+			return "", err
+		}
+		providers, err := requiredMap(root, "providers")
+		if err != nil {
+			return "", err
+		}
+		provider, err := requiredMap(providers, managedProviderName)
+		if err != nil {
+			return "", err
+		}
+		value, err := requiredNonEmptyString(provider, "apiKey")
+		return strings.NewReplacer("$$", "$", "$!", "!").Replace(value), err
+	case "mcode":
+		root, err := readYAMLMap(firstClientPath("mcode", home))
+		if err != nil {
+			return "", err
+		}
+		providers, err := requiredMap(root, "custom_provider")
+		if err != nil {
+			return "", err
+		}
+		provider, err := requiredMap(providers, managedProviderName)
+		if err != nil {
+			return "", err
+		}
+		options, err := requiredMap(provider, "options")
+		if err != nil {
+			return "", err
+		}
+		return requiredNonEmptyString(options, "apiKey")
+	case "kimi":
+		root, err := readTOMLMap(firstClientPath("kimi", home))
+		if err != nil {
+			return "", err
+		}
+		providers, err := requiredMap(root, "providers")
+		if err != nil {
+			return "", err
+		}
+		provider, err := requiredMap(providers, managedProviderName)
+		if err != nil {
+			return "", err
+		}
+		return requiredNonEmptyString(provider, "api_key")
+	case "antigravity":
+		content, err := os.ReadFile(antigravityEnvPath(home))
+		if err != nil {
+			return "", err
+		}
+		key, ok := envFileValue(string(content), "GEMINI_API_KEY")
+		if !ok || strings.TrimSpace(key) == "" {
+			return "", errors.New("GEMINI_API_KEY 未正确配置")
+		}
+		return strings.TrimSpace(key), nil
+	case "omp":
+		paths := ompPaths(home)
+		if len(paths) == 0 {
+			return "", errors.New("Oh My Pi profile 名称无效")
+		}
+		root, err := readYAMLMap(paths[0])
+		if err != nil {
+			return "", err
+		}
+		providers, err := requiredMap(root, "providers")
+		if err != nil {
+			return "", err
+		}
+		provider, err := requiredMap(providers, managedProviderName)
+		if err != nil {
+			return "", err
+		}
+		return requiredNonEmptyString(provider, "apiKey")
+	case "deepseek-harness":
+		provider, err := dshProvider(home)
+		if err != nil {
+			return "", err
+		}
+		reference, err := requiredNonEmptyString(provider, "apiKeyEnv")
+		if err != nil {
+			return "", err
+		}
+		credentials, err := readYAMLMap(filepath.Join(dshRoot(home), ".credentials.yaml"))
+		if err != nil {
+			return "", err
+		}
+		refs, err := requiredMap(credentials, "refs")
+		if err != nil {
+			return "", err
+		}
+		return requiredNonEmptyString(refs, reference)
+
 	default:
 		return "", fmt.Errorf("不支持的工具：%s", target)
 	}
@@ -344,6 +438,63 @@ func readConfiguredClientDefaultModel(home, target string) (string, error) {
 			return "", err
 		}
 		return requiredNonEmptyString(model, "default")
+	case "pi":
+		root, err := readJSON5Map(filepath.Join(filepath.Dir(piPaths(home)[0]), "settings.json"))
+		if err != nil {
+			return "", err
+		}
+		if err = requiredString(root, "defaultProvider", managedProviderName); err != nil {
+			return "", err
+		}
+		return requiredNonEmptyString(root, "defaultModel")
+
+	case "mcode":
+		root, err := readYAMLMap(firstClientPath("mcode", home))
+		if err != nil {
+			return "", err
+		}
+		value, _ := root["defaultModel"].(string)
+		return strings.TrimPrefix(value, "custom_provider:"+managedProviderName+"/"), nil
+	case "kimi":
+		root, err := readTOMLMap(firstClientPath("kimi", home))
+		if err != nil {
+			return "", err
+		}
+		value, _ := root["default_model"].(string)
+		return strings.TrimPrefix(value, managedProviderName+"/"), nil
+	case "omp":
+		paths := ompPaths(home)
+		if len(paths) == 0 {
+			return "", errors.New("Oh My Pi profile 名称无效")
+		}
+		root, err := readYAMLMap(paths[1])
+		if err != nil {
+			return "", err
+		}
+		roles, err := requiredMap(root, "modelRoles")
+		if err != nil {
+			return "", err
+		}
+		value, err := requiredNonEmptyString(roles, "default")
+		return strings.TrimPrefix(value, managedProviderName+"/"), err
+	case "deepseek-harness":
+		provider, err := dshProvider(home)
+		if err != nil {
+			return "", err
+		}
+		return firstProviderModel(provider)
+
+	case "antigravity":
+		content, err := os.ReadFile(antigravityEnvPath(home))
+		if err != nil {
+			return "", err
+		}
+		model, ok := envFileValue(string(content), "GEMINI_MODEL")
+		if !ok || strings.TrimSpace(model) == "" {
+			return "", errors.New("未配置 Antigravity 模型")
+		}
+		return model, nil
+
 	default:
 		return "", fmt.Errorf("不支持的工具：%s", target)
 	}
@@ -449,6 +600,9 @@ func verifyManagedClientConfiguration(home, target, key string) error {
 		return verifyOpenClawConfiguration(home, key)
 	case "hermes":
 		return verifyHermesConfiguration(home, key)
+	case "pi", "mcode", "kimi", "antigravity", "omp", "deepseek-harness":
+		return verifyAdditionalClientConfiguration(home, target, key)
+
 	default:
 		return fmt.Errorf("不支持的工具：%s", target)
 	}

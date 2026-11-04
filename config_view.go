@@ -74,7 +74,11 @@ func (a *App) GetClientConfiguration(clientID string, revealSecrets bool) (Clien
 		file.Exists = true
 		file.Content = string(content)
 		if !revealSecrets {
-			file.Content = redactConfigurationContent(file.Content)
+			if clientID == "antigravity" && path == antigravityLauncherPath(home) {
+				file.Content = "启动脚本包含进程凭据，内容已隐藏。点击显示敏感信息可在本机查看。"
+			} else {
+				file.Content = redactConfigurationContent(file.Content)
+			}
 		}
 		view.Files = append(view.Files, file)
 	}
@@ -110,6 +114,13 @@ func clientConfigurationPaths(clientID, home string) []string {
 		paths = append(paths, filepath.Join(home, ".codex", "auth.json"))
 	case "gemini":
 		paths = append(paths, filepath.Join(home, ".gemini", "settings.json"))
+	case "deepseek-harness":
+		paths = append(paths, dshProfilePaths(home)...)
+		paths = append(paths, filepath.Join(dshRoot(home), ".credentials.yaml"))
+	case "pi":
+		paths = append(paths, filepath.Join(filepath.Dir(piPaths(home)[0]), "settings.json"))
+	case "antigravity":
+		paths = append(paths, antigravityEnvPath(home), antigravityLauncherPath(home))
 	}
 	return uniquePaths(paths)
 }

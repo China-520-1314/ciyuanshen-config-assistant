@@ -964,6 +964,23 @@ func (a *App) validateToolKey(clientID, apiKey string) (ToolKeyValidationResult,
 		return ToolKeyValidationResult{}, err
 	}
 	models := filterModelsForClient(clientID, response.Models)
+	if clientID == "antigravity" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ToolKeyValidationResult{}, err
+		}
+		native, err := antigravityRuntimeModels(home, apiKey)
+		if err != nil {
+			return ToolKeyValidationResult{}, err
+		}
+		compatible := []Model{}
+		for _, model := range models {
+			if _, ok := native[model.ID]; ok {
+				compatible = append(compatible, model)
+			}
+		}
+		models = compatible
+	}
 	if len(models) == 0 {
 		return ToolKeyValidationResult{}, fmt.Errorf("该 Key 没有可供 %s 使用的模型", clientDisplayName(clientID))
 	}
@@ -1147,11 +1164,11 @@ func filterModelsForClient(clientID string, models []Model) []Model {
 			matches = isClaudeDesktopCompatibleModel(name)
 		case "codex":
 			matches = strings.HasPrefix(name, "gpt") && !strings.Contains(name, "image") && !strings.Contains(name, "生图")
-		case "gemini":
+		case "gemini", "antigravity":
 			matches = strings.HasPrefix(name, "gemini")
 		case "grok":
 			matches = strings.HasPrefix(name, "grok")
-		case "opencode", "openclaw", "hermes":
+		case "opencode", "openclaw", "hermes", "pi", "mcode", "kimi", "omp", "deepseek-harness":
 			matches = name != ""
 		}
 		if matches {

@@ -1,3 +1,13 @@
+# v0.2.55 · 扩展 CC-Switch 工具兼容
+
+- 新增 DeepSeek Harness、Pi Coding Agent、MCode、Kimi Code、Antigravity CLI、Oh My Pi，配置工具总数扩展为 14 个。
+- 新工具接入账号已有 Key／自动建 Key、手动 Key、模型读取与切换、配置查看、备份恢复和网关检测。
+- DeepSeek Harness 同步 web／desktop 和已初始化的 headless／acp，使用独立凭据引用，保留原生登录记录与其他插件。
+- Pi／MCode／Kimi／Oh My Pi 按原生格式配置服务商和默认模型，支持自定义目录及 Oh My Pi 命名 profile。
+- Antigravity 先读取原生模型列表并与 Key 权限取交集，再生成私有 profile 和专用启动脚本；配置后请使用助手提示的启动命令，直接运行 agy 仍使用官方登录。
+- 发布构建限制 4 CPU，Windows 与 macOS 串行执行。
+- 验证：Go 全量与竞态测试、配置和模型切换往返回归、DSH 插件／登录记录保留、敏感信息遮蔽、前端生产构建、Windows 交叉编译。尚未在六种真实客户端中逐一实机验证。
+
 # v0.2.54 · 多客户端并行路由与全新路由中心
 
 - Codex、Claude Code CLI／插件、Claude Desktop 可同时开启模型路由，每端独立端口、令牌、模型、统计与启停。

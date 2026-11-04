@@ -12,6 +12,20 @@
 - OpenCode
 - OpenClaw
 - Hermes Agent
+- DeepSeek Harness（DSH）
+- Pi Coding Agent
+- MCode（MiniMax Code）
+- Kimi Code
+- Antigravity CLI（agy）
+- Oh My Pi（omp）
+
+新增客户端配置格式参考 [CC-Switch 的 e217bfc 版本](https://github.com/farion1231/cc-switch/tree/e217bfcbbbbbf82f4619ab62f08fb002635b7858)，使用独立 Go 实现。
+
+DeepSeek Harness 会同时配置 web、desktop，以及已初始化的 headless/acp profile；SDK profile 保持原生管理。Key 写入 `$DSH_HOME/.credentials.yaml` 的独立 `CIYUANSHEN_DSH_API_KEY` 引用，保留原生登录记录、其他供应商和插件。home 级补丁覆盖 profile 时会拒绝写入并提示具体文件。
+
+Pi、MCode、Kimi Code、Oh My Pi 使用各自原生服务商与默认模型字段，保留其他供应商。支持 `DSH_HOME`、`PI_CODING_AGENT_DIR`、`MINIMAX_DATA_DIR`／`MAVIS_DATA_DIR`、`KIMI_CODE_HOME`，以及 Oh My Pi 的 `PI_CONFIG_DIR`、`OMP_PROFILE`／`PI_PROFILE`；Oh My Pi 的旧 `models.json` 需先由客户端自身迁移。
+
+Antigravity CLI 只读取进程环境，需先安装 `agy`；助手会读取 `agy models` 并与 Key 的可用 Gemini 模型取交集，将原生显示名写入私有 profile。配置完成后，按助手提示运行 `~/.ciyuanshen/antigravity/launch-ciyuanshen.sh`（macOS 使用 `sh`）或 `launch-ciyuanshen.ps1`（Windows 使用 PowerShell）启动。直接运行 `agy` 保留官方登录行为。私有启动脚本包含客户端凭据，配置查看器默认隐藏整个脚本。
 
 Claude Desktop 一键配置会从所选 Key 的实际可用模型中写入最多 200 个 Claude 模型到 `inferenceModels`，所选默认模型排在首位；在助手中切换默认模型时会刷新该列表。客户端需要重新启动才能读取新配置。配置助手使用独立的 3P profile ID，避免与 CC-Switch 的 profile 冲突。
 
@@ -137,7 +151,7 @@ go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build
 
 同步服务约每 5 分钟检查 GitHub 最新正式 Release，全部安装包下载完并校验 Windows SHA-256 后，原子切换 `latest` 软链接；同步失败时继续提供上一个完整版本。固定入口禁止缓存，版本化 `/releases/v.../` 链接仍用于历史版本下载。本次改动仅涉及下载服务，不需要用户升级助手。
 
-仓库中的 [`.github/workflows/windows.yml`](.github/workflows/windows.yml) 是统一的跨平台 Release 流程。推送 `v*` 标签后，它会并行构建 Windows amd64 NSIS 安装包和 macOS Universal 应用，并在两端构建成功后一次性上传 GitHub Release。Release 会包含：
+仓库中的 [`.github/workflows/windows.yml`](.github/workflows/windows.yml) 是统一的跨平台 Release 流程。推送 `v*` 标签后，它会串行构建 Windows amd64 NSIS 安装包和 macOS Universal 应用，并在两端构建成功后一次性上传 GitHub Release。Release 会包含：
 
 - Windows：`*-installer.exe` 和 Windows 专用 `update.json`。
 - macOS：`*-macos-universal.dmg`（推荐）和 `*-macos-universal.zip`（备用）。Universal 包同时支持 Intel 与 Apple Silicon Mac。

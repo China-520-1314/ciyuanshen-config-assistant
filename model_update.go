@@ -171,6 +171,30 @@ func updateConfiguredClientModel(home, target, model string, availableModels ...
 		var content []byte
 		content, err = yaml.Marshal(root)
 		operation = newOperation(target, path, configYAML, content)
+	case "pi", "mcode", "kimi", "omp", "antigravity", "deepseek-harness":
+		if err = validateAdditionalConfigurationPaths(home, target); err != nil {
+			break
+		}
+		var key string
+		key, err = readConfiguredClientAPIKey(home, target)
+		if err != nil {
+			break
+		}
+		switch target {
+		case "pi":
+			operations, err = configurePi(home, key, model)
+		case "mcode":
+			operations, err = configureMCode(home, key, model)
+		case "kimi":
+			operations, err = configureKimi(home, key, model)
+		case "omp":
+			operations, err = configureOMP(home, key, model)
+		case "antigravity":
+			operations, err = configureAntigravity(home, key, model)
+		case "deepseek-harness":
+			operations, err = configureDeepSeekHarness(home, key, model)
+		}
+
 	default:
 		err = fmt.Errorf("不支持的工具：%s", target)
 	}

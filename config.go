@@ -19,11 +19,12 @@ import (
 type configKind string
 
 const (
-	configJSON  configKind = "json"
-	configJSON5 configKind = "json5"
-	configTOML  configKind = "toml"
-	configYAML  configKind = "yaml"
-	configEnv   configKind = "env"
+	configJSON   configKind = "json"
+	configJSON5  configKind = "json5"
+	configTOML   configKind = "toml"
+	configYAML   configKind = "yaml"
+	configEnv    configKind = "env"
+	configScript configKind = "script"
 )
 
 type fileOperation struct {
@@ -61,6 +62,9 @@ func buildConfiguration(request ConfigurationRequest) ([]fileOperation, []string
 			continue
 		}
 		seen[target] = true
+		if err := validateAdditionalConfigurationPaths(home, target); err != nil {
+			return nil, nil, err
+		}
 		model := strings.TrimSpace(models[target])
 		if model == "" {
 			model = strings.TrimSpace(models["default"])
@@ -87,6 +91,18 @@ func buildConfiguration(request ConfigurationRequest) ([]fileOperation, []string
 			targetOperations, err = configureOpenClaw(home, key, model)
 		case "hermes":
 			targetOperations, err = configureHermes(home, key, model)
+		case "deepseek-harness":
+			targetOperations, err = configureDeepSeekHarness(home, key, model)
+		case "pi":
+			targetOperations, err = configurePi(home, key, model)
+		case "mcode":
+			targetOperations, err = configureMCode(home, key, model)
+		case "kimi":
+			targetOperations, err = configureKimi(home, key, model)
+		case "antigravity":
+			targetOperations, err = configureAntigravity(home, key, model)
+		case "omp":
+			targetOperations, err = configureOMP(home, key, model)
 		default:
 			return nil, nil, fmt.Errorf("不支持的工具：%s", rawTarget)
 		}
@@ -94,7 +110,7 @@ func buildConfiguration(request ConfigurationRequest) ([]fileOperation, []string
 			return nil, nil, err
 		}
 		operations = append(operations, targetOperations...)
-		if target == "opencode" || target == "openclaw" || target == "hermes" {
+		if target == "opencode" || target == "openclaw" || target == "hermes" || target == "deepseek-harness" || target == "pi" || target == "mcode" || target == "kimi" || target == "antigravity" || target == "omp" {
 			warnings = append(warnings, fmt.Sprintf("%s 的结构化配置会重新排版，原文件会先备份。", clientDisplayName(target)))
 		}
 	}
@@ -1087,6 +1103,101 @@ func configureHermes(home, key, model string) ([]fileOperation, error) {
 	return []fileOperation{newOperation("hermes", path, configYAML, content)}, nil
 }
 
+func configurePi(home, key, model string) ([]fileOperation, error) {
+	path := piPaths(home)[0]
+	root, err := readJSON5Map(path)
+	if err != nil {
+		return nil, err
+	}
+	providers := ensureMap(root, "providers")
+	providers[managedProviderName] = map[string]any{"baseUrl": defaultGatewayURL, "api": "openai-completions", "apiKey": literalPiKey(key), "models": []any{map[string]any{"id": model, "name": model}}}
+	content, err := marshalJSON(root)
+	if err != nil {
+		return nil, err
+	}
+	settingsPath := filepath.Join(filepath.Dir(path), "settings.json")
+	settings, err := readJSON5Map(settingsPath)
+	if err != nil {
+		return nil, err
+	}
+	settings["defaultProvider"] = managedProviderName
+	settings["defaultModel"] = model
+	settingsContent, err := marshalJSON(settings)
+	if err != nil {
+		return nil, err
+	}
+	return []fileOperation{newOperation("pi", path, configJSON5, content), newOperation("pi", settingsPath, configJSON5, settingsContent)}, nil
+}
+
+func configureMCode(home, key, model string) ([]fileOperation, error) {
+	path := firstClientPath("mcode", home)
+	root, err := readYAMLMap(path)
+	if err != nil {
+		return nil, err
+	}
+	providers := ensureYAMLMap(root, "custom_provider")
+	providers[managedProviderName] = map[string]any{"kind": "custom", "name": "词元神", "api": "openai-completions", "options": map[string]any{"baseURL": defaultGatewayURL, "apiKey": key}, "models": map[string]any{model: map[string]any{"name": model}}}
+	root["defaultModel"] = "custom_provider:" + managedProviderName + "/" + model
+	content, err := yaml.Marshal(root)
+	if err != nil {
+		return nil, err
+	}
+	return []fileOperation{newOperation("mcode", path, configYAML, content)}, nil
+}
+
+func configureKimi(home, key, model string) ([]fileOperation, error) {
+	path := firstClientPath("kimi", home)
+	root, err := readTOMLMap(path)
+	if err != nil {
+		return nil, err
+	}
+	providers := ensureMap(root, "providers")
+	providers[managedProviderName] = map[string]any{"type": "openai", "base_url": defaultGatewayURL, "api_key": key}
+	models := ensureMap(root, "models")
+	modelKey := managedProviderName + "/" + model
+	models[modelKey] = map[string]any{"provider": managedProviderName, "model": model, "max_context_size": 128000}
+	root["default_model"] = modelKey
+	content, err := marshalTOML(root)
+	if err != nil {
+		return nil, err
+	}
+	return []fileOperation{newOperation("kimi", path, configTOML, content)}, nil
+}
+
+func configureOMP(home, key, model string) ([]fileOperation, error) {
+	paths := ompPaths(home)
+	if len(paths) == 0 {
+		return nil, errors.New("Oh My Pi profile 名称无效")
+	}
+	path := paths[0]
+	if _, err := os.Stat(filepath.Join(filepath.Dir(path), "models.json")); err == nil {
+		if _, err = os.Stat(path); os.IsNotExist(err) {
+			return nil, errors.New("请先启动 Oh My Pi，让工具迁移旧 models.json 后重试")
+		}
+	}
+	root, err := readYAMLMap(path)
+	if err != nil {
+		return nil, err
+	}
+	providers := ensureYAMLMap(root, "providers")
+	providers[managedProviderName] = map[string]any{"baseUrl": defaultGatewayURL, "apiKey": key, "api": "openai-completions", "models": []any{map[string]any{"id": model, "name": model}}}
+	content, err := yaml.Marshal(root)
+	if err != nil {
+		return nil, err
+	}
+	settingsPath := ompPaths(home)[1]
+	settings, err := readYAMLMap(settingsPath)
+	if err != nil {
+		return nil, err
+	}
+	ensureYAMLMap(settings, "modelRoles")["default"] = managedProviderName + "/" + model
+	settingsContent, err := yaml.Marshal(settings)
+	if err != nil {
+		return nil, err
+	}
+	return []fileOperation{newOperation("omp", path, configYAML, content), newOperation("omp", settingsPath, configYAML, settingsContent)}, nil
+}
+
 func newOperation(clientID, path string, kind configKind, content []byte) fileOperation {
 	action := "update"
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
@@ -1289,7 +1400,7 @@ func inspectConfig(path string, kind configKind) (string, string) {
 		err = toml.Unmarshal(content, &value)
 	case configYAML:
 		err = yaml.Unmarshal(content, &value)
-	case configEnv:
+	case configEnv, configScript:
 		return "valid", "环境变量文件可读"
 	}
 	if err != nil {
@@ -1317,7 +1428,7 @@ func validateConfigContent(kind configKind, content []byte) error {
 		return toml.Unmarshal(content, &value)
 	case configYAML:
 		return yaml.Unmarshal(content, &value)
-	case configEnv:
+	case configEnv, configScript:
 		return nil
 	default:
 		return errors.New("未知配置格式")

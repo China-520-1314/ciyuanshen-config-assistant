@@ -96,7 +96,7 @@ import {
 import { main } from '../wailsjs/go/models';
 import { ClipboardGetText, ClipboardSetText, EventsOn, Quit, WindowMinimise, WindowToggleMaximise, WindowIsFullscreen, WindowUnfullscreen } from '../wailsjs/runtime/runtime';
 
-type ClientId = 'claude' | 'claude-desktop' | 'codex' | 'gemini' | 'grok' | 'opencode' | 'openclaw' | 'hermes';
+type ClientId = 'claude' | 'claude-desktop' | 'codex' | 'gemini' | 'grok' | 'opencode' | 'openclaw' | 'hermes' | 'deepseek-harness' | 'pi' | 'mcode' | 'kimi' | 'antigravity' | 'omp';
 type TabId = 'overview' | 'router' | 'groups' | 'backups' | 'updates' | 'appearance' | 'codex-skins';
 type ThemeId = 'ciyuan' | 'anime' | 'sakura' | 'mountain' | 'city' | 'ikun' | 'china' | 'anime-boy' | 'anime-girl' | 'custom';
 type ThemeMode = 'system' | 'light' | 'dark';
@@ -195,7 +195,7 @@ const signUpURL = 'https://ciyuanshen.top/sign-up';
 const forgotPasswordURL = 'https://ciyuanshen.top/forgot-password';
 const qqGroupURL = 'https://qm.qq.com/q/rmwfirFNp8';
 const desktopOnlyMessage = '浏览器预览无法读取本机配置，请下载并运行桌面安装版。';
-const clientOrder: ClientId[] = ['codex', 'claude', 'claude-desktop', 'gemini', 'grok', 'opencode', 'openclaw', 'hermes'];
+const clientOrder: ClientId[] = ['codex', 'claude', 'claude-desktop', 'gemini', 'grok', 'opencode', 'openclaw', 'hermes', 'deepseek-harness', 'pi', 'mcode', 'kimi', 'antigravity', 'omp'];
 const clientCopy: Record<ClientId, { short: string; badge: string }> = {
   claude: { short: 'Claude Code CLI/插件', badge: 'Anthropic CLI' },
   'claude-desktop': { short: 'Claude Code客户端', badge: 'Anthropic Desktop' },
@@ -205,6 +205,12 @@ const clientCopy: Record<ClientId, { short: string; badge: string }> = {
   opencode: { short: 'OpenCode', badge: 'OpenAI compatible' },
   openclaw: { short: 'OpenClaw', badge: 'OpenAI compatible' },
   hermes: { short: 'Hermes Agent', badge: 'Chat Completions' },
+  'deepseek-harness': { short: 'DeepSeek Harness', badge: 'OpenAI compatible' },
+  pi: { short: 'Pi Coding Agent', badge: 'OpenAI compatible' },
+  mcode: { short: 'MCode', badge: 'OpenAI compatible' },
+  kimi: { short: 'Kimi Code', badge: 'OpenAI compatible' },
+  antigravity: { short: 'Antigravity CLI', badge: 'Gemini API' },
+  omp: { short: 'Oh My Pi', badge: 'OpenAI compatible' },
 };
 const recommendedModels: Record<ClientId, string> = {
   claude: 'claude-sonnet-4-5',
@@ -215,6 +221,7 @@ const recommendedModels: Record<ClientId, string> = {
   opencode: 'gpt-5.6-sol',
   openclaw: 'gpt-5.6-sol',
   hermes: 'gpt-5.6-sol',
+  'deepseek-harness': 'gpt-5.6-sol', pi: 'gpt-5.6-sol', mcode: 'gpt-5.6-sol', kimi: 'gpt-5.6-sol', antigravity: 'gemini-2.5-pro', omp: 'gpt-5.6-sol',
 };
 const clientLogos: Record<ClientId, string> = {
   claude: claudeLogo,
@@ -225,6 +232,12 @@ const clientLogos: Record<ClientId, string> = {
   opencode: opencodeLogo,
   openclaw: openclawLogo,
   hermes: hermesLogo,
+    'deepseek-harness': new URL('./assets/clients/deepseek-harness.svg', import.meta.url).href,
+  'pi': new URL('./assets/clients/pi.svg', import.meta.url).href,
+  'mcode': new URL('./assets/clients/mcode.svg', import.meta.url).href,
+  'kimi': new URL('./assets/clients/kimi.svg', import.meta.url).href,
+  'antigravity': new URL('./assets/clients/antigravity.svg', import.meta.url).href,
+  'omp': new URL('./assets/clients/omp.svg', import.meta.url).href,
 };
 type ThemeDefinition = {
   id: ThemeId;
@@ -2031,7 +2044,7 @@ function mockToolModels(clientId: ClientId): Model[] {
   const all = [{ id: 'gpt-6.1-sol' }, { id: 'gpt-5.6-terra' }, { id: 'gpt-5.6-sol' }, { id: 'claude-sonnet-4-5' }, { id: 'gemini-2.5-pro' }, { id: 'grok-4' }];
   if (clientId === 'claude' || clientId === 'claude-desktop') return all.filter((model) => model.id.startsWith('claude'));
   if (clientId === 'codex') return all.filter((model) => model.id.startsWith('gpt'));
-  if (clientId === 'gemini') return all.filter((model) => model.id.startsWith('gemini'));
+  if (clientId === 'gemini' || clientId === 'antigravity') return all.filter((model) => model.id.startsWith('gemini'));
   if (clientId === 'grok') return all.filter((model) => model.id.startsWith('grok'));
   return all;
 }
@@ -2125,7 +2138,8 @@ async function fetchBrowserPreviewToolLifecycle(clientId: ClientId): Promise<Too
       if (!latestVersion) throw new Error('GitHub 未返回有效版本号');
       return { ...base, latestVersion };
     }
-    return { ...base, downloadUrl: 'https://claude.com/download', message: 'Claude Code客户端由应用内更新；本机版本请在桌面安装版中查看' };
+    const downloads: Partial<Record<ClientId,string>> = { 'deepseek-harness':'https://github.com/deepseek-ai/DeepSeek-Harness', pi:'https://github.com/badlogic/pi-mono', mcode:'https://code.minimax.io/', kimi:'https://code.kimi.com/', antigravity:'https://antigravity.google/cli', omp:'https://github.com/can1357/oh-my-pi' };
+    return { ...base, downloadUrl: downloads[clientId] || 'https://claude.com/download', message: '请在官方下载页查看安装与更新说明' };
   } catch (error) {
     return { ...base, error: error instanceof Error ? `暂时无法查询最新版本：${error.message}` : '暂时无法查询最新版本' };
   }

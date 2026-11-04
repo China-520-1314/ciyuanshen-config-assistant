@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -64,6 +65,20 @@ func restartConfiguredTool(clientID string) ToolRestartResult {
 	}
 
 	result := ToolRestartResult{ClientID: definition.ID}
+	if clientID == "antigravity" {
+		result.ManualRestartRequired = true
+		home, err := os.UserHomeDir()
+		if err != nil {
+			result.Message = "请通过词元神 Antigravity 专用启动脚本打开工具"
+			return result
+		}
+		prefix := "sh "
+		if runtime.GOOS == "windows" {
+			prefix = "powershell -ExecutionPolicy Bypass -File "
+		}
+		result.Message = "配置已完成。请使用专用启动脚本打开 Antigravity：" + prefix + strconv.Quote(antigravityLauncherPath(home)) + "。直接运行 agy 仍使用官方登录。"
+		return result
+	}
 	if definition.RestartMode != toolRestartDesktopApplication {
 		result.ManualRestartRequired = true
 		result.Message = fmt.Sprintf("%s 配置已写入。为避免中断当前 CLI/插件会话，未自动重启；如该工具正在运行，请手动重启该工具（关闭后重新打开），配置才会生效。", definition.Name)
