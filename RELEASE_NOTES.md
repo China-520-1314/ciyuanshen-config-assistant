@@ -1,3 +1,10 @@
+# v0.2.57 · 修复 Antigravity APP 模型与分组读取
+
+- 修复 APP 未加入 Gemini 模型筛选规则，导致账号分组、已有 Key 和手动 Key 无法使用。
+- APP 已配置模型改为读取当前代理会话的内存 Key；未配置时提供操作提示。
+- 保留后端返回的具体分组与模型读取错误，避免统一显示笼统失败提示。
+- 新增账号分组、手动 Key、内存 Key 和未配置提示回归测试。
+
 # v0.2.56 · Antigravity APP 与客户端图标
 
 - Antigravity CLI 与 Antigravity APP 分开显示；新增桌面 APP 本地代理配置，支持词元神 Gemini 文本模型。使用时需保持配置助手运行。

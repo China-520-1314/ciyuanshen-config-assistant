@@ -784,7 +784,7 @@ function App() {
         delete next[clientId];
         return next;
       });
-      setModelErrors((current) => ({ ...current, [clientId]: error instanceof Error ? error.message : '读取 Key 可用模型失败' }));
+      setModelErrors((current) => ({ ...current, [clientId]: error instanceof Error ? error.message : typeof error === 'string' ? error : '读取 Key 可用模型失败' }));
       return null;
     } finally {
       setModelsLoading((current) => ({ ...current, [clientId]: false }));
@@ -1011,7 +1011,7 @@ function App() {
           // Keep the last known account summary when the bridge is unavailable.
         }
       }
-      setSetupMessage({ tone: 'error', text: error instanceof Error ? error.message : '读取分组失败' });
+      setSetupMessage({ tone: 'error', text: error instanceof Error ? error.message : typeof error === 'string' ? error : '读取分组失败' });
     } finally {
       setSetupBusy('');
     }

@@ -854,6 +854,17 @@ func (a *App) GetConfiguredToolModels(clientID string) (ToolKeyValidationResult,
 	if err != nil {
 		return ToolKeyValidationResult{}, err
 	}
+	if clientID == "antigravity-app" {
+		a.antigravityAppMu.Lock()
+		key, model := a.antigravityAppKey, a.antigravityAppModel
+		a.antigravityAppMu.Unlock()
+		if key == "" {
+			return ToolKeyValidationResult{}, errors.New("尚未配置 Antigravity APP，请点击一键配置并选择账号 Key 或手动输入 Key；重启助手后需重新配置")
+		}
+		result, err := a.validateToolKey(clientID, key)
+		result.SelectedModel = model
+		return result, err
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ToolKeyValidationResult{}, errors.New("无法确定当前用户目录")
@@ -1197,7 +1208,7 @@ func filterModelsForClient(clientID string, models []Model) []Model {
 			matches = isClaudeDesktopCompatibleModel(name)
 		case "codex":
 			matches = strings.HasPrefix(name, "gpt") && !strings.Contains(name, "image") && !strings.Contains(name, "生图")
-		case "gemini", "antigravity":
+		case "gemini", "antigravity", "antigravity-app":
 			matches = strings.HasPrefix(name, "gemini")
 		case "grok":
 			matches = strings.HasPrefix(name, "grok")
