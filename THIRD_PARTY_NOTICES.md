@@ -1,6 +1,8 @@
 # 参考项目
 
-新增工具的原生配置字段、目录规则和 Antigravity 环境行为参考 CC-Switch（e217bfcbbbbbf82f4619ab62f08fb002635b7858）：https://github.com/farion1231/cc-switch 。本项目使用独立 Go 实现。客户端字母图标为本项目自制标识，不是官方品牌标志。
+新增工具的原生配置字段、目录规则和 Antigravity CLI 行为参考 CC-Switch（e217bfcbbbbbf82f4619ab62f08fb002635b7858）：https://github.com/farion1231/cc-switch 。本项目使用独立 Go 实现。Antigravity 图标资源取自该仓库的 `src/icons/extracted/antigravity.svg`；Antigravity 名称与商标归 Google 所有，本项目与 Google 无关联。
+
+Antigravity APP 的 Cloud Code 本地代理设计参考 AGY BYOK（MIT）：https://github.com/garicaxbv86015-ops/agy-byok 。本项目使用独立 Go 实现，只转接 Gemini 文本生成和模型目录，不包含其代理运行时。
 
 MIT License
 

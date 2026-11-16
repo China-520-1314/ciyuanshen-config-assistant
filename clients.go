@@ -48,8 +48,25 @@ func clientDefinitions() []clientDefinition {
 		{ID: "mcode", Name: "MCode", Commands: []string{"mcode", "minimax"}, Kind: configYAML, DownloadURL: "https://code.minimax.io/", Paths: mcodePaths},
 		{ID: "kimi", Name: "Kimi Code", Commands: []string{"kimi"}, Kind: configTOML, DownloadURL: "https://code.kimi.com/", Paths: kimiPaths},
 		{ID: "antigravity", Name: "Antigravity CLI", Commands: []string{"agy"}, Kind: configJSON, DownloadURL: "https://antigravity.google/cli", Paths: antigravityPaths},
+		{ID: "antigravity-app", Name: "Antigravity APP", ExecutablePaths: antigravityAppExecutablePaths, Kind: configJSON, DownloadURL: "https://antigravity.google/download", Paths: func(home string) []string { return nil }, Supported: antigravityAppSupported},
 		{ID: "omp", Name: "Oh My Pi", Commands: []string{"omp", "oh-my-pi"}, Kind: configYAML, DownloadURL: "https://github.com/can1357/oh-my-pi", Paths: ompPaths},
 	}
+}
+
+func antigravityAppSupported() bool { return runtime.GOOS == "windows" || runtime.GOOS == "darwin" }
+
+func antigravityAppExecutablePaths(home string) []string {
+	if runtime.GOOS == "darwin" {
+		return []string{"/Applications/Antigravity.app/Contents/MacOS/Antigravity", filepath.Join(home, "Applications/Antigravity.app/Contents/MacOS/Antigravity")}
+	}
+	if runtime.GOOS == "windows" {
+		local := strings.TrimSpace(os.Getenv("LOCALAPPDATA"))
+		if local == "" {
+			local = filepath.Join(home, "AppData", "Local")
+		}
+		return []string{filepath.Join(local, "Programs", "Antigravity", "Antigravity.exe"), filepath.Join(local, "Programs", "Antigravity", "Antigravity.App.exe")}
+	}
+	return nil
 }
 
 func opencodePaths(home string) []string {

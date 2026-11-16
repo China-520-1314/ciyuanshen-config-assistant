@@ -884,6 +884,9 @@ func (a *App) ConfigureTool(request ToolConfigurationRequest) ConfigureResult {
 	if !containsModel(validated.Models, request.Model) {
 		return ConfigureResult{FinishedAt: time.Now(), Error: "请选择该 Key 可用的默认模型"}
 	}
+	if clientID == "antigravity-app" {
+		return a.configureAntigravityAppTool(request.APIKey, request.Model)
+	}
 	return a.Configure(ConfigurationRequest{
 		APIKey:                    strings.TrimSpace(request.APIKey),
 		Targets:                   []string{clientID},
@@ -908,6 +911,15 @@ func (a *App) ConfigureProvisionedTool(request ProvisionedToolConfigurationReque
 	if !containsModel(provision.Models, request.Model) {
 		return ConfigureResult{FinishedAt: time.Now(), Error: "请选择新建 Key 可用的默认模型"}
 	}
+	if clientID == "antigravity-app" {
+		result := a.configureAntigravityAppTool(provision.Key, request.Model)
+		if result.Success {
+			a.provisionMu.Lock()
+			delete(a.provisions, strings.TrimSpace(request.ProvisionID))
+			a.provisionMu.Unlock()
+		}
+		return result
+	}
 	result := a.Configure(ConfigurationRequest{
 		APIKey:                    provision.Key,
 		Targets:                   []string{clientID},
@@ -921,6 +933,27 @@ func (a *App) ConfigureProvisionedTool(request ProvisionedToolConfigurationReque
 		a.provisionMu.Unlock()
 	}
 	return result
+}
+
+func (a *App) configureAntigravityAppTool(key, model string) ConfigureResult {
+	result := ConfigureResult{FinishedAt: time.Now(), Configured: []string{"antigravity-app"}}
+	if !clientSupported(clientDefinitionForIDMust("antigravity-app")) {
+		result.Error = "Antigravity APP 的代理接入目前仅支持 Windows 和 macOS"
+		return result
+	}
+	restart := a.launchAntigravityAppWithProxy(strings.TrimSpace(key), strings.TrimSpace(model))
+	result.Restarts = []ToolRestartResult{restart}
+	if !restart.Restarted {
+		result.Error = restart.Message
+		return result
+	}
+	result.Success = true
+	return result
+}
+
+func clientDefinitionForIDMust(id string) clientDefinition {
+	definition, _ := clientDefinitionForID(id)
+	return definition
 }
 
 func (a *App) ConfigureExistingTool(request ExistingToolConfigurationRequest) ConfigureResult {

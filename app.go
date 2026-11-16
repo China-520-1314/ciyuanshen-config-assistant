@@ -38,7 +38,7 @@ const (
 
 // appVersion is a variable so release builds can inject their tag with
 // -ldflags "-X main.appVersion=..." while local builds keep a useful default.
-var appVersion = "0.2.55"
+var appVersion = "0.2.56"
 
 type InstallUpdateResult struct {
 	Success     bool   `json:"success"`
@@ -78,6 +78,10 @@ type App struct {
 	routerMu                 sync.Mutex
 	routers                  map[string]*modelRouter
 	skinMu                   sync.Mutex
+	antigravityAppMu         sync.Mutex
+	antigravityAppServer     *http.Server
+	antigravityAppKey        string
+	antigravityAppModel      string
 }
 
 type toolRestartFunc func(string) ToolRestartResult
@@ -179,6 +183,7 @@ func (a *App) startup(ctx context.Context) {
 
 func (a *App) shutdown(ctx context.Context) {
 	_, _ = a.StopModelRouter()
+	a.stopAntigravityAppProxy(ctx)
 }
 
 func (a *App) GetAppInfo() AppInfo {

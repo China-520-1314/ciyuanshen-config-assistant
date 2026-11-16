@@ -96,7 +96,7 @@ import {
 import { main } from '../wailsjs/go/models';
 import { ClipboardGetText, ClipboardSetText, EventsOn, Quit, WindowMinimise, WindowToggleMaximise, WindowIsFullscreen, WindowUnfullscreen } from '../wailsjs/runtime/runtime';
 
-type ClientId = 'claude' | 'claude-desktop' | 'codex' | 'gemini' | 'grok' | 'opencode' | 'openclaw' | 'hermes' | 'deepseek-harness' | 'pi' | 'mcode' | 'kimi' | 'antigravity' | 'omp';
+type ClientId = 'claude' | 'claude-desktop' | 'codex' | 'gemini' | 'grok' | 'opencode' | 'openclaw' | 'hermes' | 'deepseek-harness' | 'pi' | 'mcode' | 'kimi' | 'antigravity' | 'antigravity-app' | 'omp';
 type TabId = 'overview' | 'router' | 'groups' | 'backups' | 'updates' | 'appearance' | 'codex-skins';
 type ThemeId = 'ciyuan' | 'anime' | 'sakura' | 'mountain' | 'city' | 'ikun' | 'china' | 'anime-boy' | 'anime-girl' | 'custom';
 type ThemeMode = 'system' | 'light' | 'dark';
@@ -195,7 +195,7 @@ const signUpURL = 'https://ciyuanshen.top/sign-up';
 const forgotPasswordURL = 'https://ciyuanshen.top/forgot-password';
 const qqGroupURL = 'https://qm.qq.com/q/rmwfirFNp8';
 const desktopOnlyMessage = '浏览器预览无法读取本机配置，请下载并运行桌面安装版。';
-const clientOrder: ClientId[] = ['codex', 'claude', 'claude-desktop', 'gemini', 'grok', 'opencode', 'openclaw', 'hermes', 'deepseek-harness', 'pi', 'mcode', 'kimi', 'antigravity', 'omp'];
+const clientOrder: ClientId[] = ['codex', 'claude', 'claude-desktop', 'gemini', 'grok', 'opencode', 'openclaw', 'hermes', 'deepseek-harness', 'pi', 'mcode', 'kimi', 'antigravity', 'antigravity-app', 'omp'];
 const clientCopy: Record<ClientId, { short: string; badge: string }> = {
   claude: { short: 'Claude Code CLI/插件', badge: 'Anthropic CLI' },
   'claude-desktop': { short: 'Claude Code客户端', badge: 'Anthropic Desktop' },
@@ -209,7 +209,8 @@ const clientCopy: Record<ClientId, { short: string; badge: string }> = {
   pi: { short: 'Pi Coding Agent', badge: 'OpenAI compatible' },
   mcode: { short: 'MCode', badge: 'OpenAI compatible' },
   kimi: { short: 'Kimi Code', badge: 'OpenAI compatible' },
-  antigravity: { short: 'Antigravity CLI', badge: 'Gemini API' },
+  antigravity: { short: 'Antigravity CLI', badge: 'agy · Gemini API' },
+  'antigravity-app': { short: 'Antigravity APP', badge: '本地 Gemini 代理' },
   omp: { short: 'Oh My Pi', badge: 'OpenAI compatible' },
 };
 const recommendedModels: Record<ClientId, string> = {
@@ -221,7 +222,7 @@ const recommendedModels: Record<ClientId, string> = {
   opencode: 'gpt-5.6-sol',
   openclaw: 'gpt-5.6-sol',
   hermes: 'gpt-5.6-sol',
-  'deepseek-harness': 'gpt-5.6-sol', pi: 'gpt-5.6-sol', mcode: 'gpt-5.6-sol', kimi: 'gpt-5.6-sol', antigravity: 'gemini-2.5-pro', omp: 'gpt-5.6-sol',
+  'deepseek-harness': 'gpt-5.6-sol', pi: 'gpt-5.6-sol', mcode: 'gpt-5.6-sol', kimi: 'gpt-5.6-sol', antigravity: 'gemini-2.5-pro', 'antigravity-app': 'gemini-2.5-pro', omp: 'gpt-5.6-sol',
 };
 const clientLogos: Record<ClientId, string> = {
   claude: claudeLogo,
@@ -237,6 +238,7 @@ const clientLogos: Record<ClientId, string> = {
   'mcode': new URL('./assets/clients/mcode.svg', import.meta.url).href,
   'kimi': new URL('./assets/clients/kimi.svg', import.meta.url).href,
   'antigravity': new URL('./assets/clients/antigravity.svg', import.meta.url).href,
+  'antigravity-app': new URL('./assets/clients/antigravity.svg', import.meta.url).href,
   'omp': new URL('./assets/clients/omp.svg', import.meta.url).href,
 };
 type ThemeDefinition = {
@@ -1109,7 +1111,10 @@ function App() {
       setSetupMessage({ tone: 'error', text: '请先检测 Key 并选择默认模型' });
       return;
     }
-    if (!(await confirmAction({ title: '确认一键配置', message: `将备份 ${clientCopy[setup.clientId].short} 当前配置，并写入新配置。配置完成后会尝试自动重启该工具；无法重启时会提示你手动重启。是否继续？`, confirmLabel: '确认配置' }))) return;
+    const confirmation = setup.clientId === 'antigravity-app'
+      ? '将使用所选 Key 和 Gemini 文本模型启动 Antigravity APP，不修改其用户设置。配置助手运行期间本地代理才可用，并会在退出时关闭。请先完全退出 APP，是否继续？'
+      : `将备份 ${clientCopy[setup.clientId].short} 当前配置，并写入新配置。配置完成后会尝试自动重启该工具；无法重启时会提示你手动重启。是否继续？`;
+    if (!(await confirmAction({ title: '确认一键配置', message: confirmation, confirmLabel: '确认配置' }))) return;
     setSetupBusy('configure');
     setSetupMessage(null);
     try {
@@ -1535,7 +1540,7 @@ function ClientCard({ clientId, status, models, model, modelsLoading, modelError
   const lifecycleText = lifecycle ? lifecycleVersionSummary(lifecycle) : '';
   return <article className="client-card">
     <div className="client-card-top"><div className="client-symbol"><img src={clientLogos[clientId]} alt="" /></div><div className="client-name"><strong>{clientCopy[clientId].short}</strong><span>{clientCopy[clientId].badge}</span></div><div className="client-status-tags"><span className={`state-tag ${state}`}>{state === 'available' ? '已安装' : state === 'unsupported' ? '不支持' : '未安装'}</span><span className={`key-state-tag ${keyValidated ? 'success' : keyKnown ? 'error' : ''}`}>{keyValidated ? 'Key正常' : keyKnown ? 'Key异常' : 'Key未检测'}</span></div></div>
-    <div className="client-card-path">{status?.configPath || '配置文件将自动创建'}{status?.version && <span className="client-version"> · {status.version}</span>}</div>
+    <div className="client-card-path">{status?.configPath || (clientId === 'antigravity-app' ? '通过独立进程环境接入本地代理' : '配置文件将自动创建')}{status?.version && <span className="client-version"> · {status.version}</span>}</div>
     <div className="client-card-bottom">
       <label>当前 Key 可用模型</label>
       {modelsLoading ? <span className="model-empty"><RefreshCw size={13} className="spin" />正在读取 Key 可用模型</span> : models.length > 0 ? <select value={models.some((item) => item.id === model) ? model : ''} onChange={(event) => onModelChange(event.target.value, event.currentTarget)} disabled={!keyValidated || applying || unsupported}>{models.map((option) => <option key={option.id} value={option.id}>{option.id}</option>)}</select> : <span className={`model-empty ${modelError ? 'error' : ''}`} title={modelError}>{modelError ? `读取失败：${modelError}` : keyValidated ? 'Key 未返回可用模型' : '尚未检测到可用 Key'}</span>}
@@ -1586,7 +1591,8 @@ function ToolSetupModal({ setup, account, options, group, keyValue, showKey, val
   const showExistingConfigurationStep = setup.mode === 'account' && accountKeySource === 'existing' && Boolean(provision?.existing);
   const showNewConfigurationStep = setup.mode === 'account' && accountKeySource === 'new' && Boolean(provision && !provision.existing);
   return <div className="modal-backdrop" role="presentation"><section className="setup-modal" role="dialog" aria-modal="true" aria-labelledby="setup-title">
-    <div className="modal-heading"><div><p className="eyebrow">{client.badge}</p><h2 id="setup-title">配置 {client.short}</h2></div><button className="icon-button" title="关闭" aria-label="关闭" onClick={onClose}><X size={18} /></button></div>
+    <div className="modal-heading"><div className="setup-client-heading"><img src={clientLogos[setup.clientId]} alt="" /><div><p className="eyebrow">{client.badge}</p><h2 id="setup-title">配置 {client.short}</h2></div></div><button className="icon-button" title="关闭" aria-label="关闭" onClick={onClose}><X size={18} /></button></div>
+    {setup.clientId === 'antigravity-app' && <p className="setup-scope-note">仅接入 Gemini 文本模型。请先退出 APP；使用时需保持本助手运行。</p>}
     <div className="mode-switch" role="tablist" aria-label="Key 来源">
       <button className={setup.mode === 'account' ? 'active' : ''} role="tab" aria-selected={setup.mode === 'account'} onClick={() => onModeChange('account')}><UserRound size={15} />词元神账号</button>
       <button className={setup.mode === 'manual' ? 'active' : ''} role="tab" aria-selected={setup.mode === 'manual'} onClick={() => onModeChange('manual')}><KeyRound size={15} />手动输入 Key</button>
@@ -2044,7 +2050,7 @@ function mockToolModels(clientId: ClientId): Model[] {
   const all = [{ id: 'gpt-6.1-sol' }, { id: 'gpt-5.6-terra' }, { id: 'gpt-5.6-sol' }, { id: 'claude-sonnet-4-5' }, { id: 'gemini-2.5-pro' }, { id: 'grok-4' }];
   if (clientId === 'claude' || clientId === 'claude-desktop') return all.filter((model) => model.id.startsWith('claude'));
   if (clientId === 'codex') return all.filter((model) => model.id.startsWith('gpt'));
-  if (clientId === 'gemini' || clientId === 'antigravity') return all.filter((model) => model.id.startsWith('gemini'));
+  if (clientId === 'gemini' || clientId === 'antigravity' || clientId === 'antigravity-app') return all.filter((model) => model.id.startsWith('gemini'));
   if (clientId === 'grok') return all.filter((model) => model.id.startsWith('grok'));
   return all;
 }
@@ -2138,7 +2144,7 @@ async function fetchBrowserPreviewToolLifecycle(clientId: ClientId): Promise<Too
       if (!latestVersion) throw new Error('GitHub 未返回有效版本号');
       return { ...base, latestVersion };
     }
-    const downloads: Partial<Record<ClientId,string>> = { 'deepseek-harness':'https://github.com/deepseek-ai/DeepSeek-Harness', pi:'https://github.com/badlogic/pi-mono', mcode:'https://code.minimax.io/', kimi:'https://code.kimi.com/', antigravity:'https://antigravity.google/cli', omp:'https://github.com/can1357/oh-my-pi' };
+    const downloads: Partial<Record<ClientId,string>> = { 'deepseek-harness':'https://github.com/deepseek-ai/DeepSeek-Harness', pi:'https://github.com/badlogic/pi-mono', mcode:'https://code.minimax.io/', kimi:'https://code.kimi.com/', antigravity:'https://antigravity.google/cli', 'antigravity-app':'https://antigravity.google/download', omp:'https://github.com/can1357/oh-my-pi' };
     return { ...base, downloadUrl: downloads[clientId] || 'https://claude.com/download', message: '请在官方下载页查看安装与更新说明' };
   } catch (error) {
     return { ...base, error: error instanceof Error ? `暂时无法查询最新版本：${error.message}` : '暂时无法查询最新版本' };

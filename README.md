@@ -17,6 +17,7 @@
 - MCode（MiniMax Code）
 - Kimi Code
 - Antigravity CLI（agy）
+- Antigravity APP（桌面版）
 - Oh My Pi（omp）
 
 新增客户端配置格式参考 [CC-Switch 的 e217bfc 版本](https://github.com/farion1231/cc-switch/tree/e217bfcbbbbbf82f4619ab62f08fb002635b7858)，使用独立 Go 实现。
@@ -25,7 +26,9 @@ DeepSeek Harness 会同时配置 web、desktop，以及已初始化的 headless/
 
 Pi、MCode、Kimi Code、Oh My Pi 使用各自原生服务商与默认模型字段，保留其他供应商。支持 `DSH_HOME`、`PI_CODING_AGENT_DIR`、`MINIMAX_DATA_DIR`／`MAVIS_DATA_DIR`、`KIMI_CODE_HOME`，以及 Oh My Pi 的 `PI_CONFIG_DIR`、`OMP_PROFILE`／`PI_PROFILE`；Oh My Pi 的旧 `models.json` 需先由客户端自身迁移。
 
-Antigravity CLI 只读取进程环境，需先安装 `agy`；助手会读取 `agy models` 并与 Key 的可用 Gemini 模型取交集，将原生显示名写入私有 profile。配置完成后，按助手提示运行 `~/.ciyuanshen/antigravity/launch-ciyuanshen.sh`（macOS 使用 `sh`）或 `launch-ciyuanshen.ps1`（Windows 使用 PowerShell）启动。直接运行 `agy` 保留官方登录行为。私有启动脚本包含客户端凭据，配置查看器默认隐藏整个脚本。
+Antigravity CLI（`agy`）与 Antigravity APP 是两个独立客户端。CLI 需先安装 `agy`；助手会读取 `agy models` 并与 Key 的可用 Gemini 模型取交集，将原生显示名写入私有 profile。配置完成后，按助手提示运行专用启动脚本；直接运行 `agy` 保留官方登录行为。
+
+Antigravity APP 使用本地 Cloud Code 代理接入词元神 Gemini 文本模型。配置前需完全退出 APP；助手会以独立进程环境启动 APP，不修改 APP 安装目录或用户设置文件。使用期间必须保持配置助手运行，退出配置助手会关闭本地代理；当前仅代理 Gemini 文本生成，不代理图片和工具调用。CLI 与 APP 使用各自独立的配置入口和图标。
 
 Claude Desktop 一键配置会从所选 Key 的实际可用模型中写入最多 200 个 Claude 模型到 `inferenceModels`，所选默认模型排在首位；在助手中切换默认模型时会刷新该列表。客户端需要重新启动才能读取新配置。配置助手使用独立的 3P profile ID，避免与 CC-Switch 的 profile 冲突。
 

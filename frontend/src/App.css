@@ -255,6 +255,9 @@ h2 { margin-bottom: 4px; font-size: 17px; font-weight: 700; letter-spacing: 0; }
 .confirm-modal-actions { grid-column: 1 / -1; padding: 3px 0 15px; }
 .modal-heading { justify-content: space-between; gap: 16px; padding: 18px 18px 14px; border-bottom: 1px solid var(--line); }
 .modal-heading h2 { margin-bottom: 0; }
+.setup-client-heading { display: flex; align-items: center; gap: 10px; }
+.setup-client-heading > img { width: 32px; height: 32px; object-fit: contain; flex: 0 0 auto; }
+.setup-scope-note { margin: 0; padding: 9px 18px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; }
 .modal-heading-actions { display: flex; gap: 7px; }
 .mode-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin: 16px 18px 0; padding: 4px; border: 1px solid var(--line); border-radius: 7px; background: var(--content-surface-muted); }
 .mode-switch button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; border: 1px solid transparent; border-radius: 5px; color: var(--muted-strong); background: transparent; font-size: 11px; font-weight: 650; }

@@ -1,3 +1,9 @@
+# v0.2.56 · Antigravity APP 与客户端图标
+
+- Antigravity CLI 与 Antigravity APP 分开显示；新增桌面 APP 本地代理配置，支持词元神 Gemini 文本模型。使用时需保持配置助手运行。
+- 一键配置弹窗显示对应客户端图标；Antigravity 图标取自 CC-Switch。
+- 验证：Go 全量测试、Antigravity Cloud Code 模型目录与 Gemini 请求转换测试、前端生产构建。
+
 # v0.2.55 · 扩展 CC-Switch 工具兼容
 
 - 新增 DeepSeek Harness、Pi Coding Agent、MCode、Kimi Code、Antigravity CLI、Oh My Pi，配置工具总数扩展为 14 个。
