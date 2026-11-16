@@ -168,7 +168,10 @@ func TestBuildUpdateInstallScriptStopsAllExistingInstances(t *testing.T) {
 		"Stop-Process -Id $oldPid -Force",
 		"Get-Process -Name $processName",
 		"Start-Sleep -Milliseconds 500",
-		"-ArgumentList '/S'",
+		"-ArgumentList ('/S /D=' + $installDirectory)",
+		"-Wait -PassThru",
+		"if ($installed.ExitCode -ne 0)",
+		"ciyuanshen-update-install.log",
 	} {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("update script missing %q:\n%s", expected, script)

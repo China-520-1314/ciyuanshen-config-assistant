@@ -82,6 +82,18 @@ jobs:
             $project | ConvertTo-Json -Depth 10 | Set-Content wails.json -Encoding utf8
           }
           go run github.com/wailsapp/wails/v2/cmd/wails@v2.10.2 build --platform windows/amd64 --nsis --clean --ldflags "-X main.appVersion=$version"
+          if ($LASTEXITCODE -ne 0) { throw "Wails build failed" }
+          # Wails invokes makensis without an input charset. Repackage with
+          # explicit UTF-8 for both project.nsi and generated wails_tools.nsh.
+          $binary = @(Get-ChildItem build/bin -Filter '*.exe' | Where-Object { $_.Name -notlike '*installer.exe' })
+          if ($binary.Count -ne 1) { throw "Expected exactly one application executable" }
+          $binaryPath = $binary[0].FullName
+          Push-Location build/windows/installer
+          try {
+            & makensis /INPUTCHARSET UTF8 "/DARG_WAILS_AMD64_BINARY=$binaryPath" project.nsi
+            if ($LASTEXITCODE -ne 0) { throw "UTF-8 NSIS packaging failed" }
+          } finally { Pop-Location }
+
 
       - name: Create Windows update manifest
         shell: pwsh

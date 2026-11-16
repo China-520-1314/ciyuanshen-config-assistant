@@ -38,7 +38,7 @@ const (
 
 // appVersion is a variable so release builds can inject their tag with
 // -ldflags "-X main.appVersion=..." while local builds keep a useful default.
-var appVersion = "0.2.61"
+var appVersion = "0.2.62"
 
 type InstallUpdateResult struct {
 	Success     bool   `json:"success"`
@@ -655,7 +655,7 @@ func buildUpdateInstallScript(oldPID int, processName, currentExecutable, instal
 	// process holding the installed executable and makes NSIS show a file-lock
 	// retry dialog. Stop every instance of this image, then wait for handles to
 	// drain before starting the installer.
-	return fmt.Sprintf("$oldPid=%d; $processName=%s; Start-Sleep -Milliseconds 700; Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue; Get-Process -Name $processName -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; for ($attempt=0; $attempt -lt 50; $attempt++) { if (-not (Get-Process -Name $processName -ErrorAction SilentlyContinue)) { break }; Start-Sleep -Milliseconds 200 }; Start-Sleep -Milliseconds 500; Start-Process -FilePath %s -ArgumentList '/S' -Wait; Start-Process -FilePath %s; Remove-Item -LiteralPath %s -Force -ErrorAction SilentlyContinue", oldPID, powershellQuote(processName), powershellQuote(installerPath), powershellQuote(currentExecutable), powershellQuote(installerPath))
+	return fmt.Sprintf(`$ErrorActionPreference='Stop'; $oldPid=%d; $processName=%s; $currentExecutable=%s; $installer=%s; $installDirectory=Split-Path -Parent $currentExecutable; $log=Join-Path $env:TEMP 'ciyuanshen-update-install.log'; try { Start-Sleep -Milliseconds 700; Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue; Get-Process -Name $processName -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; for ($attempt=0; $attempt -lt 50; $attempt++) { if (-not (Get-Process -Name $processName -ErrorAction SilentlyContinue)) { break }; Start-Sleep -Milliseconds 200 }; Start-Sleep -Milliseconds 500; $installed=Start-Process -FilePath $installer -ArgumentList ('/S /D=' + $installDirectory) -Wait -PassThru; if ($installed.ExitCode -ne 0) { throw ('Installer exit code: ' + $installed.ExitCode) }; if (-not (Test-Path -LiteralPath $currentExecutable)) { throw 'Installed executable not found' }; Start-Process -FilePath $currentExecutable; Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue } catch { $_ | Out-String | Set-Content -LiteralPath $log -Encoding UTF8; Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show(('Update installation failed. Installer: ' + $installer + [Environment]::NewLine + 'Log: ' + $log), 'CiyuanShen Update') | Out-Null; exit 1 }`, oldPID, powershellQuote(processName), powershellQuote(currentExecutable), powershellQuote(installerPath))
 }
 
 func (a *App) OpenExternalURL(url string) error {

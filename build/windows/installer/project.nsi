@@ -1,4 +1,4 @@
-Unicode true
+﻿Unicode true
 
 ####
 ## Please note: Template replacements don't work in this file. They are provided with default defines like
@@ -79,6 +79,23 @@ ShowInstDetails show # This will always show the installation details.
 
 Function .onInit
    !insertmacro wails.checkArchitecture
+   ; Prefer an existing executable at the requested/default location.
+   ; Otherwise recover the old location by executable name, even when the
+   ; historical product/registry name was decoded with the wrong code page.
+   IfFileExists "$INSTDIR\${PRODUCT_EXECUTABLE}" existingLocation
+   StrCmp $INSTDIR "$PROGRAMFILES64\${INFO_COMPANYNAME}\词元神配置助手" 0 existingLocation
+   SetRegView 64
+   StrCpy $0 0
+   findExisting:
+     EnumRegKey $1 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall" $0
+     StrCmp $1 "" existingLocation
+     IntOp $0 $0 + 1
+     ReadRegStr $2 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$1" "DisplayIcon"
+     ${GetFileName} "$2" $3
+     StrCmp $3 "${PRODUCT_EXECUTABLE}" 0 findExisting
+     IfFileExists "$2" 0 findExisting
+     ${GetParent} "$2" $INSTDIR
+   existingLocation:
    ; Close an older assistant process before replacing its executable.
    nsExec::ExecToLog 'taskkill /F /IM "${PRODUCT_EXECUTABLE}"'
 FunctionEnd
@@ -101,6 +118,23 @@ Section
     !insertmacro wails.associateCustomProtocols
 
     !insertmacro wails.writeUninstaller
+    WriteRegStr HKLM "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
+    ; Remove only stale product identities pointing at this exact executable.
+    ; Installations in another folder are deliberately preserved.
+    StrCpy $0 0
+    cleanOldIdentity:
+      EnumRegKey $1 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall" $0
+      StrCmp $1 "" identityCleaned
+      StrCmp $1 "${UNINST_KEY_NAME}" nextIdentity
+      ReadRegStr $2 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$1" "DisplayIcon"
+      StrCmp $2 "$INSTDIR\${PRODUCT_EXECUTABLE}" 0 nextIdentity
+      DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$1"
+      IfErrors nextIdentity cleanOldIdentity
+    nextIdentity:
+      IntOp $0 $0 + 1
+      Goto cleanOldIdentity
+    identityCleaned:
+
 SectionEnd
 
 Section "uninstall"
