@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-func (a *App) startAntigravityAppProxy(key, model string) (string, error) {
+func (a *App) startAntigravityAppProxy(key, model string, models ...string) (string, error) {
 	a.antigravityAppMu.Lock()
 	defer a.antigravityAppMu.Unlock()
 	if a.antigravityAppServer != nil {
@@ -37,6 +37,7 @@ func (a *App) startAntigravityAppProxy(key, model string) (string, error) {
 	a.antigravityAppToken = hex.EncodeToString(token)
 	a.antigravityAppKey = key
 	a.antigravityAppModel = model
+	a.antigravityAppModels = append([]string{model}, models...)
 	server := &http.Server{Handler: http.HandlerFunc(a.serveAntigravityApp), ReadHeaderTimeout: 10 * time.Second}
 	a.antigravityAppServer = server
 	go func() {
@@ -54,6 +55,7 @@ func (a *App) stopAntigravityAppProxy(ctx context.Context) {
 	a.antigravityAppToken = ""
 	a.antigravityAppKey = ""
 	a.antigravityAppModel = ""
+	a.antigravityAppModels = nil
 	a.antigravityAppMu.Unlock()
 	if server != nil {
 		timeout, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -68,6 +70,7 @@ func (a *App) stopAntigravityAppProxy(ctx context.Context) {
 func (a *App) serveAntigravityApp(w http.ResponseWriter, r *http.Request) {
 	a.antigravityAppMu.Lock()
 	key, model, token := a.antigravityAppKey, a.antigravityAppModel, a.antigravityAppToken
+	models := append([]string{model}, a.antigravityAppModels...)
 	a.antigravityAppMu.Unlock()
 	if key == "" || model == "" || token == "" {
 		http.Error(w, "Gateway is not configured", 503)
@@ -92,12 +95,20 @@ func (a *App) serveAntigravityApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST required", 405)
 		return
 	}
-	prefix := "/v1beta/models/" + model + ":"
-	if !strings.HasPrefix(r.URL.Path, prefix) {
+	const prefix = "/v1beta/models/"
+	requested, action, found := strings.Cut(strings.TrimPrefix(r.URL.Path, prefix), ":")
+	enabled := false
+	for _, candidate := range models {
+		if candidate == requested {
+			enabled = true
+			break
+		}
+	}
+	if !strings.HasPrefix(r.URL.Path, prefix) || !found || !enabled {
 		http.Error(w, "Model is not enabled", 404)
 		return
 	}
-	action := strings.TrimPrefix(r.URL.Path, prefix)
+	model = requested
 	if action != "generateContent" && action != "streamGenerateContent" && action != "countTokens" {
 		http.Error(w, "Unsupported endpoint", 404)
 		return
@@ -167,7 +178,7 @@ func antigravityGatewayEnvironment(base []string, endpoint, token, model string)
 	return append(env, "AGY_LLM_GATEWAY_URL="+endpoint, "AGY_LLM_GATEWAY_API_KEY="+token, "AGY_LLM_GATEWAY_WIRE_PROTOCOL=genai", "AGY_LLM_GATEWAY_MODELS="+model)
 }
 
-func (a *App) launchAntigravityAppWithProxy(key, model string) ToolRestartResult {
+func (a *App) launchAntigravityAppWithProxy(key, model string, models []string) ToolRestartResult {
 	result := ToolRestartResult{ClientID: "antigravity-app"}
 	definition, _ := clientDefinitionForID("antigravity-app")
 	home, err := os.UserHomeDir()
@@ -189,7 +200,7 @@ func (a *App) launchAntigravityAppWithProxy(key, model string) ToolRestartResult
 	}
 	// The process check above ensures an active desktop session is not interrupted.
 	a.stopAntigravityAppProxy(context.Background())
-	endpoint, err := a.startAntigravityAppProxy(key, model)
+	endpoint, err := a.startAntigravityAppProxy(key, model, models...)
 	if err != nil {
 		result.ManualRestartRequired = true
 		result.Message = err.Error()
@@ -208,15 +219,15 @@ func (a *App) launchAntigravityAppWithProxy(key, model string) ToolRestartResult
 			return result
 		}
 		args := []string{}
-		for _, entry := range antigravityGatewayEnvironment(nil, endpoint, token, model) {
+		for _, entry := range antigravityGatewayEnvironment(nil, endpoint, token, strings.Join(models, ",")) {
 			args = append(args, "--env", entry)
 		}
 		args = append(args, bundle)
 		cmd = exec.Command("/usr/bin/open", args...)
-		cmd.Env = antigravityGatewayEnvironment(os.Environ(), endpoint, token, model)
+		cmd.Env = antigravityGatewayEnvironment(os.Environ(), endpoint, token, strings.Join(models, ","))
 	} else {
 		cmd = exec.Command(executable)
-		cmd.Env = antigravityGatewayEnvironment(os.Environ(), endpoint, token, model)
+		cmd.Env = antigravityGatewayEnvironment(os.Environ(), endpoint, token, strings.Join(models, ","))
 	}
 	if err = cmd.Start(); err != nil {
 		a.stopAntigravityAppProxy(context.Background())
@@ -253,4 +264,23 @@ func isAntigravityAppRunning(executable string) (bool, error) {
 
 func (a *App) antigravityHTTPClient() *http.Client {
 	return &http.Client{Transport: a.client.Transport, Timeout: 5 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+}
+
+// Keep the chosen model first, while exposing every usable Gemini model.
+func antigravityModelMenu(selected string, models []Model) []string {
+	menu := []string{}
+	seen := map[string]bool{}
+	add := func(id string) {
+		id = strings.TrimSpace(id)
+		if !strings.HasPrefix(id, "gemini") || strings.ContainsAny(id, ",:/\r\n") || seen[id] {
+			return
+		}
+		seen[id] = true
+		menu = append(menu, id)
+	}
+	add(selected)
+	for _, model := range models {
+		add(model.ID)
+	}
+	return menu
 }

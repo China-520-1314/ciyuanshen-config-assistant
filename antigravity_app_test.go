@@ -126,3 +126,30 @@ func TestAntigravityGatewayEnvironment(t *testing.T) {
 		t.Fatalf("wrong environment: %v", env)
 	}
 }
+
+func TestAntigravityMultipleModels(t *testing.T) {
+	menu := antigravityModelMenu("gemini-b", []Model{{ID: "gemini-a"}, {ID: "gemini-b"}, {ID: "gpt-test"}, {ID: "gemini-a"}, {ID: "gemini-invalid,injected"}})
+	if strings.Join(menu, ",") != "gemini-b,gemini-a" {
+		t.Fatalf("menu: %v", menu)
+	}
+	app := NewApp()
+	app.antigravityAppKey, app.antigravityAppToken, app.antigravityAppModel = "key", "token", "gemini-b"
+	app.antigravityAppModels = menu
+	app.client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/v1beta/models/gemini-a:generateContent" {
+			t.Fatalf("selected model lost: %s", r.URL.Path)
+		}
+		return testRawJSONResponse(r, `{"candidates":[]}`), nil
+	})}
+	req := httptest.NewRequest("POST", "/v1beta/models/gemini-a:generateContent", strings.NewReader(`{"contents":[]}`))
+	req.Header.Set("Authorization", "Bearer token")
+	out := httptest.NewRecorder()
+	app.serveAntigravityApp(out, req)
+	if out.Code != 200 {
+		t.Fatalf("second model rejected: %d", out.Code)
+	}
+	env := strings.Join(antigravityGatewayEnvironment(nil, "http://127.0.0.1:123", "token", strings.Join(menu, ",")), "\n")
+	if !strings.Contains(env, "AGY_LLM_GATEWAY_MODELS=gemini-b,gemini-a") {
+		t.Fatal(env)
+	}
+}

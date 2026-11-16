@@ -896,7 +896,7 @@ func (a *App) ConfigureTool(request ToolConfigurationRequest) ConfigureResult {
 		return ConfigureResult{FinishedAt: time.Now(), Error: "请选择该 Key 可用的默认模型"}
 	}
 	if clientID == "antigravity-app" {
-		return a.configureAntigravityAppTool(request.APIKey, request.Model)
+		return a.configureAntigravityAppTool(request.APIKey, request.Model, validated.Models)
 	}
 	return a.Configure(ConfigurationRequest{
 		APIKey:                    strings.TrimSpace(request.APIKey),
@@ -923,7 +923,7 @@ func (a *App) ConfigureProvisionedTool(request ProvisionedToolConfigurationReque
 		return ConfigureResult{FinishedAt: time.Now(), Error: "请选择新建 Key 可用的默认模型"}
 	}
 	if clientID == "antigravity-app" {
-		result := a.configureAntigravityAppTool(provision.Key, request.Model)
+		result := a.configureAntigravityAppTool(provision.Key, request.Model, provision.Models)
 		if result.Success {
 			a.provisionMu.Lock()
 			delete(a.provisions, strings.TrimSpace(request.ProvisionID))
@@ -946,7 +946,7 @@ func (a *App) ConfigureProvisionedTool(request ProvisionedToolConfigurationReque
 	return result
 }
 
-func (a *App) configureAntigravityAppTool(key, model string) ConfigureResult {
+func (a *App) configureAntigravityAppTool(key, model string, models []Model) ConfigureResult {
 	a.operation.Lock()
 	defer a.operation.Unlock()
 	result := ConfigureResult{FinishedAt: time.Now(), Configured: []string{"antigravity-app"}}
@@ -954,7 +954,7 @@ func (a *App) configureAntigravityAppTool(key, model string) ConfigureResult {
 		result.Error = "Antigravity APP 的代理接入目前仅支持 Windows 和 macOS"
 		return result
 	}
-	restart := a.launchAntigravityAppWithProxy(strings.TrimSpace(key), strings.TrimSpace(model))
+	restart := a.launchAntigravityAppWithProxy(strings.TrimSpace(key), strings.TrimSpace(model), antigravityModelMenu(model, models))
 	result.Restarts = []ToolRestartResult{restart}
 	if !restart.Restarted {
 		result.Error = restart.Message

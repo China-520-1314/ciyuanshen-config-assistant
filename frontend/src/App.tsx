@@ -1112,7 +1112,7 @@ function App() {
       return;
     }
     const confirmation = setup.clientId === 'antigravity-app'
-      ? '将使用所选 Key 和 Gemini 文本模型启动 Antigravity APP，不修改其用户设置。配置助手运行期间本地代理才可用，并会在退出时关闭。请先完全退出 APP，是否继续？'
+      ? '将使用所选 Key 的可用 Gemini 模型启动 Antigravity APP，所选模型排在列表首位，不修改其用户设置。配置助手运行期间本地代理才可用，并会在退出时关闭。请先完全退出 APP，是否继续？'
       : `将备份 ${clientCopy[setup.clientId].short} 当前配置，并写入新配置。配置完成后会尝试自动重启该工具；无法重启时会提示你手动重启。是否继续？`;
     if (!(await confirmAction({ title: '确认一键配置', message: confirmation, confirmLabel: '确认配置' }))) return;
     setSetupBusy('configure');
@@ -1592,7 +1592,7 @@ function ToolSetupModal({ setup, account, options, group, keyValue, showKey, val
   const showNewConfigurationStep = setup.mode === 'account' && accountKeySource === 'new' && Boolean(provision && !provision.existing);
   return <div className="modal-backdrop" role="presentation"><section className="setup-modal" role="dialog" aria-modal="true" aria-labelledby="setup-title">
     <div className="modal-heading"><div className="setup-client-heading"><img src={clientLogos[setup.clientId]} alt="" /><div><p className="eyebrow">{client.badge}</p><h2 id="setup-title">配置 {client.short}</h2></div></div><button className="icon-button" title="关闭" aria-label="关闭" onClick={onClose}><X size={18} /></button></div>
-    {setup.clientId === 'antigravity-app' && <p className="setup-scope-note">原生 API Key 网关模式，无需预先 Google 登录。请先完全退出 APP（包括托盘），配置后保持本助手运行；需要支持此模式的 APP 版本，桌面实机兼容性待验证。</p>}
+    {setup.clientId === 'antigravity-app' && <p className="setup-scope-note">原生 API Key 网关模式，无需预先 Google 登录；配置后可在 APP 中选择当前 Key 可用的 Gemini 模型，所选模型排在首位。请先完全退出 APP（包括托盘），配置后保持本助手运行；需要支持此模式的 APP 版本，桌面实机兼容性待验证。</p>}
     <div className="mode-switch" role="tablist" aria-label="Key 来源">
       <button className={setup.mode === 'account' ? 'active' : ''} role="tab" aria-selected={setup.mode === 'account'} onClick={() => onModeChange('account')}><UserRound size={15} />词元神账号</button>
       <button className={setup.mode === 'manual' ? 'active' : ''} role="tab" aria-selected={setup.mode === 'manual'} onClick={() => onModeChange('manual')}><KeyRound size={15} />手动输入 Key</button>
