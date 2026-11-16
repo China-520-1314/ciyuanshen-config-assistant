@@ -19,7 +19,7 @@ func main() {
 
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title:            "词元神配置助手",
+		Title:            "词元神一键配置助手",
 		Width:            1000,
 		Height:           660,
 		MinWidth:         860,

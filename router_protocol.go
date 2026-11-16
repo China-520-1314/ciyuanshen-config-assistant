@@ -27,6 +27,10 @@ func toolName(name, namespace string) string {
 }
 
 func responsesToChat(in map[string]any, model string) (map[string]any, map[string]routeTool, error) {
+	return responsesToChatWithOptions(in, model, RouterModelOptions{})
+}
+
+func responsesToChatWithOptions(in map[string]any, model string, options RouterModelOptions) (map[string]any, map[string]routeTool, error) {
 	specs := map[string]routeTool{}
 	if str(in["previous_response_id"]) != "" {
 		return nil, nil, errors.New("本地路由需要完整对话历史，请新建对话；暂不支持 previous_response_id")
@@ -152,6 +156,13 @@ func responsesToChat(in map[string]any, model string) (map[string]any, map[strin
 				return nil, nil, errors.New("无法转换消息角色")
 			}
 			content, err := routeContent(item["content"])
+			if !routeCapability(options.ImageInput) {
+				for _, part := range arr(content) {
+					if str(obj(part)["type"]) == "image_url" {
+						return nil, nil, errors.New("此模型未启用图片输入，请更换模型或调整模型能力设置")
+					}
+				}
+			}
 			if err != nil {
 				return nil, nil, err
 			}
@@ -178,6 +189,21 @@ func responsesToChat(in map[string]any, model string) (map[string]any, map[strin
 	for _, k := range []string{"temperature", "top_p", "parallel_tool_calls"} {
 		if v, ok := in[k]; ok {
 			request[k] = v
+		}
+	}
+	if !routeCapability(options.ParallelToolCalls) {
+		request["parallel_tool_calls"] = false
+	}
+	if options.Reasoning {
+		effort := str(obj(in["reasoning"])["effort"])
+		if effort == "" {
+			effort = "medium"
+		}
+		switch effort {
+		case "low", "medium", "high":
+			request["reasoning_effort"] = effort
+		default:
+			return nil, nil, errors.New("此 Chat 路由支持 low、medium、high 思考等级，请调整后重试")
 		}
 	}
 	if max, ok := in["max_output_tokens"]; ok {
@@ -591,7 +617,8 @@ func (o *routeOutput) complete() error {
 	prompt, _ := o.usage["prompt_tokens"].(float64)
 	completion, _ := o.usage["completion_tokens"].(float64)
 	cached, _ := obj(o.usage["prompt_tokens_details"])["cached_tokens"].(float64)
-	o.response["usage"] = map[string]any{"input_tokens": prompt, "output_tokens": completion, "total_tokens": prompt + completion, "input_tokens_details": map[string]any{"cached_tokens": cached}, "output_tokens_details": map[string]any{"reasoning_tokens": 0}}
+	reasoningTokens, _ := obj(o.usage["completion_tokens_details"])["reasoning_tokens"].(float64)
+	o.response["usage"] = map[string]any{"input_tokens": prompt, "output_tokens": completion, "total_tokens": prompt + completion, "input_tokens_details": map[string]any{"cached_tokens": cached}, "output_tokens_details": map[string]any{"reasoning_tokens": reasoningTokens}}
 	event := "response.completed"
 	if o.finish == "length" {
 		o.response["status"] = "incomplete"

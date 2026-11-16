@@ -32,6 +32,8 @@ Unicode true
 ####
 ## Include the wails tools
 ####
+; Preserve the existing installation identity when the display name changes.
+!define UNINST_KEY_NAME "词元神词元神配置助手"
 !include "wails_tools.nsh"
 
 # The version information for this two must consist of 4 parts
@@ -72,7 +74,7 @@ ManifestDPIAware true
 
 Name "${INFO_PRODUCTNAME}"
 OutFile "..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe" # Name of the installer's file.
-InstallDir "$PROGRAMFILES64\${INFO_COMPANYNAME}\${INFO_PRODUCTNAME}" # Default installing folder ($PROGRAMFILES is Program Files folder).
+InstallDir "$PROGRAMFILES64\${INFO_COMPANYNAME}\词元神配置助手" # Default installing folder ($PROGRAMFILES is Program Files folder).
 ShowInstDetails show # This will always show the installation details.
 
 Function .onInit
@@ -90,6 +92,8 @@ Section
 
     !insertmacro wails.files
 
+    Delete "$SMPROGRAMS\词元神配置助手.lnk"
+    Delete "$DESKTOP\词元神配置助手.lnk"
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
 

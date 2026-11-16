@@ -63,6 +63,12 @@ Codex 显示 `gpt-5.6-terra` 兼容别名，助手页面同时显示实际目标
 
 本地服务只监听 `127.0.0.1` 的随机端口，使用独立随机令牌认证，不允许浏览器跨域调用。它将 Codex Responses、Claude Code/Claude Desktop Anthropic Messages 请求转换为词元神 `/v1/chat/completions`；Claude Desktop 使用安全 Claude 路由 ID 转发，以 `inferenceModels[].labelOverride` 显示所选实际模型名称；超过四个模型时生成独立的扩展路由 ID。支持流式/非流式文本、图片输入、函数工具、命名空间工具、自由文本工具（包括补丁）以及工具结果回传。目标模型需具备相应能力。当前不支持内置联网搜索、`previous_response_id` 服务端续接、远端压缩等扩展；长对话请新建会话，不支持的输入会明确报错。
 
+Codex 路由的“模型能力设置”可逐个指定上下文长度、图片输入、并行工具调用，以及是否启用 Chat `reasoning_effort`。上下文留空使用兼容值 114688（不是自动探测的模型上限），图片和并行工具沿用默认启用；请根据网关实际能力调整。默认不声明可调思考等级；勾选支持思考后，菜单提供 low／medium／high，并将 Responses 的 `reasoning.effort` 映射到 Chat `reasoning_effort`，请求未指定时使用 medium。不支持的思考等级会明确报错。路由期间暂时移除原配置的全局上下文长度和自动压缩阈值，避免覆盖逐模型设置；停止后随原配置恢复。能力设置保存在路由恢复记录中，不包含上游 Key。
+
+思考 Token 用量读取上游 `completion_tokens_details.reasoning_tokens`；上游不返回时记为 0，不代表模型未进行思考。上游 HTTP 429／503 最多重试两次，支持 `Retry-After` 秒数或 HTTP 日期；要求等待超过 30 秒时直接报告错误，不提前重试。关闭请求会取消重试等待，最终错误响应正文会保留。
+
+本轮仍使用 Chat Completions 上游，没有新增 Gemini 原生协议或思考签名回放；模拟工具调用测试不代表真实 Gemini 渠道已通过多轮验收。
+
 启动时仅临时切换 `~/.codex/config.toml`，保留原文件的完整字节备份，不修改 `auth.json`。上游 Key 仅在内存中使用，写入 Codex 配置的是本机临时令牌。临时配置会关闭联网搜索、请求压缩和部分不兼容的上下文扩展，并取消默认 profile 选择；不要通过命令行 `--profile`/`-c` 再覆盖路由配置。自定义 `CODEX_HOME` 暂不支持一键接管。
 
 点击“停止并恢复配置”或正常退出时恢复原文件；异常退出后重新打开助手，在路由页点击“停止并恢复配置”。如果原配置已被其他程序修改，助手不会覆盖修改，恢复记录仍保存在用户配置目录的 `CiyuanShen/Config Assistant/router-recovery.json`（macOS 位于 `~/Library/Application Support/`，Windows 位于 `%AppData%`）。该 JSON 的 `original` 字段是原文件的 Base64 内容，`installed` 是路由写入的内容。恢复记录可能包含原配置中的凭据，请勿公开分享。路由启用或有待处理恢复记录期间，助手会阻止其他配置写入和备份恢复，避免相互覆盖。

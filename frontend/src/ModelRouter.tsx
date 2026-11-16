@@ -3,11 +3,12 @@ import { Play, Square, RefreshCw, Terminal, Monitor, Code2, Search, Check, X, St
 import { GetRouterModels, GetModelRouterStatuses, StartModelRouter, StopClientModelRouter, GetRouterAccountOptions, CreateToolKey } from '../wailsjs/go/main/App';
 
 type Client = 'codex' | 'claude' | 'claude-desktop';
-type Status = { client?: string; recoverable?: boolean; supported?: boolean; running: boolean; model: string; alias: string; models?: string[]; address: string; requests: number; failures: number; lastError: string; backupPath: string };
+type ModelOptions = { contextWindow?: number; reasoning: boolean; imageInput?: boolean; parallelToolCalls?: boolean };
+type Status = { modelOptions?: Record<string, ModelOptions>; client?: string; recoverable?: boolean; supported?: boolean; running: boolean; model: string; alias: string; models?: string[]; address: string; requests: number; failures: number; lastError: string; backupPath: string };
 type Group = { name: string; description: string; ratio: string; models: { id: string }[] };
 type Key = { provisionId: string; group: string; groupDescription?: string; name?: string; models: { id: string }[]; existing?: boolean };
 type AccountOptions = { groups: Group[]; existingKeys?: Key[] };
-type Request = { apiKey: string; provisionId: string; model: string; defaultModel?: string; models?: string[]; useExistingKey: boolean; client?: string; claudeOneM?: boolean };
+type Request = { modelOptions?: Record<string, ModelOptions>; apiKey: string; provisionId: string; model: string; defaultModel?: string; models?: string[]; useExistingKey: boolean; client?: string; claudeOneM?: boolean };
 type RouterBridge = {
   GetRouterModels(request: Request): Promise<{ models: { id: string }[] }>;
   GetModelRouterStatuses(): Promise<Record<Client, Status>>;
@@ -92,6 +93,8 @@ function RouterPanel({ client, status, onStatus: setStatus, loadOptions, onLogin
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
   const [defaultModel, setDefaultModel] = useState('');
   const [modelSearch, setModelSearch] = useState('');
+  const [modelOptions, setModelOptions] = useState<Record<string, ModelOptions>>({});
+  const [optionsModel, setOptionsModel] = useState('');
   const [claudeOneM, setClaudeOneM] = useState(false);
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
@@ -107,6 +110,7 @@ function RouterPanel({ client, status, onStatus: setStatus, loadOptions, onLogin
     if ((status.running || status.recoverable) && !hydrated.current) {
       hydrated.current = true;
       setSelectedModels(status.models || []);
+      setModelOptions(status.modelOptions || {});
       setModel(status.model);
       setDefaultModel(status.model);
     }
@@ -138,7 +142,7 @@ function RouterPanel({ client, status, onStatus: setStatus, loadOptions, onLogin
     if (action === 'start' && existing && provisionId && !keys.some(k => k.provisionId === provisionId && selectedModels.every(id => k.models.some(m => m.id === id)))) { setError('当前 Key 不支持全部已选模型，请重新选择分组。'); return; }
     if (action === 'start' && client === 'claude-desktop' && selectedModels.length > 200) { setError('Claude Desktop 最多支持 200 个映射模型，请减少选择。'); return; }
     setBusy(action); setError(''); setNotice('');
-    const request = { apiKey: key, provisionId, model: defaultModel.trim() || selectedModels[0] || model, defaultModel: defaultModel.trim(), models: selectedModels, useExistingKey: existing, client, claudeOneM };
+    const request = { apiKey: key, provisionId, model: defaultModel.trim() || selectedModels[0] || model, defaultModel: defaultModel.trim(), models: selectedModels, useExistingKey: existing, client, claudeOneM, modelOptions: client === 'codex' ? Object.fromEntries(Object.entries(modelOptions).filter(([id]) => selectedModels.includes(id) || id === defaultModel.trim())) : undefined };
     try {
       if (action === 'models') {
         setModels([]); setModel('');
@@ -190,6 +194,11 @@ function RouterPanel({ client, status, onStatus: setStatus, loadOptions, onLogin
     else { setProvisionId(''); setSelectedGroup(''); setNotice('没有同时支持全部已选模型的分组，请调整模型选择或使用手动 Key。'); }
   }
   const selectedLimit = client === 'claude-desktop' ? 200 : Number.POSITIVE_INFINITY;
+  const capabilityModel = selectedModels.includes(optionsModel) ? optionsModel : selectedModels[0] || '';
+  const capabilities = modelOptions[capabilityModel] || { reasoning: false };
+  function updateCapabilities(patch: Partial<ModelOptions>) {
+    setModelOptions(previous => ({ ...previous, [capabilityModel]: { ...(previous[capabilityModel] || { reasoning: false }), ...patch } }));
+  }
   const canStart = !locked && status.supported !== false && selectedModels.length > 0 && selectedModels.length <= selectedLimit && !loadingOptions && (existing ? Boolean(provisionId || selectedGroup) : Boolean(key.trim()));
   return <div className="router-workspace">
     <section className="router-card router-models-card">
@@ -215,6 +224,14 @@ function RouterPanel({ client, status, onStatus: setStatus, loadOptions, onLogin
       <section className="router-card">
         <div className="router-section-heading"><div><p className="eyebrow">03 / 默认模型</p><h3>优先使用哪个模型</h3></div><Star size={18} /></div>
         <div className="field-block"><label htmlFor={client + '-default'}>默认请求模型</label><select id={client + '-default'} value={selectedModels.includes(defaultModel) ? defaultModel : ''} disabled={locked || !selectedModels.length} onChange={e => setDefaultModel(e.target.value)}><option value="">使用第一项{primaryModel ? ' · ' + primaryModel : ''}</option>{selectedModels.map(id => <option key={id} value={id}>{id}</option>)}</select></div>
+        {client === 'codex' && selectedModels.length > 0 && <details className="router-help"><summary>模型能力设置</summary>
+          <p className="field-note">按网关实际支持情况设置每个模型；未设置的上下文使用兼容值 114688，图片与并行工具默认启用。思考参数需手动启用。</p>
+          <div className="field-block"><label htmlFor="router-capability-model">要设置的模型</label><select id="router-capability-model" value={capabilityModel} disabled={locked} onChange={e => setOptionsModel(e.target.value)}>{selectedModels.map(id => <option key={id} value={id}>{id}</option>)}</select></div>
+          <div className="field-block"><label htmlFor="router-context-window">上下文长度（Token）</label><input id="router-context-window" type="number" min={1024} max={10000000} step={1} placeholder="114688" value={capabilities.contextWindow || ''} disabled={locked} onChange={e => updateCapabilities({ contextWindow: e.target.value === '' ? undefined : Number(e.target.value) })} /></div>
+          <label className="router-inline-check"><input type="checkbox" checked={capabilities.reasoning} disabled={locked} onChange={e => updateCapabilities({ reasoning: e.target.checked })} />支持思考等级（low / medium / high）</label>
+          <label className="router-inline-check"><input type="checkbox" checked={capabilities.imageInput !== false} disabled={locked} onChange={e => updateCapabilities({ imageInput: e.target.checked })} />支持图片输入</label>
+          <label className="router-inline-check"><input type="checkbox" checked={capabilities.parallelToolCalls !== false} disabled={locked} onChange={e => updateCapabilities({ parallelToolCalls: e.target.checked })} />支持并行工具调用</label>
+        </details>}
         {client === 'claude' && <label className="router-inline-check"><input type="checkbox" checked={claudeOneM} disabled={locked} onChange={e => setClaudeOneM(e.target.checked)} />启用 1M 上下文（需模型支持）</label>}
         <div className="router-selected-summary"><span>已选顺序</span>{selectedModels.slice(0, 8).map((id, index) => <div key={id}><b>{index + 1}</b><span title={id}>{id}</span><button type="button" aria-label={'移除 ' + id} disabled={locked} onClick={() => toggleModel(id, false)}><X size={13} /></button></div>)}{selectedModels.length > 8 && <small>还有 {selectedModels.length - 8} 个，可使用「仅看已选」管理</small>}{!selectedModels.length && <small>从左侧勾选模型</small>}</div>
       </section>

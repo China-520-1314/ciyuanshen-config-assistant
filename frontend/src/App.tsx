@@ -431,7 +431,7 @@ function App() {
   const [systemThemeMode, setSystemThemeMode] = useState<ResolvedThemeMode>(getSystemThemeMode);
   const [customWallpaper, setCustomWallpaper] = useState(readStoredWallpaper);
   const [environment, setEnvironment] = useState<EnvironmentReport>(mockEnvironment);
-  const [appInfo, setAppInfo] = useState<AppInfo>({ name: '词元神配置助手', version: '0.2.21', platform: '', updateManifestUrl: '', gatewayUrl: 'https://api.ciyuanshen.top/v1' });
+  const [appInfo, setAppInfo] = useState<AppInfo>({ name: '词元神一键配置助手', version: '0.2.60', platform: '', updateManifestUrl: '', gatewayUrl: 'https://api.ciyuanshen.top/v1' });
   const [account, setAccount] = useState<AccountState>({ signedIn: false, username: '' });
   const [accountRefreshing, setAccountRefreshing] = useState(false);
   const [toolModels, setToolModels] = useState<Partial<Record<ClientId, Model[]>>>({});
@@ -1424,7 +1424,7 @@ function App() {
 function WindowTitlebar() {
   const dragStyle = { '--wails-draggable': 'drag' } as CSSProperties;
   return <header className="window-titlebar" style={dragStyle}>
-    <div className="window-title"><img src={logo} alt="" /><span>词元神配置助手</span></div>
+    <div className="window-title"><img src={logo} alt="" /><span>词元神一键配置助手</span></div>
     <div className="window-controls" style={{ '--wails-draggable': 'no-drag' } as CSSProperties}>
       <button className="window-control" title="最小化" aria-label="最小化" onClick={WindowMinimise}><Minus size={16} /></button>
       <button className="window-control" title="退出全屏或最大化/还原" aria-label="退出全屏或最大化/还原" onClick={async () => { if (await WindowIsFullscreen()) WindowUnfullscreen(); else WindowToggleMaximise(); }}><Maximize2 size={15} /></button>

@@ -737,6 +737,7 @@ export namespace main {
 		}
 	}
 	export class RouterRequest {
+        modelOptions?: Record<string, { contextWindow?: number; reasoning: boolean; imageInput?: boolean; parallelToolCalls?: boolean }>;
 	    apiKey: string;
 	    provisionId: string;
 	    model: string;
@@ -748,6 +749,7 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+        this.modelOptions = source["modelOptions"];
 	        this.apiKey = source["apiKey"];
 	        this.provisionId = source["provisionId"];
 	        this.model = source["model"];
@@ -755,6 +757,7 @@ export namespace main {
 	    }
 	}
 	export class RouterStatus {
+        modelOptions?: Record<string, { contextWindow?: number; reasoning: boolean; imageInput?: boolean; parallelToolCalls?: boolean }>;
 	    client: string;
         recoverable: boolean;
         supported: boolean;
@@ -774,6 +777,7 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+        this.modelOptions = source["modelOptions"];
 	        this.client = source["client"];
         this.recoverable = source["recoverable"];
         this.supported = source["supported"];

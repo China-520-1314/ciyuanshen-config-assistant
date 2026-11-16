@@ -23,31 +23,34 @@ const routerAlias = "gpt-5.6-terra"
 const routerProvider = "ciyuanshen"
 
 type RouterRequest struct {
-	APIKey         string   `json:"apiKey"`
-	ProvisionID    string   `json:"provisionId"`
-	Model          string   `json:"model"`
-	DefaultModel   string   `json:"defaultModel,omitempty"`
-	Models         []string `json:"models,omitempty"`
-	UseExistingKey bool     `json:"useExistingKey"`
-	Client         string   `json:"client"` // codex, claude, or claude-desktop
-	ClaudeOneM     bool     `json:"claudeOneM,omitempty"`
+	ModelOptions   map[string]RouterModelOptions `json:"modelOptions,omitempty"`
+	APIKey         string                        `json:"apiKey"`
+	ProvisionID    string                        `json:"provisionId"`
+	Model          string                        `json:"model"`
+	DefaultModel   string                        `json:"defaultModel,omitempty"`
+	Models         []string                      `json:"models,omitempty"`
+	UseExistingKey bool                          `json:"useExistingKey"`
+	Client         string                        `json:"client"` // codex, claude, or claude-desktop
+	ClaudeOneM     bool                          `json:"claudeOneM,omitempty"`
 }
 type RouterStatus struct {
-	Client      string   `json:"client"`
-	Recoverable bool     `json:"recoverable"`
-	Supported   bool     `json:"supported"`
-	Running     bool     `json:"running"`
-	Model       string   `json:"model"`
-	Alias       string   `json:"alias"`
-	Models      []string `json:"models,omitempty"`
-	Address     string   `json:"address"`
-	Requests    int      `json:"requests"`
-	Failures    int      `json:"failures"`
-	LastError   string   `json:"lastError"`
-	BackupPath  string   `json:"backupPath"`
+	ModelOptions map[string]RouterModelOptions `json:"modelOptions,omitempty"`
+	Client       string                        `json:"client"`
+	Recoverable  bool                          `json:"recoverable"`
+	Supported    bool                          `json:"supported"`
+	Running      bool                          `json:"running"`
+	Model        string                        `json:"model"`
+	Alias        string                        `json:"alias"`
+	Models       []string                      `json:"models,omitempty"`
+	Address      string                        `json:"address"`
+	Requests     int                           `json:"requests"`
+	Failures     int                           `json:"failures"`
+	LastError    string                        `json:"lastError"`
+	BackupPath   string                        `json:"backupPath"`
 }
 type routerJournal struct {
-	Client          string `json:"client,omitempty"`
+	ModelOptions    map[string]RouterModelOptions `json:"modelOptions,omitempty"`
+	Client          string                        `json:"client,omitempty"`
 	storagePath     string
 	Path            string            `json:"path"`
 	Original        []byte            `json:"original"`
@@ -162,6 +165,7 @@ func (a *App) registerRouter(client string, p *modelRouter) {
 		}
 		p.status.Models = actual
 	}
+	p.status.ModelOptions = p.journal.ModelOptions
 	p.status.Client = client
 	p.status.Supported = true
 	p.status.Recoverable = true
@@ -226,6 +230,7 @@ func (a *App) routerStatusUnlocked(client string) RouterStatus {
 	}
 	s := RouterStatus{Client: client, Supported: client != "claude-desktop" || claudeDesktopSupported(), Alias: routerAlias, BackupPath: routerJournalPath(client)}
 	if journal, err := readClientRouterJournal(client); err == nil {
+		s.ModelOptions = journal.ModelOptions
 		s.Recoverable = true
 		s.BackupPath = journalStoragePath(journal)
 		s.Address = "http://" + journal.Address
@@ -332,6 +337,9 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 		return RouterStatus{}, err
 	}
 	r.Client = client
+	if err := validateRouterModelOptions(r.ModelOptions); err != nil {
+		return RouterStatus{}, err
+	}
 	if a.routers[client] != nil {
 		return RouterStatus{}, errors.New("此客户端路由已启动；请先停止后更换模型")
 	}
@@ -427,6 +435,9 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 	root["disable_response_storage"] = true
 	delete(root, "service_tier")
 	delete(root, "model_reasoning_effort")
+	// Let the per-model catalog control these while routing; recovery restores them.
+	delete(root, "model_context_window")
+	delete(root, "model_auto_compact_token_limit")
 	delete(root, "profile")
 	delete(root, "context_management")
 	delete(root, "token_budget")
@@ -454,31 +465,7 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 		if modelID == "" {
 			continue
 		}
-		catalogModels = append(catalogModels, map[string]any{
-			"slug":         modelID,
-			"display_name": modelID,
-			"description":  "词元神路由模型",
-			"supported_reasoning_levels": []map[string]string{
-				{"effort": "low", "description": "Low reasoning"},
-				{"effort": "medium", "description": "Medium reasoning"},
-				{"effort": "high", "description": "High reasoning"},
-				{"effort": "xhigh", "description": "Extra high reasoning"},
-				{"effort": "ultra", "description": "Ultra reasoning"},
-				{"effort": "max", "description": "Maximum reasoning"},
-			},
-			"default_reasoning_level":          "medium",
-			"context_window":                   114688,
-			"max_context_window":               114688,
-			"effective_context_window_percent": 100,
-			"supports_reasoning_summaries":     true,
-			"supports_parallel_tool_calls":     true,
-			"input_modalities":                 []string{"text", "image"},
-			"support_verbosity":                false,
-			"visibility":                       "list",
-			"supported_in_api":                 true,
-			"priority":                         0,
-			"is_default":                       modelID == defaultModel,
-		})
+		catalogModels = append(catalogModels, routerCatalogModel(modelID, defaultModel, r.ModelOptions[modelID]))
 	}
 	catalog, _ := json.Marshal(map[string]any{"models": catalogModels})
 	root["model_catalog_json"] = "ciyuanshen-model-catalog.json"
@@ -487,7 +474,7 @@ func (a *App) StartModelRouter(r RouterRequest) (RouterStatus, error) {
 		listener.Close()
 		return RouterStatus{}, err
 	}
-	journal := routerJournal{Client: client, Path: path, Original: original, Installed: installed, Existed: existed, Address: listener.Addr().String(), CatalogPath: catalogPath, CatalogOriginal: catalogOriginal, CatalogExisted: catalogExisted, Models: selectedModels, DefaultModel: defaultModel}
+	journal := routerJournal{ModelOptions: r.ModelOptions, Client: client, Path: path, Original: original, Installed: installed, Existed: existed, Address: listener.Addr().String(), CatalogPath: catalogPath, CatalogOriginal: catalogOriginal, CatalogExisted: catalogExisted, Models: selectedModels, DefaultModel: defaultModel}
 	encoded, _ := json.Marshal(journal)
 	if err = createRouterJournal(encoded); err != nil {
 		listener.Close()
@@ -895,31 +882,14 @@ func (p *modelRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	upstreamURL := p.upstream
 	p.mu.Unlock()
-	request, specs, err := responsesToChat(input, model)
+	request, specs, err := responsesToChatWithOptions(input, model, p.journal.ModelOptions[model])
 	if err != nil {
 		p.fail(err.Error())
 		routeError(w, 400, err.Error())
 		return
 	}
 	body, _ := json.Marshal(request)
-	var resp *http.Response
-	for attempt := 0; attempt < 3; attempt++ {
-		upstream, requestErr := http.NewRequestWithContext(r.Context(), "POST", upstreamURL+"/chat/completions", bytes.NewReader(body))
-		if requestErr != nil {
-			routeError(w, 502, "上游地址无效")
-			return
-		}
-		upstream.Header.Set("Content-Type", "application/json")
-		upstream.Header.Set("Authorization", "Bearer "+p.key)
-		resp, err = p.client.Do(upstream)
-		if err != nil || resp.StatusCode != http.StatusServiceUnavailable {
-			break
-		}
-		resp.Body.Close()
-		if attempt < 2 {
-			time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
-		}
-	}
+	resp, err := p.doChatRequest(r.Context(), upstreamURL, p.key, body)
 	if err != nil {
 		if r.Context().Err() == nil {
 			p.fail("上游连接失败或超时")
@@ -975,26 +945,7 @@ func (p *modelRouter) serveAnthropic(w http.ResponseWriter, r *http.Request) {
 	}
 	stream := in["stream"] == true
 	body, _ := json.Marshal(converted)
-	var resp *http.Response
-	var err error
-	for attempt := 0; attempt < 3; attempt++ {
-		up, requestErr := http.NewRequestWithContext(r.Context(), "POST", upstream+"/chat/completions", bytes.NewReader(body))
-		if requestErr != nil {
-			p.fail("上游地址无效")
-			routeAnthropicError(w, 502, "上游地址无效")
-			return
-		}
-		up.Header.Set("Content-Type", "application/json")
-		up.Header.Set("Authorization", "Bearer "+key)
-		resp, err = p.client.Do(up)
-		if err != nil || resp.StatusCode != http.StatusServiceUnavailable {
-			break
-		}
-		resp.Body.Close()
-		if attempt < 2 {
-			time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
-		}
-	}
+	resp, err := p.doChatRequest(r.Context(), upstream, key, body)
 	if err != nil {
 		p.fail("上游连接失败")
 		routeAnthropicError(w, 502, "上游连接失败")

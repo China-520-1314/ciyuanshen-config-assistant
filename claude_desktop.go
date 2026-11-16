@@ -16,7 +16,7 @@ const (
 	// Claude Desktop requires a UUID, and this ID must not collide with CC Switch.
 	claudeDesktopProfileID       = "8c2b5c3d-8e50-4d92-9a4a-7e96c6d8b10f"
 	legacyClaudeDesktopProfileID = "ciyuanshen-config-assistant"
-	claudeDesktopProfileName     = "词元神配置助手"
+	claudeDesktopProfileName     = "词元神一键配置助手"
 )
 
 type claudeDesktopPathSet struct {

@@ -179,7 +179,7 @@ jobs:
           trap 'rm -rf "$staging"' EXIT
           cp -R "$app_path" "$staging/"
           ln -s /Applications "$staging/Applications"
-          hdiutil create -volname "词元神配置助手" -srcfolder "$staging" -ov -format UDZO "$dmg_path"
+          hdiutil create -volname "词元神一键配置助手" -srcfolder "$staging" -ov -format UDZO "$dmg_path"
           shasum -a 256 "$zip_path" "$dmg_path"
 
       - name: Upload macOS package artifact

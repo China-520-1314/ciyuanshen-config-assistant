@@ -38,7 +38,7 @@ const (
 
 // appVersion is a variable so release builds can inject their tag with
 // -ldflags "-X main.appVersion=..." while local builds keep a useful default.
-var appVersion = "0.2.59"
+var appVersion = "0.2.60"
 
 type InstallUpdateResult struct {
 	Success     bool   `json:"success"`
@@ -189,7 +189,7 @@ func (a *App) shutdown(ctx context.Context) {
 
 func (a *App) GetAppInfo() AppInfo {
 	return AppInfo{
-		Name:              "词元神配置助手",
+		Name:              "词元神一键配置助手",
 		Version:           appVersion,
 		Platform:          runtime.GOOS,
 		UpdateManifestURL: updateManifestURL,

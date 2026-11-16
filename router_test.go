@@ -438,6 +438,12 @@ func TestRouterCodexCLIContract(t *testing.T) {
 	if os.Getenv("CIYUANSHEN_TEST_CODEX_CLI") != "1" {
 		t.Skip("set CIYUANSHEN_TEST_CODEX_CLI=1 to check an installed Codex CLI")
 	}
+	for _, reasoning := range []bool{false, true} {
+		t.Run(fmt.Sprintf("reasoning=%t", reasoning), func(t *testing.T) { runRouterCodexCLIContract(t, reasoning) })
+	}
+}
+
+func runRouterCodexCLIContract(t *testing.T, reasoning bool) {
 	binary, err := exec.LookPath("codex")
 	if err != nil {
 		t.Fatal(err)
@@ -453,16 +459,25 @@ func TestRouterCodexCLIContract(t *testing.T) {
 			t.Error("incorrect actual model")
 		}
 		if calls.Add(1) == 1 {
-			found := false
+			toolName, arguments := "", ""
 			for _, tool := range arr(v["tools"]) {
-				if str(obj(obj(tool)["function"])["name"]) == "functions__exec" {
-					found = true
+				name := str(obj(obj(tool)["function"])["name"])
+				switch name {
+				case "functions__exec":
+					toolName, arguments = name, `{"input":"text('TOOL_ROUTER_OK')"}`
+				case "exec_command", "functions__exec_command":
+					toolName, arguments = name, `{"cmd":"printf TOOL_ROUTER_OK"}`
 				}
 			}
-			if !found {
-				t.Error("Codex custom exec tool was not forwarded")
+			if toolName == "" {
+				t.Error("Codex did not advertise a supported execution tool")
 			}
-			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"fixture-call\",\"function\":{\"name\":\"functions__exec\",\"arguments\":\"{\\\"input\\\":\\\"text('TOOL_ROUTER_OK')\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
+			if reasoning && v["reasoning_effort"] != "medium" {
+				t.Errorf("reasoning effort not forwarded: %v", v["reasoning_effort"])
+			}
+			chunk := map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": "fixture-call", "function": map[string]any{"name": toolName, "arguments": arguments}}}}, "finish_reason": "tool_calls"}}}
+			encoded, _ := json.Marshal(chunk)
+			fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", encoded)
 			return
 		}
 		found := false
@@ -473,12 +488,12 @@ func TestRouterCodexCLIContract(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Error("Codex did not replay custom tool output")
+			t.Error("Codex did not replay tool output")
 		}
 		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ROUTER_CONTRACT_OK\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
 	}))
 	defer upstream.Close()
-	if _, err := a.StartModelRouter(RouterRequest{APIKey: "test", Model: "claude-test"}); err != nil {
+	if _, err := a.StartModelRouter(RouterRequest{APIKey: "test", Model: "claude-test", ModelOptions: map[string]RouterModelOptions{"claude-test": {Reasoning: reasoning}}}); err != nil {
 		t.Fatal(err)
 	}
 	a.routers["codex"].mu.Lock()
