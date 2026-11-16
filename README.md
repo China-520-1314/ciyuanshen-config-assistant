@@ -28,7 +28,7 @@ Pi、MCode、Kimi Code、Oh My Pi 使用各自原生服务商与默认模型字�
 
 Antigravity CLI（`agy`）与 Antigravity APP 是两个独立客户端。CLI 需先安装 `agy`；助手会读取 `agy models` 并与 Key 的可用 Gemini 模型取交集，将原生显示名写入私有 profile。配置完成后，按助手提示运行专用启动脚本；直接运行 `agy` 保留官方登录行为。
 
-Antigravity APP 使用本地 Cloud Code 代理接入词元神 Gemini 文本模型。配置前需完全退出 APP；助手会以独立进程环境启动 APP，不修改 APP 安装目录或用户设置文件。使用期间必须保持配置助手运行，退出配置助手会关闭本地代理；当前仅代理 Gemini 文本生成，不代理图片和工具调用。CLI 与 APP 使用各自独立的配置入口和图标。
+Antigravity APP 的接入目前为实验性功能，尚未完成真实桌面端对话验收。必须先从官方入口完成 Google 登录，词元神 API Key 不能替代登录。使用本地 Cloud Code 代理接入词元神 Gemini 文本模型，登录后的控制请求仍发送 Google 官方服务。配置前需完全退出 APP；助手会以独立进程环境启动 APP，不修改 APP 安装目录或用户设置文件。使用期间必须保持配置助手运行，退出配置助手会关闭本地代理；当前仅代理 Gemini 文本生成，不代理图片和工具调用。CLI 与 APP 使用各自独立的配置入口和图标。
 
 Claude Desktop 一键配置会从所选 Key 的实际可用模型中写入最多 200 个 Claude 模型到 `inferenceModels`，所选默认模型排在首位；在助手中切换默认模型时会刷新该列表。客户端需要重新启动才能读取新配置。配置助手使用独立的 3P profile ID，避免与 CC-Switch 的 profile 冲突。
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -24,8 +25,8 @@ func TestAntigravityAppProxyServesConfiguredModel(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	model := catalog.Models[antigravityAppModelID]
-	if model["displayName"] != "gemini-3-pro" || model["model"] != "gemini-3-pro" {
+	model := catalog.Models["custom-ciyuanshen"]
+	if model["displayName"] != "gemini-3-pro" || model["model"] != antigravityAppModelID {
 		t.Fatalf("unexpected model catalog entry: %#v", model)
 	}
 }
@@ -85,5 +86,51 @@ func TestAntigravityAppAccountGroups(t *testing.T) {
 	result, err := app.GetAccountToolOptions("antigravity-app")
 	if err != nil || len(result.Groups) != 1 || len(result.Groups[0].Models) != 1 || result.Groups[0].Models[0].ID != "gemini-3-pro" {
 		t.Fatalf("account groups lost: %#v %v", result, err)
+	}
+}
+
+func TestAntigravityAppStreamingAndOfficialControl(t *testing.T) {
+	app := NewApp()
+	app.antigravityAppKey = "gateway-key"
+	app.antigravityAppModel = "gemini-test"
+	app.client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host == "daily-cloudcode-pa.googleapis.com" {
+			if r.Header.Get("Authorization") != "Bearer google-token" || strings.Contains(r.URL.String(), "gateway-key") {
+				t.Fatal("control credentials mixed")
+			}
+			return testRawJSONResponse(r, `{"currentTier":{"id":"free"}}`), nil
+		}
+		if r.URL.Host != "api.ciyuanshen.top" || !strings.Contains(r.URL.Path, "streamGenerateContent") || r.Header.Get("Authorization") != "" {
+			t.Fatal("wrong model request")
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("data: {\"candidates\":[{\"index\":0}]}\n\n")), Header: make(http.Header)}, nil
+	})}
+	for _, path := range []string{"/v1internal:streamGenerateContent", "/v1internal:loadCodeAssist"} {
+		req := httptest.NewRequest("POST", path, strings.NewReader(`{"request":{"contents":[]}}`))
+		req.Header.Set("Authorization", "Bearer google-token")
+		out := httptest.NewRecorder()
+		app.serveAntigravityApp(out, req)
+		if out.Code != 200 {
+			t.Fatalf("%s: %d %s", path, out.Code, out.Body.String())
+		}
+		if strings.Contains(path, "stream") && !strings.Contains(out.Body.String(), `"response":{"candidates"`) {
+			t.Fatal(out.Body.String())
+		}
+	}
+}
+func TestAntigravityAppConnectionCheckUsesSession(t *testing.T) {
+	app := NewApp()
+	report, err := app.CheckClientConnections(ConnectionCheckRequest{Targets: []string{"antigravity-app"}})
+	if err != nil || len(report.Results) != 1 || !strings.Contains(report.Results[0].Message, "代理未启动") {
+		t.Fatalf("%#v %v", report, err)
+	}
+	app.antigravityAppServer = &http.Server{}
+	app.antigravityAppKey = "key"
+	app.client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return testRawJSONResponse(r, `{"data":[{"id":"gemini-test"}]}`), nil
+	})}
+	report, err = app.CheckClientConnections(ConnectionCheckRequest{Targets: []string{"antigravity-app"}})
+	if err != nil || !report.Results[0].Success || !strings.Contains(report.Results[0].Message, "不代表") {
+		t.Fatalf("%#v %v", report, err)
 	}
 }

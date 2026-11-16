@@ -1592,7 +1592,7 @@ function ToolSetupModal({ setup, account, options, group, keyValue, showKey, val
   const showNewConfigurationStep = setup.mode === 'account' && accountKeySource === 'new' && Boolean(provision && !provision.existing);
   return <div className="modal-backdrop" role="presentation"><section className="setup-modal" role="dialog" aria-modal="true" aria-labelledby="setup-title">
     <div className="modal-heading"><div className="setup-client-heading"><img src={clientLogos[setup.clientId]} alt="" /><div><p className="eyebrow">{client.badge}</p><h2 id="setup-title">配置 {client.short}</h2></div></div><button className="icon-button" title="关闭" aria-label="关闭" onClick={onClose}><X size={18} /></button></div>
-    {setup.clientId === 'antigravity-app' && <p className="setup-scope-note">仅接入 Gemini 文本模型。请先退出 APP；使用时需保持本助手运行。</p>}
+    {setup.clientId === 'antigravity-app' && <p className="setup-scope-note">实验性 Gemini 接入，需先完成 APP 的 Google 登录；词元神 Key 不能替代登录。使用时需保持本助手运行。</p>}
     <div className="mode-switch" role="tablist" aria-label="Key 来源">
       <button className={setup.mode === 'account' ? 'active' : ''} role="tab" aria-selected={setup.mode === 'account'} onClick={() => onModeChange('account')}><UserRound size={15} />词元神账号</button>
       <button className={setup.mode === 'manual' ? 'active' : ''} role="tab" aria-selected={setup.mode === 'manual'} onClick={() => onModeChange('manual')}><KeyRound size={15} />手动输入 Key</button>

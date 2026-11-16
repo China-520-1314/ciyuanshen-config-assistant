@@ -49,7 +49,11 @@ func (a *App) stopAntigravityAppProxy(ctx context.Context) {
 	a.antigravityAppModel = ""
 	a.antigravityAppMu.Unlock()
 	if server != nil {
-		_ = server.Shutdown(ctx)
+		timeout, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		if server.Shutdown(timeout) != nil {
+			_ = server.Close()
+		}
 	}
 }
 
@@ -61,26 +65,27 @@ func (a *App) serveAntigravityApp(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Antigravity APP proxy is not configured", http.StatusServiceUnavailable)
 		return
 	}
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Headers", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
+	if r.Header.Get("Origin") != "" {
+		http.Error(w, "Browser access is not allowed", http.StatusForbidden)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
 	}
 	path := strings.Trim(r.URL.Path, "/")
 	if strings.Contains(path, "fetchAvailableModels") || strings.Contains(path, "GetAvailableModels") {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"models": map[string]any{
-			antigravityAppModelID: map[string]any{"displayName": model, "model": model, "planModel": model, "requestedModel": model, "apiProvider": "API_PROVIDER_GOOGLE_GEMINI", "modelProvider": "MODEL_PROVIDER_GOOGLE", "recommended": false, "supportsImages": false, "supportsTools": false, "supportsThinking": false},
+			"custom-ciyuanshen": map[string]any{"displayName": model, "model": antigravityAppModelID, "planModel": antigravityAppModelID, "requestedModel": antigravityAppModelID, "apiProvider": "API_PROVIDER_GOOGLE_GEMINI", "modelProvider": "MODEL_PROVIDER_GOOGLE", "recommended": false, "maxTokens": 32768, "maxOutputTokens": 8192, "supportsImages": false, "supportsTools": false, "supportsThinking": false},
 		}})
 		return
 	}
-	if !strings.Contains(path, "generateContent") {
-		http.Error(w, "Antigravity APP proxy supports only model catalog and text generation", http.StatusNotFound)
+	if !strings.Contains(path, "generateContent") && !strings.Contains(path, "streamGenerateContent") {
+		a.forwardAntigravityControl(w, r)
 		return
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, 8<<20))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 8<<20))
 	if err != nil {
 		http.Error(w, "Invalid Antigravity request", http.StatusBadRequest)
 		return
@@ -98,9 +103,9 @@ func (a *App) serveAntigravityApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	request.Header.Set("Content-Type", "application/json")
-	response, err := (&http.Client{Timeout: 2 * time.Minute}).Do(request)
+	response, err := a.antigravityHTTPClient().Do(request)
 	if err != nil {
-		http.Error(w, "连接词元神 Gemini 网关失败："+err.Error(), http.StatusBadGateway)
+		http.Error(w, "连接词元神 Gemini 网关失败，请检查网络和模型权限", http.StatusBadGateway)
 		return
 	}
 	defer response.Body.Close()
@@ -210,7 +215,7 @@ func (a *App) launchAntigravityAppWithProxy(key, model string) ToolRestartResult
 	go func() { _ = cmd.Wait() }()
 	result.Attempted = true
 	result.Restarted = true
-	result.Message = "Antigravity APP 已通过本地代理启动。仅支持 Gemini 文本模型；使用期间请保持配置助手运行，退出助手会停止本地代理。"
+	result.Message = "已发起 Antigravity APP 启动，尚未验证 APP 接入。需先完成 Google 登录，词元神 Key 不能替代登录；使用期间请保持助手运行。"
 	return result
 }
 
@@ -232,4 +237,33 @@ func isAntigravityAppRunning(executable string) (bool, error) {
 		return false, errors.New("无法检查 Antigravity APP 运行状态")
 	}
 	return strings.Contains(strings.ToLower(string(output)), strings.ToLower(name+".exe")), nil
+}
+
+// Keep Google sign-in/control credentials on Google's endpoint, never the model gateway.
+func (a *App) antigravityHTTPClient() *http.Client {
+	return &http.Client{Transport: a.client.Transport, Timeout: 2 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+}
+func (a *App) forwardAntigravityControl(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	if !strings.HasPrefix(path, "/v1internal:") || strings.ContainsAny(path, "?#") {
+		http.Error(w, "Unsupported Cloud Code route", 404)
+		return
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, "https://daily-cloudcode-pa.googleapis.com"+path, http.MaxBytesReader(w, r.Body, 8<<20))
+	if err != nil {
+		http.Error(w, "Invalid control request", 400)
+		return
+	}
+	for _, name := range []string{"Authorization", "Content-Type", "X-Goog-Api-Client", "User-Agent"} {
+		req.Header.Set(name, r.Header.Get(name))
+	}
+	response, err := a.antigravityHTTPClient().Do(req)
+	if err != nil {
+		http.Error(w, "无法连接 Google 官方服务，请检查登录与网络", 502)
+		return
+	}
+	defer response.Body.Close()
+	w.Header().Set("Content-Type", response.Header.Get("Content-Type"))
+	w.WriteHeader(response.StatusCode)
+	_, _ = io.Copy(w, io.LimitReader(response.Body, 8<<20))
 }

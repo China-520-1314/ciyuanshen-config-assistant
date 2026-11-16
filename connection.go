@@ -37,7 +37,38 @@ type ConnectionCheckReport struct {
 }
 
 func (a *App) CheckClientConnections(request ConnectionCheckRequest) (ConnectionCheckReport, error) {
-	return checkClientConnections(a.client, request)
+	targets, err := normaliseConnectionTargets(request.Targets)
+	if err != nil {
+		return ConnectionCheckReport{}, err
+	}
+	report := ConnectionCheckReport{CheckedAt: time.Now(), Results: []ClientConnectionResult{}}
+	for _, target := range targets {
+		if target == "antigravity-app" {
+			a.antigravityAppMu.Lock()
+			running, key := a.antigravityAppServer != nil, a.antigravityAppKey
+			a.antigravityAppMu.Unlock()
+			result := ClientConnectionResult{ID: target, Name: clientDisplayName(target), CheckedAt: time.Now(), Configured: running, Endpoint: defaultGatewayURL + "/models"}
+			result.Message = "本地代理未启动，请先一键配置 Antigravity APP"
+			if running && key != "" {
+				status, probeErr := probeCiyuanShenGateway(a.client, key)
+				result.Status = status
+				if probeErr != nil {
+					result.Message = "网关连接失败：" + probeErr.Error()
+				} else {
+					result.Success = true
+					result.Message = "本地代理已启动，Key 可访问网关；这不代表 APP 已登录或对话成功。请先完成 Google 登录。"
+				}
+			}
+			report.Results = append(report.Results, result)
+			continue
+		}
+		partial, err := checkClientConnections(a.client, ConnectionCheckRequest{Targets: []string{target}})
+		if err != nil {
+			return report, err
+		}
+		report.Results = append(report.Results, partial.Results...)
+	}
+	return report, nil
 }
 
 func checkClientConnections(client *http.Client, request ConnectionCheckRequest) (ConnectionCheckReport, error) {
