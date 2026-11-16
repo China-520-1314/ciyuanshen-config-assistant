@@ -56,7 +56,7 @@ func (a *App) CheckClientConnections(request ConnectionCheckRequest) (Connection
 					result.Message = "网关连接失败：" + probeErr.Error()
 				} else {
 					result.Success = true
-					result.Message = "本地代理已启动，Key 可访问网关；这不代表 APP 已登录或对话成功。请先完成 Google 登录。"
+					result.Message = "本地原生网关已启动，Key 可访问网关；这不代表 APP 已完成对话验证。若仍显示登录页，请检查 APP 版本是否支持原生网关模式。"
 				}
 			}
 			report.Results = append(report.Results, result)

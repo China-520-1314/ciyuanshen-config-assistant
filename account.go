@@ -947,6 +947,8 @@ func (a *App) ConfigureProvisionedTool(request ProvisionedToolConfigurationReque
 }
 
 func (a *App) configureAntigravityAppTool(key, model string) ConfigureResult {
+	a.operation.Lock()
+	defer a.operation.Unlock()
 	result := ConfigureResult{FinishedAt: time.Now(), Configured: []string{"antigravity-app"}}
 	if !clientSupported(clientDefinitionForIDMust("antigravity-app")) {
 		result.Error = "Antigravity APP 的代理接入目前仅支持 Windows 和 macOS"
@@ -971,6 +973,15 @@ func (a *App) ConfigureExistingTool(request ExistingToolConfigurationRequest) Co
 	clientID, err := normaliseClientID(request.ClientID)
 	if err != nil {
 		return ConfigureResult{FinishedAt: time.Now(), Error: err.Error()}
+	}
+	if clientID == "antigravity-app" {
+		a.antigravityAppMu.Lock()
+		key := a.antigravityAppKey
+		a.antigravityAppMu.Unlock()
+		if key == "" {
+			return ConfigureResult{FinishedAt: time.Now(), Error: "请先使用一键配置建立 APP 会话"}
+		}
+		return a.ConfigureTool(ToolConfigurationRequest{ClientID: clientID, APIKey: key, Model: request.Model})
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

@@ -210,7 +210,7 @@ const clientCopy: Record<ClientId, { short: string; badge: string }> = {
   mcode: { short: 'MCode', badge: 'OpenAI compatible' },
   kimi: { short: 'Kimi Code', badge: 'OpenAI compatible' },
   antigravity: { short: 'Antigravity CLI', badge: 'agy · Gemini API' },
-  'antigravity-app': { short: 'Antigravity APP', badge: '本地 Gemini 代理' },
+  'antigravity-app': { short: 'Antigravity APP', badge: 'API Key 接入' },
   omp: { short: 'Oh My Pi', badge: 'OpenAI compatible' },
 };
 const recommendedModels: Record<ClientId, string> = {
@@ -1592,7 +1592,7 @@ function ToolSetupModal({ setup, account, options, group, keyValue, showKey, val
   const showNewConfigurationStep = setup.mode === 'account' && accountKeySource === 'new' && Boolean(provision && !provision.existing);
   return <div className="modal-backdrop" role="presentation"><section className="setup-modal" role="dialog" aria-modal="true" aria-labelledby="setup-title">
     <div className="modal-heading"><div className="setup-client-heading"><img src={clientLogos[setup.clientId]} alt="" /><div><p className="eyebrow">{client.badge}</p><h2 id="setup-title">配置 {client.short}</h2></div></div><button className="icon-button" title="关闭" aria-label="关闭" onClick={onClose}><X size={18} /></button></div>
-    {setup.clientId === 'antigravity-app' && <p className="setup-scope-note">实验性 Gemini 接入，需先完成 APP 的 Google 登录；词元神 Key 不能替代登录。使用时需保持本助手运行。</p>}
+    {setup.clientId === 'antigravity-app' && <p className="setup-scope-note">原生 API Key 网关模式，无需预先 Google 登录。请先完全退出 APP（包括托盘），配置后保持本助手运行；需要支持此模式的 APP 版本，桌面实机兼容性待验证。</p>}
     <div className="mode-switch" role="tablist" aria-label="Key 来源">
       <button className={setup.mode === 'account' ? 'active' : ''} role="tab" aria-selected={setup.mode === 'account'} onClick={() => onModeChange('account')}><UserRound size={15} />词元神账号</button>
       <button className={setup.mode === 'manual' ? 'active' : ''} role="tab" aria-selected={setup.mode === 'manual'} onClick={() => onModeChange('manual')}><KeyRound size={15} />手动输入 Key</button>

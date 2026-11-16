@@ -1,48 +1,12 @@
 package main
 
 import (
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
-
-func TestAntigravityAppProxyServesConfiguredModel(t *testing.T) {
-	app := NewApp()
-	app.antigravityAppKey = "test-key"
-	app.antigravityAppModel = "gemini-3-pro"
-	request := httptest.NewRequest("POST", "/v1internal:fetchAvailableModels", strings.NewReader(`{}`))
-	response := httptest.NewRecorder()
-	app.serveAntigravityApp(response, request)
-	if response.Code != 200 {
-		t.Fatalf("catalog status = %d, want 200", response.Code)
-	}
-	var catalog struct {
-		Models map[string]map[string]any `json:"models"`
-	}
-	if err := json.Unmarshal(response.Body.Bytes(), &catalog); err != nil {
-		t.Fatal(err)
-	}
-	model := catalog.Models["custom-ciyuanshen"]
-	if model["displayName"] != "gemini-3-pro" || model["model"] != antigravityAppModelID {
-		t.Fatalf("unexpected model catalog entry: %#v", model)
-	}
-}
-
-func TestAntigravityAppRequestAndGeminiEndpoint(t *testing.T) {
-	body, err := antigravityAppRequestBody([]byte(`{"model":"placeholder","request":{"contents":[{"role":"user"}]}}`))
-	if err != nil || string(body) != `{"contents":[{"role":"user"}]}` {
-		t.Fatalf("request extraction = %s, %v", body, err)
-	}
-	if _, err = antigravityAppRequestBody([]byte(`not-json`)); err == nil {
-		t.Fatal("invalid Cloud Code JSON was accepted")
-	}
-	if got, want := antigravityAppGeminiEndpoint("gemini-3-pro", "key+value", true), "https://api.ciyuanshen.top/v1/models/gemini-3-pro:streamGenerateContent?alt=sse&key=key%2Bvalue"; got != want {
-		t.Fatalf("stream endpoint = %q, want %q", got, want)
-	}
-}
 
 func TestAntigravityAppConfiguredModelsUseMemory(t *testing.T) {
 	app := NewApp()
@@ -89,35 +53,6 @@ func TestAntigravityAppAccountGroups(t *testing.T) {
 	}
 }
 
-func TestAntigravityAppStreamingAndOfficialControl(t *testing.T) {
-	app := NewApp()
-	app.antigravityAppKey = "gateway-key"
-	app.antigravityAppModel = "gemini-test"
-	app.client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		if r.URL.Host == "daily-cloudcode-pa.googleapis.com" {
-			if r.Header.Get("Authorization") != "Bearer google-token" || strings.Contains(r.URL.String(), "gateway-key") {
-				t.Fatal("control credentials mixed")
-			}
-			return testRawJSONResponse(r, `{"currentTier":{"id":"free"}}`), nil
-		}
-		if r.URL.Host != "api.ciyuanshen.top" || !strings.Contains(r.URL.Path, "streamGenerateContent") || r.Header.Get("Authorization") != "" {
-			t.Fatal("wrong model request")
-		}
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("data: {\"candidates\":[{\"index\":0}]}\n\n")), Header: make(http.Header)}, nil
-	})}
-	for _, path := range []string{"/v1internal:streamGenerateContent", "/v1internal:loadCodeAssist"} {
-		req := httptest.NewRequest("POST", path, strings.NewReader(`{"request":{"contents":[]}}`))
-		req.Header.Set("Authorization", "Bearer google-token")
-		out := httptest.NewRecorder()
-		app.serveAntigravityApp(out, req)
-		if out.Code != 200 {
-			t.Fatalf("%s: %d %s", path, out.Code, out.Body.String())
-		}
-		if strings.Contains(path, "stream") && !strings.Contains(out.Body.String(), `"response":{"candidates"`) {
-			t.Fatal(out.Body.String())
-		}
-	}
-}
 func TestAntigravityAppConnectionCheckUsesSession(t *testing.T) {
 	app := NewApp()
 	report, err := app.CheckClientConnections(ConnectionCheckRequest{Targets: []string{"antigravity-app"}})
@@ -132,5 +67,62 @@ func TestAntigravityAppConnectionCheckUsesSession(t *testing.T) {
 	report, err = app.CheckClientConnections(ConnectionCheckRequest{Targets: []string{"antigravity-app"}})
 	if err != nil || !report.Results[0].Success || !strings.Contains(report.Results[0].Message, "不代表") {
 		t.Fatalf("%#v %v", report, err)
+	}
+}
+
+func TestAntigravityNativeGateway(t *testing.T) {
+	app := NewApp()
+	app.antigravityAppKey = "upstream-key"
+	app.antigravityAppToken = "local-token"
+	app.antigravityAppModel = "gemini-test"
+	calls := 0
+	app.client = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if r.URL.Host != "api.ciyuanshen.top" || r.URL.Path != "/v1beta/models/gemini-test:streamGenerateContent" || r.URL.Query().Get("alt") != "sse" || strings.Contains(r.URL.String(), "token") || r.URL.Query().Has("key") {
+			t.Fatalf("wrong upstream URL: %s", r.URL)
+		}
+		if r.Header.Get("Authorization") != "Bearer upstream-key" || r.Header.Get("x-goog-api-key") != "upstream-key" {
+			t.Fatal("wrong upstream credentials")
+		}
+		body, _ := io.ReadAll(r.Body)
+		if string(body) != `{"contents":[]}` {
+			t.Fatalf("request changed: %s", body)
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: io.NopCloser(strings.NewReader("data: {\"candidates\":[]}\n\n"))}, nil
+	})}
+	for _, tc := range []struct {
+		path, token, origin string
+		status              int
+	}{
+		{"/v1beta/models/gemini-test:streamGenerateContent?alt=sse&key=local-token", "", "", 200},
+		{"/v1beta/models/gemini-test:generateContent", "wrong", "", 401},
+		{"/v1beta/models/gemini-other:generateContent", "local-token", "", 404},
+		{"/v1internal:loadCodeAssist", "local-token", "", 404},
+		{"/v1beta/models/gemini-test:generateContent", "local-token", "https://example.com", 403},
+	} {
+		req := httptest.NewRequest("POST", tc.path, strings.NewReader(`{"contents":[]}`))
+		if tc.token != "" {
+			req.Header.Set("Authorization", "Bearer "+tc.token)
+		}
+		req.Header.Set("Origin", tc.origin)
+		out := httptest.NewRecorder()
+		app.serveAntigravityApp(out, req)
+		if out.Code != tc.status {
+			t.Fatalf("%s: %d %s", tc.path, out.Code, out.Body.String())
+		}
+		if tc.status == 200 && out.Body.String() != "data: {\"candidates\":[]}\n\n" {
+			t.Fatal("native stream was wrapped")
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("upstream calls %d", calls)
+	}
+}
+
+func TestAntigravityGatewayEnvironment(t *testing.T) {
+	env := antigravityGatewayEnvironment([]string{"PATH=/bin", "AGY_LLM_GATEWAY_API_KEY=stale", "agy_llm_gateway_models=old", "CLOUD_CODE_URL=old"}, "http://127.0.0.1:123", "token", "gemini-test")
+	joined := strings.Join(env, "\n")
+	if len(env) != 5 || strings.Contains(joined, "stale") || strings.Contains(joined, "old") || !strings.Contains(joined, "AGY_LLM_GATEWAY_WIRE_PROTOCOL=genai") || !strings.Contains(joined, "AGY_LLM_GATEWAY_MODELS=gemini-test") {
+		t.Fatalf("wrong environment: %v", env)
 	}
 }

@@ -38,7 +38,7 @@ const (
 
 // appVersion is a variable so release builds can inject their tag with
 // -ldflags "-X main.appVersion=..." while local builds keep a useful default.
-var appVersion = "0.2.58"
+var appVersion = "0.2.59"
 
 type InstallUpdateResult struct {
 	Success     bool   `json:"success"`
@@ -81,6 +81,7 @@ type App struct {
 	antigravityAppMu         sync.Mutex
 	antigravityAppServer     *http.Server
 	antigravityAppKey        string
+	antigravityAppToken      string
 	antigravityAppModel      string
 }
 
